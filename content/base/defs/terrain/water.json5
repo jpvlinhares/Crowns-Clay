@@ -1,0 +1,24 @@
+// Water terrains. movementCost 0 = impassable to land movement (consumed M26);
+// docks and fishing will require the tags (GDD §3/§5 terrain gating).
+[
+  {
+    "id": "base:terrain.ocean",
+    "name": "Ocean",
+    "biomeCode": 0,
+    "colors": { "base": "#2e5878", "accent": "#28506e" },
+    "movementCost": 0,
+    "buildableTags": ["water", "deep-water"],
+    "defenseBonus": 0,
+    "tags": ["water"],
+  },
+  {
+    "id": "base:terrain.coast",
+    "name": "Coastal Shallows",
+    "biomeCode": 1,
+    "colors": { "base": "#3a6a8a", "accent": "#427698" },
+    "movementCost": 0,
+    "buildableTags": ["water", "shallow-water", "dockable"],
+    "defenseBonus": 0,
+    "tags": ["water"],
+  },
+]

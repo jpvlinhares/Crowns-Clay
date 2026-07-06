@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../data"
+    },
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../sim"
+    },
+    {
+      "path": "../render"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

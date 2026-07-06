@@ -1,0 +1,19 @@
+// PATCH: recolor forests and grasslands to autumn without replacing the defs —
+// gameplay fields (movementCost, tags…) keep tracking the base game.
+[
+  {
+    "patch": "base:terrain.forest",
+    "ops": [
+      { "set": "colors.base", "value": "#8a5a28" },
+      { "set": "colors.accent", "value": "#a06a2e" },
+      { "mergeAppend": "tags", "value": ["example:autumnal"] },
+    ],
+  },
+  {
+    "patch": "base:terrain.grassland",
+    "ops": [
+      { "set": "colors.base", "value": "#9a8a48" },
+      { "set": "colors.accent", "value": "#a89552" },
+    ],
+  },
+]

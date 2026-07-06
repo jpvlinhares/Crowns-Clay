@@ -1,0 +1,12 @@
+// Example mod: demonstrates the two modification mechanisms (doc 09 §6) —
+// a PATCH (surgical, survives base-game updates) and an OVERRIDE (full
+// replacement). Load it via tools/mod-check.js or by adding it to loadMods.
+{
+  "id": "example:autumn-realm",
+  "name": "Autumn Realm",
+  "version": "1.0.0",
+  "gameVersion": ">=0.1 <1.0",
+  "loadAfter": ["base"],
+  "tags": ["example", "cosmetic"],
+  "authors": ["Crowns & Clay team"],
+}

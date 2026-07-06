@@ -1,0 +1,73 @@
+<!doctype html>
+<!--
+  Cross-engine determinism harness (roadmap M5; OQ-10 sentinel).
+
+  Runs the SAME compiled ESM modules Node runs — unbundled, resolved via the
+  import map below — verifies every golden fixture in the browser's JS engine,
+  and exposes the result on window.__DETERMINISM__ for the Playwright CI job.
+
+  Serve the REPO ROOT (import map paths are root-relative), then open this file:
+      npm run build
+      python3 -m http.server 8080        # or any static server, from repo root
+      open http://localhost:8080/packages/tools/browser-harness/
+  A hash produced here that differs from Node's fixture is exactly the
+  cross-engine drift TDD §5 / OQ-10 exists to catch.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Crowns &amp; Clay — determinism harness</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@crowns/core": "/packages/core/dist/index.js",
+      "@crowns/protocol": "/packages/protocol/dist/index.js",
+      "@crowns/sim": "/packages/sim/dist/index.js",
+      "@crowns/app": "/packages/app/dist/index.js"
+    }
+  }
+  </script>
+  <style>
+    body { font: 14px/1.5 ui-monospace, monospace; margin: 2rem; background: #14120f; color: #e8e0d0; }
+    .ok { color: #7fbf7f; } .fail { color: #e07070; } h1 { font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <h1>Crowns &amp; Clay — golden replay verification (browser engine)</h1>
+  <pre id="log">loading modules…</pre>
+  <script type="module">
+    const log = document.getElementById('log');
+    const print = (line) => { log.textContent += '\n' + line; };
+    const hex = (v) => '0x' + (v >>> 0).toString(16).padStart(8, '0');
+    (async () => {
+      try {
+        const { verifyReplay } = await import('@crowns/sim');
+        const { scenarios } = await import('@crowns/app');
+        log.textContent = `engine: ${navigator.userAgent}`;
+        const outcomes = [];
+        for (const scenario of scenarios) {
+          const response = await fetch(`/fixtures/golden/${scenario.name}.json`);
+          if (!response.ok) throw new Error(`fixture ${scenario.name}: HTTP ${response.status}`);
+          const record = await response.json();
+          const t0 = performance.now();
+          const result = verifyReplay(scenario, record);
+          const ms = (performance.now() - t0).toFixed(0);
+          if (result.ok) {
+            print(`OK   ${scenario.name} · final ${hex(record.finalHash)} · ${ms} ms`);
+          } else {
+            print(`FAIL ${scenario.name} · ${result.reason} at tick ${result.tick} · expected ${hex(result.expected)} got ${hex(result.actual)}`);
+          }
+          outcomes.push({ scenario: scenario.name, ...result });
+        }
+        const ok = outcomes.every((o) => o.ok);
+        print(ok ? '\nall golden replays green in this engine' : '\nCROSS-ENGINE DIVERGENCE — see OQ-10 decision record');
+        log.insertAdjacentHTML('beforebegin', `<p class="${ok ? 'ok' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</p>`);
+        window.__DETERMINISM__ = { done: true, ok, outcomes };
+      } catch (error) {
+        print('ERROR: ' + error.message);
+        window.__DETERMINISM__ = { done: true, ok: false, error: String(error) };
+      }
+    })();
+  </script>
+</body>
+</html>

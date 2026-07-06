@@ -1,0 +1,58 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx tsc -b                                        # typecheck + build
+      - run: npx eslint .                                      # boundary rules (TDD §3)
+      - run: node --test "packages/*/dist/**/*.test.js"
+      - name: Golden replays (Node engine)
+        run: node packages/tools/dist/replay.js verify all     # determinism gate (TDD §5)
+
+  determinism-cross-engine:
+    # OQ-10 sentinel: the same compiled modules must hash identically in V8
+    # (Chromium) and SpiderMonkey (Firefox) as in the committed Node fixtures.
+    # Any divergence here triggers the fixed-point migration decision (doc 14).
+    runs-on: ubuntu-latest
+    needs: verify
+    strategy:
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Verify golden replays in ${{ matrix.browser }}
+        run: |
+          python3 -m http.server 8080 &
+          npx playwright screenshot --browser=${{ matrix.browser }} \
+            --wait-for-timeout=60000 http://localhost:8080/packages/tools/browser-harness/ /tmp/harness.png || true
+          node - << 'JS'
+          // Poll window.__DETERMINISM__ via Playwright until done, assert ok.
+          const { chromium, firefox } = require('playwright');
+          const engine = process.env.BROWSER === 'firefox' ? firefox : chromium;
+          (async () => {
+            const browser = await engine.launch();
+            const page = await browser.newPage();
+            await page.goto('http://localhost:8080/packages/tools/browser-harness/');
+            const result = await page.waitForFunction(
+              () => window.__DETERMINISM__ && window.__DETERMINISM__.done, null, { timeout: 120000 },
+            ).then(() => page.evaluate(() => window.__DETERMINISM__));
+            console.log(JSON.stringify(result, null, 2));
+            await browser.close();
+            if (!result.ok) process.exit(1);
+          })();
+          JS
+        env:
+          BROWSER: ${{ matrix.browser }}

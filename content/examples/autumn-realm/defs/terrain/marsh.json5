@@ -1,0 +1,13 @@
+// OVERRIDE: full replacement of the marsh def (same id, later layer wins).
+[
+  {
+    "id": "base:terrain.marsh",
+    "name": "Peat Bog",
+    "biomeCode": 9,
+    "colors": { "base": "#6a5a3a", "accent": "#5f5234" },
+    "movementCost": 2.5,
+    "buildableTags": [],
+    "defenseBonus": 0.15,
+    "tags": ["wetland", "example:peat"],
+  },
+]

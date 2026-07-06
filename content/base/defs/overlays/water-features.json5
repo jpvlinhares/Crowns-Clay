@@ -1,0 +1,5 @@
+// River/lake overlays drawn above terrain (worldgen river layer, doc 06 §9).
+[
+  { "id": "base:overlay.river", "kind": "river", "color": "#4a86b0" },
+  { "id": "base:overlay.lake", "kind": "lake", "color": "#3f7aa4" },
+]

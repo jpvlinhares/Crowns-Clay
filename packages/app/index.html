@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crowns &amp; Clay — dev build</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column;
+           font: 13px/1.4 ui-monospace, "Cascadia Mono", monospace;
+           background: #14120f; color: #e8e0d0; }
+    header { display: flex; gap: 1.25rem; align-items: center; padding: .5rem .75rem;
+             background: #1e1a14; border-bottom: 1px solid #3a3226; flex-wrap: wrap; }
+    header .stat b { color: #d8b060; font-weight: 600; }
+    header .group { display: flex; gap: .25rem; }
+    button { background: #2a241b; color: #e8e0d0; border: 1px solid #4a4030;
+             padding: .25rem .6rem; cursor: pointer; font: inherit; border-radius: 3px; }
+    button:hover { background: #3a3226; }
+    button.active { background: #d8b060; color: #14120f; border-color: #d8b060; }
+    #game { flex: 1; min-height: 0; position: relative; }
+    #game canvas { position: absolute; inset: 0; touch-action: none; }
+    #status.error { color: #e07070; }
+    .hint { opacity: .6; }
+    #debug { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; overflow-y: auto;
+             background: rgba(20, 18, 15, .93); border-left: 1px solid #3a3226;
+             padding: .6rem; display: none; z-index: 5; font-size: 12px; }
+    #debug.open { display: block; }
+    #debug h2 { font-size: 12px; margin: .7rem 0 .3rem; color: #d8b060; text-transform: uppercase; }
+    #debug h2:first-child { margin-top: 0; }
+    #debug table { width: 100%; border-collapse: collapse; }
+    #debug td, #debug th { text-align: left; padding: 1px 4px; border-bottom: 1px solid #2a241b; }
+    #debug td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #debug .bar { height: 3px; background: #d8b060; }
+    #debug pre { margin: .2rem 0; white-space: pre-wrap; word-break: break-all; background: #1a1712; padding: .4rem; }
+    #debug textarea, #debug select, #debug input { width: 100%; background: #1a1712; color: #e8e0d0;
+             border: 1px solid #3a3226; font: inherit; padding: .25rem; margin: .15rem 0; box-sizing: border-box; }
+    #debug textarea { height: 4.5em; resize: vertical; }
+    #inj-result { min-height: 1.2em; }
+    #inj-result.err { color: #e07070; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="stat">Crowns &amp; Clay</span>
+    <span class="stat">fps <b id="fps">—</b></span>
+    <span class="stat">tick <b id="tick">0</b></span>
+    <span class="stat"><b id="date">Year 0 · spring · day 1</b></span>
+    <span class="stat">wanderers <b id="entities">0</b></span>
+    <span class="stat" id="village-stats"></span>
+    <span class="group">
+      <button data-speed="0">⏸</button>
+      <button data-speed="1">1×</button>
+      <button data-speed="2">2×</button>
+      <button data-speed="4">4×</button>
+      <button data-speed="8">8×</button>
+    </span>
+    <span class="hint">drag to pan · wheel to zoom · space pauses · 1–4 set speed · ` debug panel</span>
+    <span class="stat" id="status" style="margin-left:auto"></span>
+  </header>
+  <div id="game">
+    <aside id="debug">
+      <h2>Systems (ms/tick)</h2>
+      <table id="dbg-systems"><tbody></tbody></table>
+      <div>tick avg <b id="dbg-tickms">—</b> ms · entities <b id="dbg-entities">—</b> · chunks <b id="dbg-chunks">—</b></div>
+      <h2>Inspector <span class="hint">(click an entity · shift-click a tile)</span></h2>
+      <pre id="dbg-inspect">nothing selected</pre>
+      <h2>Command injector</h2>
+      <select id="inj-type"></select>
+      <textarea id="inj-payload">{ "x": 190, "y": 190, "count": 5 }</textarea>
+      <input id="inj-issuer" value="0" title="issuer id (0 = sandbox/system)" />
+      <button id="inj-send">submit command</button>
+      <pre id="inj-result"></pre>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+// Mod Zero: the base game, shipped in the same format, loaded by the same
+// pipeline, validated by the same rules as any third-party mod (doc 09 §0).
+{
+  "id": "base",
+  "name": "Crowns & Clay — Base Game",
+  "version": "0.1.0",
+  "gameVersion": ">=0.1 <1.0",
+  "dependencies": [],
+  "loadAfter": [],
+  "tags": ["core"],
+  "authors": ["Crowns & Clay team"],
+}

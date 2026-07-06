@@ -1,0 +1,15 @@
+{
+  "name": "@crowns/app",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@crowns/core": "0.1.0",
+    "@crowns/protocol": "0.1.0",
+    "@crowns/sim": "0.1.0"
+  }
+}

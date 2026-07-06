@@ -1,0 +1,205 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { DefinitionDatabase, BASE_CONTENT_FILES } from '@crowns/data';
+import { Kernel } from '../kernel.js';
+import { World } from '../ecs.js';
+import { TICKS_PER_DAY } from '../time.js';
+import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
+import { registerPopulationGameplay, FOOD_PER_PERSON_DAY, FORAGE_FLOOR } from './population.js';
+
+/** Open farmable plain everywhere — population math without terrain noise. */
+const plain: TerrainAccessor = {
+  width: 64,
+  height: 64,
+  tagsAt: () => ['open', 'farmable', 'mineable', 'woodland'],
+  riverAt: () => false,
+};
+
+const START_POP = { children: 12, adults: 30, elders: 5 };
+
+function makeVillage(options: { food?: number; farms?: number; houses?: number } = {}) {
+  const kernel = new Kernel(7);
+  const world = new World(256);
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const stock = {
+    'base:resource.wood': 500,
+    'base:resource.stone': 200,
+    'base:resource.food': options.food ?? 200,
+  };
+  const game = registerVillageGameplay(kernel, world, db, plain, stock);
+  const popGame = registerPopulationGameplay(kernel, world, db, game, START_POP);
+  kernel.attachGuard(world);
+  kernel.addHashSource('world', (fold) => world.hash(fold));
+
+  const submit = (type: string, payload: unknown): void => {
+    kernel.submit({ type, issuer: 1, payload });
+    kernel.step();
+  };
+  submit('village.found', { x: 30, y: 30, name: 'Curveton' });
+  let villageId = -1;
+  kernel.subscribe('village.founded', () => undefined);
+  // find the village entity (only Population carrier)
+  world.query([popGame.Population]).forEach((_i, entity) => (villageId = entity as number));
+  assert.ok(villageId >= 0, 'village founded');
+  const vi = villageId & 0x3fffff;
+
+  /** First validator-approved spot on a spiral around the center (like genesis). */
+  const placeNear = (defId: string): void => {
+    const def = db.buildings.get(defId);
+    assert.ok(def !== undefined);
+    for (let r = 2; r <= 11; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (!game.ops.validatePlacement(def, 30 + dx, 30 + dy, villageId as never).ok) continue;
+          submit('village.build', { villageId, def: defId, x: 30 + dx, y: 30 + dy });
+          return;
+        }
+      }
+    }
+    assert.fail(`no valid spot for ${defId}`);
+  };
+  for (let f = 0; f < (options.farms ?? 0); f++) placeNear('base:building.farm');
+  for (let h = 0; h < (options.houses ?? 0); h++) placeNear('base:building.house');
+
+  const days = (n: number): void => {
+    for (let t = 0; t < n * TICKS_PER_DAY; t++) kernel.step();
+  };
+  void placeNear;
+  const pop = () => {
+    const p = world.read(popGame.Population);
+    return {
+      children: p.children[vi] as number,
+      adults: p.adults[vi] as number,
+      elders: p.elders[vi] as number,
+      total: (p.children[vi] as number) + (p.adults[vi] as number) + (p.elders[vi] as number),
+      happiness: p.happiness[vi] as number,
+      foodSecurity: p.foodSecurity[vi] as number,
+    };
+  };
+  const food = (): number => {
+    const s = world.readObj(game.comps.Stockpile).get(vi);
+    return s.get(game.ops.resourceCode('base:resource.food') as number) ?? 0;
+  };
+  return { kernel, world, game, popGame, villageId, vi, days, pop, food, submit, placeNear };
+}
+
+// ---------------- consumption & production coupling ----------------
+
+test('needs: daily consumption is pop × ration; farms replace what is eaten', () => {
+  // start UNDER the 150 storage cap, or production clamps and the delta reads 0
+  const v = makeVillage({ food: 60, farms: 1, houses: 4 });
+  v.days(6); // farm (72 ticks) completes; workers staff it
+  const before = v.food();
+  const total = v.pop().total;
+  v.days(1);
+  const delta = v.food() - before;
+  // one fully-staffed farm: +8/day; consumption ≈ total × 0.1
+  const expected = 8 - total * FOOD_PER_PERSON_DAY;
+  assert.ok(Math.abs(delta - expected) < 0.5, `daily food delta ${delta.toFixed(2)} ≠ ~${expected.toFixed(2)}`);
+});
+
+test('jobs: understaffed production scales by workforce efficiency', () => {
+  const v = makeVillage({ food: 60, farms: 1 });
+  v.days(6);
+  // farm requires 4; strand the village with 2 workers (2.9: floor survives drift)
+  const p = v.world.write(v.popGame.Population);
+  p.adults[v.vi] = 2.9;
+  p.children[v.vi] = 0;
+  p.elders[v.vi] = 0;
+  v.days(1);
+  const before = v.food();
+  const eaters = v.pop().total;
+  v.days(1);
+  const produced = v.food() - before + eaters * FOOD_PER_PERSON_DAY;
+  assert.ok(Math.abs(produced - 4) < 0.4, `2/4 workers should yield ~4/day, got ${produced.toFixed(2)}`);
+});
+
+test('construction: labor-gated sites stall with no adults and resume with them', () => {
+  const v = makeVillage({ food: 500 });
+  const p = v.world.write(v.popGame.Population);
+  p.adults[v.vi] = 0; // nobody to build (children/elders don't)
+  v.placeNear('base:building.house');
+  v.days(4); // 96 ticks ≫ buildTicks 48
+  const b = v.world.read(v.game.comps.BuildingCore);
+  // find THE HOUSE (the center is also stalled — grab by def, not by index)
+  const houseIndex = v.world
+    .query([v.game.comps.BuildingCore])
+    .collect()
+    .find((i) => v.game.ops.buildingDef(b.def[i] as number).id === 'base:building.house') as number;
+  assert.ok((b.progress[houseIndex] as number) < 0.05, 'no builders → no progress');
+  p.adults[v.vi] = 10;
+  v.days(3); // 72 ticks; house needs 48 with its 2 builders
+  assert.equal(b.complete[houseIndex], 1, 'builders restored → construction completes');
+});
+
+// ---------------- growth curves (the M12 test objective) ----------------
+
+test('growth: a fed, housed village grows a few percent per year with a sane pyramid', () => {
+  const v = makeVillage({ food: 300, farms: 2, houses: 10 });
+  const start = v.pop().total;
+  v.days(720); // two years
+  const end = v.pop();
+  const growth = end.total / start - 1;
+  assert.ok(growth > 0.02 && growth < 0.15, `2-year growth ${(growth * 100).toFixed(1)}% outside (2%, 15%)`);
+  assert.ok(end.adults > end.children && end.adults > end.elders, 'adults remain the largest cohort');
+  assert.ok(end.happiness > 70, `fed+housed happiness ${end.happiness.toFixed(0)} should exceed 70`);
+  assert.ok(end.foodSecurity > 0.95);
+});
+
+test('growth: proportional to food security — the fed village outgrows the hungry one', () => {
+  const fed = makeVillage({ food: 300, farms: 2, houses: 10 });
+  const hungry = makeVillage({ food: 20, farms: 0, houses: 10 }); // starves after ~4 days
+  fed.days(360);
+  hungry.days(360);
+  assert.ok(
+    fed.pop().total > hungry.pop().total * 1.2,
+    `fed ${fed.pop().total.toFixed(1)} should clearly exceed hungry ${hungry.pop().total.toFixed(1)}`,
+  );
+});
+
+// ---------------- famine floor (the M12 test objective) ----------------
+
+test('famine: floor bounds mortality — decline without a cliff, then recovery', () => {
+  const v = makeVillage({ food: 10, houses: 8 }); // no farms: famine in days
+  const start = v.pop().total;
+  let previous = start;
+  let worstDailyLoss = 0;
+  for (let day = 0; day < 360; day++) {
+    v.days(1);
+    const now = v.pop().total;
+    worstDailyLoss = Math.max(worstDailyLoss, (previous - now) / previous);
+    previous = now;
+  }
+  const afterFamineYear = v.pop();
+  assert.ok(afterFamineYear.total > start * 0.3, `floor failed: ${afterFamineYear.total.toFixed(1)} of ${start}`);
+  assert.ok(afterFamineYear.total < start * 0.95, 'a famine year must actually hurt');
+  assert.ok(worstDailyLoss < 0.01, `single-day loss ${(worstDailyLoss * 100).toFixed(2)}% breaches the 1% bound`);
+  assert.ok(afterFamineYear.foodSecurity <= FORAGE_FLOOR + 0.05, 'security pinned near the forage floor');
+  // v1 happiness = fed×0.7 + shelter×0.3: with full housing the floor is ~58
+  assert.ok(afterFamineYear.happiness < 62, `starving happiness ${afterFamineYear.happiness.toFixed(0)} should sit near the famine floor`);
+
+  // relief: build farms — mortality tails off through the security EMA, so the
+  // curve dips ~30 more days, TROUGHS, then turns: assert the turn, not the day
+  v.placeNear('base:building.farm');
+  v.placeNear('base:building.farm');
+  let trough = v.pop().total;
+  for (let day = 0; day < 360; day++) {
+    v.days(1);
+    trough = Math.min(trough, v.pop().total);
+  }
+  assert.ok(v.pop().total > trough * 1.01, `population must rise off the trough (${v.pop().total.toFixed(1)} vs ${trough.toFixed(1)})`);
+  assert.ok(v.pop().foodSecurity > 0.8, 'food security climbs back');
+});
+
+// ---------------- determinism ----------------
+
+test('population: identical histories hash identically', () => {
+  const run = (): number => {
+    const v = makeVillage({ food: 200, farms: 1, houses: 3 });
+    v.days(200);
+    return v.kernel.stateHash();
+  };
+  assert.equal(run(), run());
+});

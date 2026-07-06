@@ -1,0 +1,6 @@
+// Core resources (M11 slice of the 3-tier economy, GDD §3 — chains arrive M13).
+[
+  { "id": "base:resource.wood", "name": "Wood", "tier": "raw", "basePrice": 2 },
+  { "id": "base:resource.stone", "name": "Stone", "tier": "raw", "basePrice": 3 },
+  { "id": "base:resource.food", "name": "Food", "tier": "raw", "basePrice": 1 },
+]
