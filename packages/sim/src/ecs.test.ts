@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng, type EntityId } from '@crowns/core';
-import { World, type SoAViews, type SystemAccess } from './ecs.js';
+import { World, type SystemAccess } from './ecs.js';
 import { Kernel, type SimSystem, type TickContext } from './kernel.js';
 
 const POS = { x: 'f64', y: 'f64' } as const;

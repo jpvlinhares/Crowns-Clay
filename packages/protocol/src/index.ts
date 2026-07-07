@@ -14,4 +14,7 @@ export {
   type WorldMeta,
   type TerrainSnapshot,
   type BuildingRec,
+  type UICatalog,
+  type CatalogBuilding,
+  type CatalogEdict,
 } from './messages.js';

@@ -6,14 +6,26 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 const banned = (pkgs, message) => ({
-  patterns: pkgs.flatMap((p) => [`@crowns/${p}`, `@crowns/${p}/*`]).map((group) => group),
-  message,
+  patterns: [{ group: pkgs.flatMap((p) => [`@crowns/${p}`, `@crowns/${p}/*`]), message }],
 });
 
 export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strict,
   { ignores: ['**/dist/**'] },
+
+  // underscore-prefixed parameters are the repo's "declared but unused" idiom
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
+
+  // build/dev scripts run under Node
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
+  },
 
   // sim is headless: no DOM, no render/ui/app, no Math.random (TDD §5 rule 1)
   {

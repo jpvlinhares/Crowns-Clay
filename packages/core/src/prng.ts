@@ -67,7 +67,19 @@ export class Rng {
   }
 
   state(): RngState {
-    return { s0: this.s0, s1: this.s1, s2: this.s2, s3: this.s3 };
+    // canonical unsigned form: xoshiro's XOR steps leave SIGNED ints in the
+    // fields; saves must be byte-stable (M17), and hashCombine coerces >>> 0
+    // anyway, so normalizing here is hash-neutral
+    return { s0: this.s0 >>> 0, s1: this.s1 >>> 0, s2: this.s2 >>> 0, s3: this.s3 >>> 0 };
+  }
+
+  /** Restore a captured state IN PLACE (save/load, M17) — holders' references stay valid. */
+  setState(state: RngState): void {
+    this.s0 = state.s0 >>> 0;
+    this.s1 = state.s1 >>> 0;
+    this.s2 = state.s2 >>> 0;
+    this.s3 = state.s3 >>> 0;
+    if ((this.s0 | this.s1 | this.s2 | this.s3) === 0) this.s3 = 1;
   }
 
   /**

@@ -24,6 +24,7 @@ export class BuildingEmitter {
         w: b.w[i] as number,
         h: b.h[i] as number,
         progress: b.progress[i] as number,
+        village: b.village[i] as number,
       });
     });
   }
@@ -60,33 +61,87 @@ export class BuildingEmitter {
   }
 }
 
-/** Daily village vitals for the HUD (M12): emit when any rounded value changes. */
+/** Road tile diffing (M14): roads only ever appear, keyed by the grid version. */
+export class RoadEmitter {
+  private readonly sent = new Set<number>();
+  private lastVersion = -1;
+
+  constructor(private readonly roads: import('@crowns/sim').RoadGrid) {}
+
+  full(): number[] {
+    this.sent.clear();
+    this.lastVersion = this.roads.version;
+    const triples = this.roads.list();
+    for (let i = 0; i < triples.length; i += 3) {
+      this.sent.add((triples[i + 1] as number) * this.roads.width + (triples[i] as number));
+    }
+    return triples;
+  }
+
+  delta(): number[] {
+    if (this.roads.version === this.lastVersion) return [];
+    this.lastVersion = this.roads.version;
+    const out: number[] = [];
+    const triples = this.roads.list();
+    for (let i = 0; i < triples.length; i += 3) {
+      const tile = (triples[i + 1] as number) * this.roads.width + (triples[i] as number);
+      if (!this.sent.has(tile)) {
+        this.sent.add(tile);
+        out.push(triples[i] as number, triples[i + 1] as number, triples[i + 2] as number);
+      }
+    }
+    return out;
+  }
+}
+
+/** Daily village vitals for the HUD (M12/M13): emit when any rounded value changes. */
 export class VillageStatsEmitter {
   private readonly last = new Map<number, string>();
+  /** interned resource code → display name, food excluded (it has its own slot). */
+  private readonly goodsNames = new Map<number, string>();
 
   constructor(
     private readonly world: World,
     private readonly game: VillageGameplay,
     private readonly Population: import('@crowns/sim').PopulationComponent,
-  ) {}
+    db: import('@crowns/data').DefinitionDatabase,
+  ) {
+    for (const [id, def] of db.resources) {
+      if (id === 'base:resource.food') continue;
+      this.goodsNames.set(this.game.ops.resourceCode(id) as number, def.name.toLowerCase());
+    }
+  }
 
-  delta(): { id: number; name: string; population: number; food: number; happiness: number }[] {
-    const out: { id: number; name: string; population: number; food: number; happiness: number }[] = [];
+  delta(): NonNullable<Extract<import('@crowns/protocol').FromSimMessage, { kind: 'snapshotDelta' }>['villageStats']> {
+    const out: ReturnType<VillageStatsEmitter['delta']> = [];
     const pop = this.world.read(this.Population);
     const names = this.world.readObj(this.game.comps.VillageName);
     const stocks = this.world.readObj(this.game.comps.Stockpile);
+    const core = this.world.read(this.game.comps.VillageCore);
     const foodCode = this.game.ops.resourceCode('base:resource.food') as number;
     this.world.query([this.Population, this.game.comps.VillageCore]).forEach((vi, entity) => {
+      const stock = stocks.tryGet(vi);
+      const goods: Record<string, number> = {};
+      // stable order: interned codes ascend with sorted resource ids
+      for (const code of [...this.goodsNames.keys()].sort((a, b) => a - b)) {
+        const amount = Math.floor(stock?.get(code) ?? 0);
+        if (amount > 0) goods[this.goodsNames.get(code) as string] = amount;
+      }
       const stat = {
         id: entity as number,
         name: names.tryGet(vi) ?? `village ${vi}`,
         population: Math.floor(
           (pop.children[vi] as number) + (pop.adults[vi] as number) + (pop.elders[vi] as number),
         ),
-        food: Math.floor(stocks.tryGet(vi)?.get(foodCode) ?? 0),
+        food: Math.floor(stock?.get(foodCode) ?? 0),
         happiness: Math.round(pop.happiness[vi] as number),
+        goods,
+        tier: core.tier[vi] as number,
+        taxRate: core.taxRate[vi] as number,
+        cx: core.centerX[vi] as number,
+        cy: core.centerY[vi] as number,
       };
-      const key = `${stat.population}|${stat.food}|${stat.happiness}`;
+      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${Object.entries(goods).flat().join(',')}`;
       if (this.last.get(stat.id) !== key) {
         this.last.set(stat.id, key);
         out.push(stat);

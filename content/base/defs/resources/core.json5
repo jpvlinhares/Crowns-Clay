@@ -1,6 +1,10 @@
-// Core resources (M11 slice of the 3-tier economy, GDD §3 — chains arrive M13).
+// Core resources (M13: the 3-tier economy, GDD §3 — raw → processed → finished).
+// `decay` is the fraction spoiled per day (food only); `weight` is the hauling
+// cost per unit, consumed by logistics at M14.
 [
-  { "id": "base:resource.wood", "name": "Wood", "tier": "raw", "basePrice": 2 },
-  { "id": "base:resource.stone", "name": "Stone", "tier": "raw", "basePrice": 3 },
-  { "id": "base:resource.food", "name": "Food", "tier": "raw", "basePrice": 1 },
+  { "id": "base:resource.wood", "name": "Wood", "tier": "raw", "category": "material", "basePrice": 2, "weight": 2 },
+  { "id": "base:resource.stone", "name": "Stone", "tier": "raw", "category": "material", "basePrice": 3, "weight": 4 },
+  { "id": "base:resource.food", "name": "Food", "tier": "raw", "category": "food", "basePrice": 1, "weight": 1, "decay": 0.03 },
+  { "id": "base:resource.planks", "name": "Planks", "tier": "processed", "category": "material", "basePrice": 5, "weight": 1.5 },
+  { "id": "base:resource.tools", "name": "Tools", "tier": "finished", "category": "material", "basePrice": 12, "weight": 1 },
 ]

@@ -20,8 +20,14 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M9 — Debug HUD & inspector (per-system tick costs, live entity inspector, command injector) | ✅ |
 | M10 — Mod loader (manifests, semver gating, dependency ordering, override/patch layers, validation console) | ✅ |
 | M11 — Village core (8 BuildingDefs, one-rulebook placement, atomic costs, construction, visible buildings) | ✅ |
-| M12 — Population & needs v1 (cohorts, jobs solver, labor-gated construction, famine floor) | ✅ this commit — **Phase 1 complete: the first playable loop** · terra fixture re-recorded (settlers added) |
-| M13 — Production chains (3-tier resources, recipes, spoilage) | next — Phase 2 begins |
+| M12 — Population & needs v1 (cohorts, jobs solver, labor-gated construction, famine floor) | ✅ — **Phase 1 complete: the first playable loop** |
+| M13 — Production chains (3-tier resources, recipes, stockpile limits, spoilage, conservation ledger) | ✅ — **Phase 2 begins** |
+| M14 — Logistics (hauler entities, roads, job board, route cache, local-first storage) | ✅ |
+| M15 — Multi-village & founding (settler parties, site scoring, village tiers 1–2) | ✅ |
+| M16 — Kingdom layer (treasury, taxes, gold ledger, edicts v1, advisors v1) | ✅ |
+| M17 — Save/load v1 (versioned codecs, IndexedDB slots, export/import, autosave, save corpus) | ✅ |
+| M18 — UI pass 1 + HUD (panel framework, player panels, build palette, notifications) | ✅ this commit — **no fixture changes** (presentation is hash-inert) · **Phase 2 complete: playable economy sandbox** |
+| M19 — AI kernel & sensors (brain scheduling, knowledge model, fog of information) | next — Phase 3 begins |
 
 ## Layout (TDD §3)
 
@@ -90,6 +96,121 @@ Reference result (CI-class hardware): a Position+Velocity integration pass over 
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
 
+### UI pass 1 (M18) — the game is now played, not injected
+
+`@crowns/ui` wakes up (doc 05 §7): a dependency-free **panel framework** (PanelHost + toolbar,
+left dock), a **UI Store** fed exclusively by snapshot deltas and GameEvents, and a
+**notification queue** implementing GDD §1's severity tiers — info toasts, attention alerts
+(every refused order now surfaces by name), and **urgent-pause**: a starving village stops the
+clock. Repeats throttle per (event, subject) so a famine nags daily, not hourly. The ui package
+speaks `@crowns/protocol` ONLY (TDD §3 boundary, lint-enforced): the sim worker projects the
+DefinitionDatabase into a display-ready **catalog** in the full snapshot.
+
+Three panels ship: **Village** (vitals, goods, tax-rate select, tier upgrade — click any building
+to focus its village), **Build** (every placeable def with costs, tier-locked entries greyed;
+click to arm, click the map to place — shift keeps placing, Esc cancels), and **Kingdom**
+(treasury, per-edict enact/repeal). Every control issues real commands through the same bus as
+the debug injector — the M9 panel (backtick) still works, untouched, for the sandbox path.
+
+### Save/load v1 (M17)
+
+Campaigns persist (TDD §8). A save is plain JSON: header (format, game version, seed, tick) plus
+**schema-versioned sections** — the kernel (tick, every PRNG stream in canonical form, issuer
+sequences, pending commands, the executed log), the whole ECS world (allocator, per-component
+SoA + tagged cold-value codec), and roads. Worldgen re-derives from the seed; derived caches
+(placement occupancy, route caches, the kingdom's modifier board) rebuild in afterLoad hooks.
+Loading composes a FRESH session from the save's seed and hydrates it — same registrars, same code
+paths, no second rulebook.
+
+The T objective holds: **save → load → resave is hash-identical AND byte-identical**, then both
+sessions evolve in lockstep — mid-walk settler parties arrive on schedule, laden haulers deliver,
+edicts keep billing. Old saves migrate through per-section **MigrationChains** (pure v→v+1 steps,
+holes are hard errors), and the **save corpus** (TDD §13) is live: `fixtures/saves/` holds a real
+tick-500 campaign that CI hydrates and resumes to a pinned hash on every PR.
+
+In the browser: 💾/📂 buttons (slot via IndexedDB, in the sim worker — no main-thread stall),
+⇩/⇧ export/import as a `.crown` file, and an **autosave ring** (3 slots) that fires on every
+season boundary. Corpus tooling: `node packages/tools/dist/save-corpus.js record|verify`.
+
+### Kingdom layer (M16)
+
+The realm has a crown: a kingdom entity with a gold **treasury**, and the HUD's new coin line —
+`⛁ 320 (+8.3/day · tax 8.3 − upkeep 0)` — is fed by the daily roll-up (doc 08 slot 12). **Taxes**
+convert village prosperity (installed production value × staffing × a happiness factor) into gold
+at five rates (`village.setTaxRate`, 0–4); higher rates bleed happiness daily, which shrinks the
+factor — the punitive take provably decays from its own peak (GDD §2's self-defeating curve).
+Every gold movement is a **ledger** entry, and the T objective holds to the coin:
+`treasury === starting gold + Σ ledger`, through rate swings, edicts, and funerals.
+
+**Edicts v1** are content (`defs/edicts/*.json5`, a new mod-layerable kind): Modifier bundles with
+daily upkeep — Harvest Festival (+5 joy drift), Corvée Labor (×1.15 production, −4 joy), Grain
+Reserves (×0.5 spoilage) — enacted/repealed by command, capped at 3, and LAPSING by event when the
+treasury can't pay. All effects flow through one **StatModifiers board** that economy and
+population read (doc 06: "all numbers flow through Modifiers").
+
+**Advisors v1**: a court of six named notables (doc 06 §6 slice — skills 0–20, deterministic from
+the campaign seed). Appoint them (`kingdom.appoint`): a Steward multiplies tax yield by skill, a
+Chancellor discounts edict upkeep; Marshal and Scholar hold their seats for M25/M32. Advisors draw
+2 gold/day, age yearly, and die — vacating the office by event, with the books still balanced.
+
+### Multi-village & founding (M15)
+
+The map is no longer a one-village world. `village.sendSettlers` (injector-ready:
+`{ "villageId": …, "x": …, "y": …, "name": "Weststead" }`) deducts a settler party — 8 children,
+20 adults, 2 elders, carrying wood/stone/food — and the party WALKS: a real entity on the path
+service, roads and all. Founding happens on **arrival through the same rulebook as genesis**, and
+the site is validated again there — claimed en route, the party turns around and re-merges at
+home, people and cargo conserved to the decimal (TDD §13). Sites are ranked by the pure **site
+scorer** (GDD §13: farmable tiles ×3, open ground, bounded water bonus) — genesis now founds
+Firstholm on the best-scoring site near map centre, and the same scorer will drive AI settler
+dispatch (doc 07).
+
+**Tiers:** `village.upgrade` raises Hamlet → Village when the village earns it — population ≥ 60,
+4 distinct completed buildings, wood 60 + stone 40 (consumed atomically), happiness ≥ 60 — every
+missing requirement rejects by name. Tier 2 widens the radius (12 → 16) and unlocks tier-gated
+buildings via `requires.villageTier` (doc 06): the **tavern** is the first, its joy aura lifting
+village happiness (flat bonus until needs v2). Tiers 3–4 (Town, City) arrive with later phases.
+
+### Logistics (M14)
+
+Storage is now **local-first** (GDD §3): recipes fill each building's own inventory, and goods
+only reach the village stockpile by CART. Haulers are real entities — adults claimed from the same
+jobs solver as builders and farmhands (capped at 20% of the pool), spawned at the centre, visibly
+walking pickup and delivery routes. The job board matches idle haulers each tick in stable order,
+counting in-flight claims so two carts never chase one crate; the path service is a deterministic
+4-neighbour A* over `terrain movementCost ÷ road factor` with a route cache invalidated on road
+changes. Roads (`village.buildRoad`, 1 stone/tile — try the injector) multiply cart speed ×1.5:
+the tests prove a cart-limited village **starves on mud and eats on pavement** — distance is a
+real cost, exactly as the docs demand. Conservation still holds to 1e-9 at village scope
+(stockpile + inventories + carried); hauling redistributes, never creates.
+
+Throughput bench (doc 11 §2 — target 1,200 active haul jobs, stress 2,000):
+
+```bash
+node packages/tools/dist/bench-haul.js            # 64 villages × 20 haulers = 1,280 carts
+node packages/tools/dist/bench-haul.js 100 20     # 2,000-cart stress ceiling
+```
+
+Reference result (CI-class hardware): ~0.6 ms/tick at 1,280 carts, ~0.9 ms at 2,000 — against the
+10 ms tick budget.
+
+### Production chains (M13)
+
+The 3-tier economy is live (GDD §3): **wood (raw) → sawmill → planks (processed) → workshop →
+tools (finished)**. Buildings define real recipes — inputs and outputs in units/day — and the
+hourly production system scales each recipe by ONE batch fraction,
+`min(workforce efficiency, input availability, output headroom)`, so a starved or clamped recipe
+consumes nothing: no inputs vanish without outputs, ever. Food now **spoils** (3%/day) — granaries
+matter — and `village.setStockLimit` (try it in the M9 injector) caps any resource per village
+below its storage capacity.
+
+Every unit moved is accounted in the **resource ledger**: produced, consumed, eaten, spoiled, or
+spent on construction. The conservation invariant (doc 08 §4) is property-tested — fuzzed building
+compositions with mid-run limit/build commands must reconcile stock deltas against ledger flows
+over every window, to 1e-6. Watch the HUD: `Firstholm: pop 47 · food 118 · joy 64 · wood 68 ·
+planks 82 · tools 100` — and when the workshop runs the quarryless village out of stone, it stalls
+honestly instead of conjuring tools.
+
 ### Population & the first playable loop (M12)
 
 Firstholm now LIVES: 47 settlers (cohort math — children/adults/elders as f64 counts) eat
@@ -109,7 +230,7 @@ the whole design builds on is now playable.
 
 The demo now founds **Firstholm** at the best open site near map center and builds itself out:
 houses, a well, a granary, a farm — watch the construction bars fill (translucent plates turn solid
-on completion). All 8 building defs and 3 resources live in `content/base/defs/`; placement runs
+on completion). All building defs and resources (10 and 5 since M13) live in `content/base/defs/`; placement runs
 through ONE validator shared by commands, scripted genesis, and the future AI (no cheating
 placements, Engine §5): terrain-tag gating per footprint tile, river blocking, occupancy, village
 radius, and center spacing. Costs are reserved atomically at placement — insufficient stockpile

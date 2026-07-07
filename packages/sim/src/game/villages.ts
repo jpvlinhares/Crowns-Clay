@@ -23,18 +23,21 @@ export interface TerrainAccessor {
   readonly height: number;
   tagsAt(x: number, y: number): readonly string[];
   riverAt(x: number, y: number): boolean;
+  /** Land movement cost (doc 06 TerrainDef); 0 = impassable (M14 haulers, M26 armies). */
+  movementCostAt(x: number, y: number): number;
 }
 
 // ---------------------------------------------------------------- constants
 
-export const VILLAGE_RADIUS_T1 = 12; // Chebyshev tiles from center (tiering → M15)
+export const VILLAGE_RADIUS_T1 = 12; // Chebyshev tiles from center (Hamlet)
+export const VILLAGE_RADIUS_T2 = 16; // tier 2 (Village) — GDD §5 "larger radius"
 export const VILLAGE_MIN_SPACING = 24; // between centers (GDD §13 site scarcity)
 export const CENTER_DEF_ID = 'base:building.village-center';
 
 // ---------------------------------------------------------------- components
 
 export interface VillageComponents {
-  readonly VillageCore: SoAComponent<{ centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8' }>;
+  readonly VillageCore: SoAComponent<{ centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8'; taxRate: 'u8' }>;
   readonly VillageName: ObjectComponent<string>;
   readonly Stockpile: ObjectComponent<Map<number, number>>; // interned resource → amount
   readonly BuildingCore: SoAComponent<{
@@ -52,7 +55,7 @@ export interface VillageComponents {
 
 export function defineVillageComponents(world: World): VillageComponents {
   return {
-    VillageCore: world.defineSoA('villageCore', { centerX: 'i32', centerY: 'i32', radius: 'u16', tier: 'u8' }),
+    VillageCore: world.defineSoA('villageCore', { centerX: 'i32', centerY: 'i32', radius: 'u16', tier: 'u8', taxRate: 'u8' }),
     VillageName: world.defineObject<string>('villageName', (name, fold) => {
       for (let i = 0; i < name.length; i++) fold(name.charCodeAt(i));
     }),
@@ -118,6 +121,35 @@ export class VillageOps {
     return y * this.terrain.width + x;
   }
 
+  /** Building footprint occupancy (roads and haulers route around it, M14). */
+  isOccupied(x: number, y: number): boolean {
+    return this.occupancy.has(this.tileIndex(x, y));
+  }
+
+  /**
+   * Rebuild derived indices (occupancy, centers) from ECS state — the ECS is
+   * authoritative; these maps are caches. Called after save hydration (M17).
+   */
+  rebuildDerived(): void {
+    this.occupancy.clear();
+    this.centers.length = 0;
+    const b = this.world.read(this.comps.BuildingCore);
+    this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
+      const def = this.buildingDef(b.def[i] as number);
+      const x = b.x[i] as number;
+      const y = b.y[i] as number;
+      for (let dy = 0; dy < def.footprint.h; dy++) {
+        for (let dx = 0; dx < def.footprint.w; dx++) {
+          this.occupancy.set(this.tileIndex(x + dx, y + dy), entity);
+        }
+      }
+    });
+    const core = this.world.read(this.comps.VillageCore);
+    this.world.query([this.comps.VillageCore]).forEach((vi, village) => {
+      this.centers.push({ x: core.centerX[vi] as number, y: core.centerY[vi] as number, village });
+    });
+  }
+
   /** The single placement rulebook (player, AI, genesis — one code path). */
   validatePlacement(def: BuildingDef, x: number, y: number, village: EntityId | null): PlacementVerdict {
     const { w, h } = def.footprint;
@@ -158,6 +190,11 @@ export class VillageOps {
         Math.max(Math.abs(cx - (x + w - 1)), Math.abs(cy - (y + h - 1))),
       );
       if (far > radius) return no(`outside village radius (${far} > ${radius})`);
+      // tier gating (M15; doc 06 Requirement): higher tiers unlock buildings
+      const needTier = def.requires?.villageTier ?? 1;
+      if ((core.tier[index] as number) < needTier) {
+        return no(`requires village tier ${needTier} (currently ${core.tier[index] as number})`);
+      }
     }
     return { ok: true };
   }
@@ -181,7 +218,14 @@ export class VillageOps {
     return { ok: true };
   }
 
-  found(ctx: TickContext, x: number, y: number, name: string, startingStock: Readonly<Record<string, number>>): EntityId | string {
+  found(
+    ctx: TickContext,
+    x: number,
+    y: number,
+    name: string,
+    startingStock: Readonly<Record<string, number>> | ReadonlyMap<number, number>,
+    settlers?: { children: number; adults: number; elders: number },
+  ): EntityId | string {
     const centerDef = this.db.buildings.get(CENTER_DEF_ID) as BuildingDef;
     const verdict = this.validatePlacement(centerDef, x, y, null);
     if (!verdict.ok) return verdict.reason;
@@ -189,8 +233,12 @@ export class VillageOps {
     // settlers bring startingStock; the center consumes its cost from it —
     // checked and deducted BEFORE any entity exists (atomic founding)
     const stock = new Map<number, number>();
-    for (const [resId, amount] of Object.entries(startingStock)) {
-      stock.set(this.resourceCode(resId) as number, amount);
+    if (startingStock instanceof Map) {
+      for (const [code, amount] of startingStock) stock.set(code, amount);
+    } else {
+      for (const [resId, amount] of Object.entries(startingStock as Record<string, number>)) {
+        stock.set(this.resourceCode(resId) as number, amount);
+      }
     }
     for (const [resId, amount] of Object.entries(centerDef.cost)) {
       const have = stock.get(this.resourceCode(resId) as number) ?? 0;
@@ -204,13 +252,20 @@ export class VillageOps {
     const village = this.world.spawn();
     this.world.attach(village, this.comps.VillageCore, {
       centerX: x, centerY: y, radius: VILLAGE_RADIUS_T1, tier: 1,
+      taxRate: 2, // 'normal' (M16 TAX_RATES; adjust via village.setTaxRate)
     });
     this.world.attach(village, this.comps.VillageName, name);
     this.world.attach(village, this.comps.Stockpile, stock);
     this.centers.push({ x, y, village });
 
     const placed = this.placeValidated(centerDef, x, y, village);
-    ctx.events.publish({ type: 'village.founded', tick: ctx.tick, data: { village: village as number, name, x, y } });
+    ctx.events.publish({
+      type: 'village.founded',
+      tick: ctx.tick,
+      // settler-founded villages carry their party's cohorts (M15);
+      // absent → the composition's starting population applies
+      data: { village: village as number, name, x, y, ...(settlers !== undefined ? { settlers } : {}) },
+    });
     void placed;
     return village;
   }
@@ -311,12 +366,15 @@ export function constructionSystem(
 
 export interface VillageSettings {
   laborGated: boolean;
+  /** Hauler slots per village claimed by the jobs solver (set by logistics, M14). */
+  haulerTarget: number;
 }
 
 export interface VillageGameplay {
   readonly comps: VillageComponents;
   readonly ops: VillageOps;
   readonly settings: VillageSettings;
+  readonly terrain: TerrainAccessor;
 }
 
 export function registerVillageGameplay(
@@ -328,7 +386,7 @@ export function registerVillageGameplay(
 ): VillageGameplay {
   const comps = defineVillageComponents(world);
   const ops = new VillageOps(world, comps, db, terrain);
-  const settings: VillageSettings = { laborGated: false };
+  const settings: VillageSettings = { laborGated: false, haulerTarget: 0 };
 
   const rejected = (ctx: TickContext, what: string, reason: string): void => {
     ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
@@ -348,5 +406,5 @@ export function registerVillageGameplay(
   });
 
   kernel.registerSystem(constructionSystem(world, comps, ops, settings));
-  return { comps, ops, settings };
+  return { comps, ops, settings, terrain };
 }

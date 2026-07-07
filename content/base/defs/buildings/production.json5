@@ -1,3 +1,8 @@
+// Production buildings (M13: recipes replace the M11 `produces` placeholder).
+// Yields are units/day; the sim batches hourly at workforce efficiency and
+// scales whole recipes down when inputs run short or outputs hit storage caps
+// (conservation, doc 08 §4). The exemplar 3-tier chain:
+//   wood (raw) → sawmill → planks (processed) → workshop → tools (finished)
 [
   {
     "id": "base:building.farm",
@@ -7,7 +12,7 @@
     "cost": { "base:resource.wood": 15 },
     "buildTicks": 72,
     "terrainTags": ["farmable"],
-    "produces": { "resource": "base:resource.food", "perDay": 8 },
+    "recipes": [{ "inputs": [], "outputs": [{ "resource": "base:resource.food", "perDay": 8 }] }],
     "workers": { "required": 4 },
     "tags": [],
   },
@@ -19,7 +24,7 @@
     "cost": { "base:resource.wood": 10 },
     "buildTicks": 36,
     "terrainTags": ["woodland"],
-    "produces": { "resource": "base:resource.wood", "perDay": 6 },
+    "recipes": [{ "inputs": [], "outputs": [{ "resource": "base:resource.wood", "perDay": 6 }] }],
     "workers": { "required": 2 },
     "tags": [],
   },
@@ -31,7 +36,7 @@
     "cost": { "base:resource.wood": 25 },
     "buildTicks": 96,
     "terrainTags": ["mineable"],
-    "produces": { "resource": "base:resource.stone", "perDay": 4 },
+    "recipes": [{ "inputs": [], "outputs": [{ "resource": "base:resource.stone", "perDay": 4 }] }],
     "workers": { "required": 4 },
     "tags": [],
   },
@@ -43,7 +48,44 @@
     "cost": { "base:resource.wood": 35 },
     "buildTicks": 60,
     "terrainTags": ["dockable"],
-    "produces": { "resource": "base:resource.food", "perDay": 5 },
+    "recipes": [{ "inputs": [], "outputs": [{ "resource": "base:resource.food", "perDay": 5 }] }],
+    "workers": { "required": 3 },
+    "tags": [],
+  },
+  {
+    "id": "base:building.sawmill",
+    "name": "Sawmill",
+    "category": "production",
+    "footprint": { "w": 1, "h": 2 },
+    "cost": { "base:resource.wood": 20 },
+    "buildTicks": 48,
+    "terrainTags": ["open"],
+    "recipes": [
+      {
+        "inputs": [{ "resource": "base:resource.wood", "perDay": 6 }],
+        "outputs": [{ "resource": "base:resource.planks", "perDay": 4 }],
+      },
+    ],
+    "workers": { "required": 2 },
+    "tags": [],
+  },
+  {
+    "id": "base:building.workshop",
+    "name": "Workshop",
+    "category": "production",
+    "footprint": { "w": 2, "h": 1 },
+    "cost": { "base:resource.wood": 25, "base:resource.stone": 10 },
+    "buildTicks": 72,
+    "terrainTags": ["open"],
+    "recipes": [
+      {
+        "inputs": [
+          { "resource": "base:resource.planks", "perDay": 3 },
+          { "resource": "base:resource.stone", "perDay": 1 },
+        ],
+        "outputs": [{ "resource": "base:resource.tools", "perDay": 2 }],
+      },
+    ],
     "workers": { "required": 3 },
     "tags": [],
   },

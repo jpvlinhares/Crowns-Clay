@@ -35,6 +35,9 @@ function fixtureTerrain(): TerrainAccessor {
     riverAt(x, _y) {
       return x === 20;
     },
+    movementCostAt(x, _y) {
+      return x <= 4 ? 0 : 1; // water is impassable to carts (M14)
+    },
   };
 }
 

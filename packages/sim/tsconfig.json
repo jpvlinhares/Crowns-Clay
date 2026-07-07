@@ -1,6 +1,24 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src/**/*"],
-  "references": [{ "path": "../core" }, { "path": "../data" }, { "path": "../protocol" }]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../data"
+    },
+    {
+      "path": "../protocol"
+    }
+  ]
 }

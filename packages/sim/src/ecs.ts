@@ -362,6 +362,72 @@ export class World {
     return { id: entity as number, index, alive, components };
   }
 
+  // ---- save/load (M17; TDD §8 per-component codecs) ----
+
+  /**
+   * Serialize allocator + every component (schema-versioned, JSON-safe).
+   * Object-component values go through a small structural codec — a value
+   * shape the codec doesn't know is a HARD error at save time, so new cold
+   * components must either fit (string | number[] | Map<number,number>) or
+   * extend the codec deliberately.
+   */
+  saveState(): WorldSaveState {
+    const components: ComponentSaveState[] = [];
+    for (const comp of this.components) {
+      const mask = this.masks[comp.cid] as Uint32Array;
+      const indices: number[] = [];
+      forEachSetBit([mask], [], this.wordCount, (index) => indices.push(index));
+      if (comp instanceof SoAComponent) {
+        const soa: Record<string, number[]> = {};
+        for (const f of comp.fieldNames) {
+          const arr = comp.fields[f] as ArrayFor<FieldType>;
+          soa[f] = indices.map((i) => arr[i] as number);
+        }
+        components.push({ name: comp.name, version: 1, indices, soa });
+      } else if (comp instanceof ObjectComponent) {
+        const obj: [number, EncodedObjectValue][] = indices.map((i) => [
+          i,
+          encodeObjectValue(comp.name, (comp.store as Map<number, unknown>).get(i)),
+        ]);
+        components.push({ name: comp.name, version: 1, indices, obj });
+      }
+    }
+    return { version: 1, allocator: this.allocator.state(), components };
+  }
+
+  /**
+   * Hydrate a fresh world (same component definitions, same order). Loading
+   * into a world that already holds entities is a hard error — load happens
+   * into a newly composed session (TDD §8).
+   */
+  loadState(state: WorldSaveState): void {
+    invariant(this.scope === null, 'loadState inside a system scope');
+    invariant(this.allocator.liveCount === 0, 'loadState: world already has live entities');
+    this.allocator.restore(state.allocator);
+    this.ensureCapacity(state.allocator.generations.length);
+    for (const saved of state.components) {
+      const comp = this.components.find((c) => c.name === saved.name);
+      invariant(comp !== undefined, `loadState: unknown component '${saved.name}' (composition mismatch)`);
+      for (const index of saved.indices) this.maskSet(comp.cid, index);
+      if (comp instanceof SoAComponent) {
+        invariant(saved.soa !== undefined, `loadState: '${saved.name}' missing SoA payload`);
+        for (const f of comp.fieldNames) {
+          const values = saved.soa[f];
+          invariant(values !== undefined, `loadState: '${saved.name}' missing field '${f}'`);
+          const arr = comp.fields[f] as ArrayFor<FieldType>;
+          saved.indices.forEach((index, n) => {
+            arr[index] = values[n] as number;
+          });
+        }
+      } else if (comp instanceof ObjectComponent) {
+        invariant(saved.obj !== undefined, `loadState: '${saved.name}' missing object payload`);
+        for (const [index, encoded] of saved.obj) {
+          (comp.store as Map<number, unknown>).set(index, decodeObjectValue(comp.name, encoded));
+        }
+      }
+    }
+  }
+
   // ---- determinism ----
 
   /** Fold live structure + all component data into a state hash (cid order, index order). */
@@ -444,6 +510,53 @@ function forEachSetBit(
       word ^= bit;
     }
   }
+}
+
+// ---------------------------------------------------------------- save codec (M17)
+
+/** Tagged, JSON-safe encodings for the cold-component value shapes in use. */
+export type EncodedObjectValue =
+  | { readonly s: string } // names
+  | { readonly a: number[] } // paths
+  | { readonly m: [number, number][] }; // stockpiles, inventories, limits, edicts
+
+export interface ComponentSaveState {
+  readonly name: string;
+  readonly version: number;
+  readonly indices: number[];
+  readonly soa?: Record<string, number[]>;
+  readonly obj?: [number, EncodedObjectValue][];
+}
+
+export interface WorldSaveState {
+  readonly version: number;
+  readonly allocator: { generations: number[]; freeList: number[] };
+  readonly components: ComponentSaveState[];
+}
+
+function encodeObjectValue(component: string, value: unknown): EncodedObjectValue {
+  if (typeof value === 'string') return { s: value };
+  if (Array.isArray(value) && value.every((v) => typeof v === 'number')) return { a: [...(value as number[])] };
+  if (value instanceof Map) {
+    const entries: [number, number][] = [];
+    for (const [k, v] of value as Map<unknown, unknown>) {
+      invariant(
+        typeof k === 'number' && typeof v === 'number',
+        `save codec: component '${component}' holds a non-numeric Map`,
+      );
+      entries.push([k, v]);
+    }
+    entries.sort((x, y) => x[0] - y[0]);
+    return { m: entries };
+  }
+  invariant(false, `save codec: component '${component}' holds an unencodable value — extend the codec`);
+}
+
+function decodeObjectValue(component: string, encoded: EncodedObjectValue): unknown {
+  if ('s' in encoded) return encoded.s;
+  if ('a' in encoded) return [...encoded.a];
+  if ('m' in encoded) return new Map(encoded.m);
+  invariant(false, `save codec: component '${component}' carries an unknown encoding`);
 }
 
 export class Query {

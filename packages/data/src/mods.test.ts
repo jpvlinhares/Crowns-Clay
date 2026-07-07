@@ -173,7 +173,7 @@ test('layers: disabled mods contribute nothing', () => {
       "colors": { "base": "#000000", "accent": "#000000" },
       "movementCost": 0, "buildableTags": [], "defenseBonus": 0, "tags": [] }]`,
   });
-  const files = { ...tooNew.files, 'mod.json5': tooNew.files['mod.json5']!.replace('>=0.1', '>=9.0') };
+  const files = { ...tooNew.files, 'mod.json5': (tooNew.files['mod.json5'] ?? '').replace('>=0.1', '>=9.0') };
   const { db, report } = DefinitionDatabase.loadMods([{ files: BASE_CONTENT_FILES }, { files }]);
   assert.equal(db.terrainById.get('base:terrain.ocean')?.name, 'Ocean');
   assert.match(report.disabled.find((d) => d.id === 'future')?.reasons.join() ?? '', /requires game >=9\.0/);

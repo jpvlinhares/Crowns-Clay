@@ -20,7 +20,13 @@ Modifier      { target: StatPath, op: add|mul|set, value: number,
 Cost          { resources: Map<Id<ResourceDef>, number>, gold?: number, labor?: number }
 Requirement   { tech?: Id<TechDef>[], building?: Id<BuildingDef>[], terrainTags?: string[],
                 villageTier?: number, custom?: PredicateRef }
-Yield         { resource: Id<ResourceDef>, amountPerTick: number }
+Yield         { resource: Id<ResourceDef>, perDay: number }
+Requirement   // M15 delta: villageTier gating implemented (placement
+              // validator); tech/building/custom predicates arrive M32+.
+              // M13 delta: yields are authored in units/day (human-legible in
+              // content); the hourly production system batches perDay/24 and
+              // scales whole recipes by min(workforce eff, input availability,
+              // output headroom) so clamping never breaks conservation.
 Rect / Point / Footprint   — grid geometry primitives
 LocalizedText  = key into localization tables (never raw strings in defs)
 ```
@@ -99,6 +105,9 @@ DefenseGraph { nodes: [{buildingId, kind, hp, armor}], edges: [...],
 ## §5. Kingdom (state) & PlayerProfile
 
 ```
+// M16 delta: implemented slice = treasury + offices (as entity refs) +
+// active edicts; ONE kingdom until borders/kingdom placement (M22), so
+// villages are implicitly the player's — Village.kingdomId lands at M22.
 Kingdom { id, name, bannerDef, isPlayer: bool, aiPersonalityId?: Id<AIPersonalityDef>,
           capitalVillageId, villages: Id<Village>[], armies: Id<Army>[],
           treasury: number, edicts: Id<EdictDef>[], offices: Map<Office, Id<Character>>,
@@ -154,6 +163,10 @@ TerrainDef { id, name, biome, movementCost, buildableTags: string[],
 
 WorldTile (state, SoA arrays) { terrainId, elevation, moisture, riverMask,
              resourceNodeId?, ownerKingdomId?, roadLevel: 0..3, improvements? }
+             // M14 delta: roadLevel lives in a dedicated hashed RoadGrid
+             // (packages/sim logistics) until WorldTile becomes mutable ECS
+             // state; levels 2–3 unlock with research (M32). Road factor:
+             // movement speed × (1 + 0.5·level).
 
 WorldDef (worldgen output) { seed, size, params, tiles, resourceNodes,
              startSites: [{pos, score}], neutralFeatures[] }

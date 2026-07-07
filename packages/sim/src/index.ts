@@ -51,6 +51,18 @@ export {
   type HashSample,
   type VerifyResult,
 } from './harness.js';
+export {
+  SaveManager,
+  kernelSection,
+  worldSection,
+  SAVE_FORMAT_VERSION,
+  type SaveSection,
+  type CampaignSave,
+  type CampaignSaveHeader,
+  type Migration,
+} from './persistence.js';
+export type { KernelSaveState } from './kernel.js';
+export type { WorldSaveState, ComponentSaveState, EncodedObjectValue } from './ecs.js';
 export { generateWorld, worldHash } from './worldgen/pipeline.js';
 export { classifyTile, tileVariant, fillDepressions } from './worldgen/stages.js';
 export { hash01, valueNoise, fbm } from './worldgen/noise.js';
@@ -88,7 +100,6 @@ export {
   registerPopulationGameplay,
   FOOD_PER_PERSON_DAY,
   FORAGE_FLOOR,
-  BASE_STORAGE,
   BIRTH_RATE,
   FAMINE_MORTALITY,
   type PopulationGameplay,
@@ -96,3 +107,50 @@ export {
   type StartingPopulation,
 } from './game/population.js';
 export { BUILDERS_PER_SITE, type VillageSettings } from './game/villages.js';
+export {
+  registerEconomyGameplay,
+  ResourceLedger,
+  BASE_STORAGE,
+  OUTBOX_DAYS,
+  type EconomyGameplay,
+  type ResourceFlows,
+} from './game/economy.js';
+export {
+  registerLogisticsGameplay,
+  RoadGrid,
+  PathService,
+  HAULER_CAPACITY_WEIGHT,
+  ROAD_COST_STONE,
+  ROAD_SPEED,
+  type LogisticsGameplay,
+  type HaulerComponent,
+} from './game/logistics.js';
+export { HAULER_POOL_CAP } from './game/population.js';
+export {
+  registerSettlerGameplay,
+  scoreSite,
+  bestSiteNear,
+  SETTLER_PARTY,
+  SETTLER_CARRY,
+  MIN_ADULTS_REMAINING,
+  TIER2_REQUIREMENTS,
+  type SettlerGameplay,
+  type SettlerPartyComponent,
+} from './game/settlers.js';
+export { VILLAGE_RADIUS_T2 } from './game/villages.js';
+export { INERT_MODIFIERS, type StatModifierView } from './game/economy.js';
+export {
+  registerKingdomGameplay,
+  StatModifiers,
+  KingdomLedger,
+  STARTING_TREASURY,
+  EDICT_CAP,
+  ADVISOR_SALARY,
+  TAX_RATES,
+  OFFICES,
+  type KingdomGameplay,
+  type KingdomComponent,
+  type CharacterComponent,
+  type LedgerEntry,
+  type Office,
+} from './game/kingdom.js';

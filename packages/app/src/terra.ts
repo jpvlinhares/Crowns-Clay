@@ -17,16 +17,30 @@ import {
   generateWorld,
   registerVillageGameplay,
   registerPopulationGameplay,
+  registerEconomyGameplay,
+  registerLogisticsGameplay,
+  registerSettlerGameplay,
+  registerKingdomGameplay,
+  StatModifiers,
+  SaveManager,
+  kernelSection,
+  worldSection,
+  bestSiteNear,
   type SimSystem,
   type SoAComponent,
   type TerrainAccessor,
   type TickContext,
   type VillageGameplay,
   type PopulationGameplay,
+  type EconomyGameplay,
+  type LogisticsGameplay,
+  type SettlerGameplay,
+  type KingdomGameplay,
   type WorldDef,
 } from '@crowns/sim';
 
 export interface TerraComposition {
+  readonly db: DefinitionDatabase;
   readonly kernel: Kernel;
   readonly world: World;
   readonly Position: SoAComponent<{ x: 'f64'; y: 'f64' }>;
@@ -34,39 +48,15 @@ export interface TerraComposition {
   readonly terrain: TerrainSnapshot;
   readonly game: VillageGameplay;
   readonly popGame: PopulationGameplay;
+  readonly econGame: EconomyGameplay;
+  readonly logiGame: LogisticsGameplay;
+  readonly settlerGame: SettlerGameplay;
+  readonly kingdomGame: KingdomGameplay;
+  readonly saves: SaveManager;
 }
 
 const CREATURES = 150;
-
-/** Best 'open'-tagged 2×2 site nearest map center — deterministic spiral scan. */
-function findFoundingSite(
-  width: number,
-  height: number,
-  terrain: TerrainAccessor,
-): { x: number; y: number } | null {
-  const cx = width >> 1;
-  const cy = height >> 1;
-  const fits = (x: number, y: number): boolean => {
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
-        if (!terrain.tagsAt(x + dx, y + dy).includes('open')) return false;
-        if (terrain.riverAt(x + dx, y + dy)) return false;
-      }
-    }
-    return true;
-  };
-  for (let r = 0; r < Math.min(width, height) >> 1; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x >= 1 && y >= 1 && x < width - 2 && y < height - 2 && fits(x, y)) return { x, y };
-      }
-    }
-  }
-  return null;
-}
+const FOUNDING_SEARCH_RADIUS = 24; // genesis picks the best-scoring site near map centre (M15)
 
 export function composeTerra(seed: number, clock?: () => number): TerraComposition {
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES); // Mod Zero gate: invalid content = no game
@@ -95,10 +85,34 @@ export function composeTerra(seed: number, clock?: () => number): TerraCompositi
     riverAt(x, y) {
       return (worldDef.layers.river[y * width + x] as number) !== 0;
     },
+    movementCostAt(x, y) {
+      return db.terrainByCode[biome[y * width + x] as number]?.movementCost ?? 0;
+    },
   };
-  const STARTING_STOCK = { 'base:resource.wood': 220, 'base:resource.stone': 80, 'base:resource.food': 120 };
+  const STARTING_STOCK = { 'base:resource.wood': 265, 'base:resource.stone': 160, 'base:resource.food': 120 };
+  const statMods = new StatModifiers(); // one board: kingdom writes, economy/population read (M16)
   const game = registerVillageGameplay(kernel, world, db, terrainAccessor, STARTING_STOCK);
-  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 12, adults: 30, elders: 5 });
+  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 12, adults: 30, elders: 5 }, statMods);
+  const econGame = registerEconomyGameplay(kernel, world, db, game, statMods);
+  const logiGame = registerLogisticsGameplay(kernel, world, db, game, popGame, econGame, Position);
+  const settlerGame = registerSettlerGameplay(kernel, world, db, game, popGame, econGame, logiGame, Position);
+  const kingdomGame = registerKingdomGameplay(kernel, world, db, game, popGame, econGame, statMods);
+
+  // save/load (M17): sections cover all dynamic state; worldgen re-derives
+  // from the seed, and derived caches rebuild in afterLoad hooks (TDD §8)
+  const saves = new SaveManager(kernel);
+  saves.register(kernelSection(kernel));
+  saves.register(worldSection(world));
+  saves.register({
+    key: 'roads',
+    version: 1,
+    save: () => logiGame.roads.list(),
+    load: (data) => logiGame.roads.restore(data as number[]),
+  });
+  saves.afterLoad(() => {
+    game.ops.rebuildDerived();
+    kingdomGame.refreshAfterLoad();
+  });
 
   const spawnOnLand = (ctx: TickContext): void => {
     for (let attempt = 0; attempt < 64; attempt++) {
@@ -121,18 +135,22 @@ export function composeTerra(seed: number, clock?: () => number): TerraCompositi
         Position, Energy,
         game.comps.VillageCore, game.comps.VillageName, game.comps.Stockpile, game.comps.BuildingCore,
         popGame.Population, // the founded event attaches settlers inside this scope
+        econGame.StockLimits, // …and the economy attaches its limits map (M13)
+        econGame.BuildingInventory, // …and recipe buildings their inventories (M14)
       ],
     },
     update(ctx: TickContext): void {
       for (let n = 0; n < CREATURES; n++) spawnOnLand(ctx);
-      // found the starter settlement on the best open site near map center,
-      // then queue a spread of the M11 buildings — the demo builds itself
-      const site = findFoundingSite(width, height, terrainAccessor);
+      // found the starter settlement on the best-SCORING valid site near map
+      // center (M15 site scorer: food, water, buildables — GDD §13), then
+      // queue a spread of the M11 buildings — the demo builds itself
+      const site = bestSiteNear(game, db, width >> 1, height >> 1, FOUNDING_SEARCH_RADIUS);
       if (site === null) return;
       const village = game.ops.found(ctx, site.x, site.y, 'Firstholm', STARTING_STOCK);
       if (typeof village === 'string') return;
       // place each building at the first VALID spot on a deterministic spiral
       // around the center — the one-rulebook validator decides, genesis obeys
+      const placed: { x: number; y: number }[] = [];
       const placeNear = (defId: string): void => {
         const def = db.buildings.get(defId);
         if (def === undefined) return;
@@ -144,8 +162,8 @@ export function composeTerra(seed: number, clock?: () => number): TerraCompositi
               const y = site.y + dy;
               if (!game.ops.validatePlacement(def, x, y, village as never).ok) continue;
               const result = game.ops.place(ctx, village as number, defId, x, y);
-              if (typeof result !== 'string') return;
-              return; // affordable check failed: stop trying this def
+              if (typeof result !== 'string' && def.recipes !== undefined) placed.push({ x, y });
+              return; // placed, or affordable check failed: stop trying this def
             }
           }
         }
@@ -154,8 +172,17 @@ export function composeTerra(seed: number, clock?: () => number): TerraCompositi
         'base:building.house', 'base:building.house', 'base:building.house',
         'base:building.well', 'base:building.granary', 'base:building.farm',
         'base:building.lumber-camp', 'base:building.quarry',
+        'base:building.sawmill', 'base:building.workshop', // the M13 chain: wood → planks → tools
       ]) {
         placeNear(defId);
+      }
+      // pave the haul routes (M14): a road along the cart path from the centre
+      // to every production building — same rulebook and stone as the player
+      for (const target of placed) {
+        const route = logiGame.paths.route(site.x, site.y, target.x, target.y) ?? [];
+        for (const tile of route) {
+          logiGame.buildRoad(ctx, village as number, tile % width, Math.floor(tile / width));
+        }
       }
     },
   };
@@ -240,5 +267,5 @@ export function composeTerra(seed: number, clock?: () => number): TerraCompositi
     riverColor: (db.overlays.get('river')?.color ?? 0x4a86b0),
     lakeColor: (db.overlays.get('lake')?.color ?? 0x3f7aa4),
   };
-  return { kernel, world, Position, worldDef, terrain, game, popGame };
+  return { db, kernel, world, Position, worldDef, terrain, game, popGame, econGame, logiGame, settlerGame, kingdomGame, saves };
 }

@@ -10,4 +10,5 @@ export { DefinitionDatabase, TERRAIN_BIOME_CODES, TERRAIN_KINDS, terrainValidato
 export { BASE_CONTENT_FILES } from './generated/base-content.js';
 export { GAME_VERSION, loadModLayers, resolveLoadOrder, type ModSource, type ModManifest, type LoadReport, type DefKindSpec } from './mods.js';
 export { parseVersion, compareVersions, satisfies, type Version } from './semver.js';
-export { resourceValidator, buildingValidator, type ResourceDef, type BuildingDef } from './buildings.js';
+export { resourceValidator, buildingValidator, type ResourceDef, type BuildingDef, type Recipe, type Yield } from './buildings.js';
+export { edictValidator, MODIFIER_TARGETS, type EdictDef, type ModifierDef, type ModifierTarget } from './edicts.js';

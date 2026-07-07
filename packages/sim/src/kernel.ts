@@ -98,6 +98,19 @@ interface RegisteredSystem {
   readonly rng: Rng;
 }
 
+/** Kernel save payload (M17) — see saveState/restoreState. */
+export interface KernelSaveState {
+  readonly version: number;
+  readonly seed: number;
+  readonly tick: number;
+  readonly rootRng: import('@crowns/core').RngState;
+  readonly commandRng: import('@crowns/core').RngState;
+  readonly systemRngs: readonly { name: string; state: import('@crowns/core').RngState }[];
+  readonly nextSeq: readonly [IssuerId, number][];
+  readonly pending: readonly Command[];
+  readonly log: readonly Command[];
+}
+
 export class Kernel {
   private readonly rootRng: Rng;
   private readonly commandRng: Rng;
@@ -297,6 +310,54 @@ export class Kernel {
       this.avgTickMs = this.avgTickMs * 0.95 + this.lastTickMs * 0.05;
     }
     return { tick: this.tick, events: this.bus.endTick(), executed };
+  }
+
+  // ---------- save/load (M17; TDD §8) ----------
+
+  /**
+   * Everything the kernel owns: tick, every PRNG stream (root, commands, one
+   * per system by name), issuer sequences, undelivered commands, and the
+   * executed log (the replay substrate — stateHash folds its length).
+   */
+  saveState(): KernelSaveState {
+    return {
+      version: 1,
+      seed: this.seed,
+      tick: this.tick,
+      rootRng: this.rootRng.state(),
+      commandRng: this.commandRng.state(),
+      systemRngs: this.systems.map(({ system, rng }) => ({ name: system.name, state: rng.state() })),
+      nextSeq: [...this.nextSeqByIssuer.entries()],
+      pending: [...this.pending],
+      log: [...this.log],
+    };
+  }
+
+  /**
+   * Restore into a freshly composed kernel (same seed, same registrations,
+   * before the first step). RNG streams are restored IN PLACE so systems'
+   * captured references stay valid.
+   */
+  restoreState(state: KernelSaveState): void {
+    invariant(!this.sealed, 'restoreState after first tick');
+    invariant(state.seed === this.seed, `restoreState: save seed ${state.seed} ≠ session seed ${this.seed}`);
+    this.tick = state.tick;
+    this.rootRng.setState(state.rootRng);
+    this.commandRng.setState(state.commandRng);
+    for (const saved of state.systemRngs) {
+      const registered = this.systems.find((r) => r.system.name === saved.name);
+      invariant(registered !== undefined, `restoreState: system '${saved.name}' not registered (composition mismatch)`);
+      registered.rng.setState(saved.state);
+    }
+    invariant(
+      state.systemRngs.length === this.systems.length,
+      `restoreState: ${this.systems.length} systems registered, save carries ${state.systemRngs.length}`,
+    );
+    this.nextSeqByIssuer.clear();
+    for (const [issuer, seq] of state.nextSeq) this.nextSeqByIssuer.set(issuer, seq);
+    this.pending = [...state.pending];
+    this.log.length = 0;
+    this.log.push(...state.log);
   }
 
   // ---------- determinism ----------
