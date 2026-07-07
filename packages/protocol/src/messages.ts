@@ -33,6 +33,30 @@ export interface BuildingRec {
   readonly w: number;
   readonly h: number;
   readonly progress: number; // 0..1
+  /** Owning village entity id (M18 — the player inspector's join key). */
+  readonly village: number;
+}
+
+// ---- player-facing content catalog (M18): defs the UI may offer ----
+// The ui package speaks protocol ONLY (TDD §3), so the sim worker projects
+// the DefinitionDatabase into this display-ready shape once per session.
+export interface CatalogBuilding {
+  readonly id: string;
+  readonly name: string;
+  readonly category: string;
+  readonly w: number;
+  readonly h: number;
+  readonly tier: number; // required village tier (1 = always)
+  readonly cost: readonly [string, number][]; // display name → amount
+}
+export interface CatalogEdict {
+  readonly id: string;
+  readonly name: string;
+  readonly upkeep: number;
+}
+export interface UICatalog {
+  readonly buildings: readonly CatalogBuilding[];
+  readonly edicts: readonly CatalogEdict[];
 }
 
 /** Render-ready terrain: worldgen layers + palette resolved from TerrainDefs. */
@@ -55,6 +79,11 @@ export type ToSimMessage =
   | { kind: 'step'; ticks: number } // dev/headless driving
   | { kind: 'pump'; dtMs: number } // real-time driving: main thread forwards frame time
   | { kind: 'requestHash' }
+  // ---- save/load (M17; TDD §8) ----
+  | { kind: 'save'; slot: string }
+  | { kind: 'load'; slot: string }
+  | { kind: 'exportSave' }
+  | { kind: 'importSave'; payload: string }
   // ---- debug channel (M9; becomes the sandbox editor transport, GDD §17) ----
   | { kind: 'debug'; op: 'telemetry'; enabled: boolean; everyTicks?: number }
   | { kind: 'debug'; op: 'inspect'; entityId: number }
@@ -71,7 +100,20 @@ export type FromSimMessage =
       /** Commands executed in this batch (echo for logs/debug UI). */
       executed: Command[];
     }
-  | { kind: 'snapshotFull'; tick: number; world: WorldMeta; terrain?: TerrainSnapshot; entities: EntityRec[]; buildings?: BuildingRec[] }
+  | {
+      kind: 'snapshotFull';
+      tick: number;
+      world: WorldMeta;
+      terrain?: TerrainSnapshot;
+      entities: EntityRec[];
+      buildings?: BuildingRec[];
+      /** flat [x, y, level] triples (M14 roads) */
+      roads?: number[];
+      /** player-facing content catalog (M18) */
+      catalog?: UICatalog;
+      /** kingdom snapshot for panel bootstrapping (M18) */
+      kingdom?: { activeEdicts: string[] };
+    }
   | {
       kind: 'snapshotDelta';
       tick: number;
@@ -79,14 +121,32 @@ export type FromSimMessage =
       /** flat triples: [id, x, y, id, x, y, ...] */
       moved: number[];
       despawned: number[];
-      /** daily village vitals for the HUD (few villages; sent when changed) */
-      villageStats?: { id: number; name: string; population: number; food: number; happiness: number }[];
+      /** daily village vitals for the HUD and village panel (sent when changed) */
+      villageStats?: {
+        id: number;
+        name: string;
+        population: number;
+        food: number;
+        happiness: number;
+        /** other stocked goods (M13 chains): display name → floored amount */
+        goods?: Record<string, number>;
+        tier: number;
+        taxRate: number;
+        cx: number;
+        cy: number;
+      }[];
       buildingsAdded?: BuildingRec[];
       /** flat pairs: [id, progress, ...] for buildings under construction */
       buildingProgress?: number[];
       buildingsRemoved?: number[];
+      /** flat [x, y, level] triples for road tiles added since last delta (M14) */
+      roadsAdded?: number[];
     }
   | { kind: 'hash'; tick: number; hash: number }
+  // ---- save/load results (M17) ----
+  | { kind: 'saveResult'; slot: string; ok: boolean; bytes: number; error?: string }
+  | { kind: 'loadResult'; ok: boolean; tick: number; migrations?: string[]; error?: string }
+  | { kind: 'exportResult'; payload: string }
   | {
       kind: 'debugTelemetry';
       tick: number;

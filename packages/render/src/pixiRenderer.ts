@@ -44,6 +44,8 @@ export class PixiRenderer {
   private readonly entitySprites = new Map<number, Graphics>();
   private readonly buildingLayer = new Container();
   private readonly buildingSprites = new Map<number, { g: Graphics; rec: BuildingRec }>();
+  private readonly roadLayer = new Container();
+  private readonly roadTiles = new Set<number>();
   private readonly scratch: RenderableEntity[] = [];
 
   constructor(
@@ -129,6 +131,36 @@ export class PixiRenderer {
     this.buildingSprites.delete(id);
   }
 
+  // ---------- road layer (M14): flat [x, y, level] triples, add-only ----------
+
+  addRoads(triples: readonly number[]): void {
+    for (let i = 0; i + 2 < triples.length; i += 3) {
+      const x = triples[i] as number;
+      const y = triples[i + 1] as number;
+      const tile = y * this.widthTiles + x;
+      if (this.roadTiles.has(tile)) continue;
+      this.roadTiles.add(tile);
+      const g = new Graphics();
+      // packed-earth track: a dusty plate with a worn center line
+      g.rect(0, 0, TILE_PX, TILE_PX).fill({ color: 0x9a7d52, alpha: 0.55 });
+      g.rect(TILE_PX * 0.3, TILE_PX * 0.3, TILE_PX * 0.4, TILE_PX * 0.4).fill({ color: 0x82683f, alpha: 0.7 });
+      g.x = x * TILE_PX;
+      g.y = y * TILE_PX;
+      this.roadLayer.addChild(g);
+    }
+  }
+
+  setRoads(triples: readonly number[]): void {
+    this.roadLayer.removeChildren().forEach((child) => child.destroy());
+    this.roadTiles.clear();
+    this.addRoads(triples);
+  }
+
+  /** Last-known record for a building sprite (M18 player inspector join). */
+  buildingRec(id: number): BuildingRec | null {
+    return this.buildingSprites.get(id)?.rec ?? null;
+  }
+
   /** Screen point → building id (footprint hit-test), or null. */
   pickBuilding(screenX: number, screenY: number): number | null {
     const t = this.tileAt(screenX, screenY);
@@ -158,9 +190,10 @@ export class PixiRenderer {
     return this.terrain.nameAt(tileX, tileY);
   }
 
-  async init(resizeTo: unknown): Promise<HTMLCanvasElement> {
+  async init(resizeTo: HTMLElement | Window): Promise<HTMLCanvasElement> {
     await this.app.init({ background: 0x14120f, resizeTo, antialias: false });
     this.worldLayer.addChild(this.terrainLayer);
+    this.worldLayer.addChild(this.roadLayer); // under buildings, over terrain
     this.worldLayer.addChild(this.buildingLayer);
     this.worldLayer.addChild(this.entityLayer);
     this.app.stage.addChild(this.worldLayer);

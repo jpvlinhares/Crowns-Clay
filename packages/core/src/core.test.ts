@@ -66,7 +66,7 @@ test('rng: nextFloat in [0,1) and roughly uniform', () => {
   for (let i = 0; i < N; i++) {
     const f = rng.nextFloat();
     assert.ok(f >= 0 && f < 1);
-    buckets[Math.floor(f * 10)]!++;
+    buckets[Math.floor(f * 10)] = (buckets[Math.floor(f * 10)] ?? 0) + 1;
   }
   for (const count of buckets) {
     // expected 5000 per bucket; allow ±10%

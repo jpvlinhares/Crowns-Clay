@@ -1,0 +1,27 @@
+// Core edicts (M16, GDD §2): Modifier bundles with daily gold upkeep. Enact
+// via `kingdom.enactEdict` (at most 3 active — stacking cap); an edict whose
+// upkeep the treasury cannot pay LAPSES at the daily roll-up.
+[
+  {
+    "id": "base:edict.harvest-festival",
+    "name": "Harvest Festival",
+    "upkeep": 6,
+    "modifiers": [{ "target": "village.happinessDrift", "op": "add", "value": 5 }],
+  },
+  {
+    // free labor, resentful laborers — the classic corvée trade-off
+    "id": "base:edict.corvee-labor",
+    "name": "Corvée Labor",
+    "upkeep": 0,
+    "modifiers": [
+      { "target": "village.productionEfficiency", "op": "mul", "value": 1.15 },
+      { "target": "village.happinessDrift", "op": "add", "value": -4 },
+    ],
+  },
+  {
+    "id": "base:edict.grain-reserves",
+    "name": "Grain Reserves",
+    "upkeep": 4,
+    "modifiers": [{ "target": "village.spoilage", "op": "mul", "value": 0.5 }],
+  },
+]

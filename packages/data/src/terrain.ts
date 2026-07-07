@@ -11,6 +11,7 @@ export const TERRAIN_BIOME_CODES = 10;
 import { v, type Validator } from './validate.js';
 import { loadModLayers, type DefKindSpec, type LoadReport, type ModSource } from './mods.js';
 import { buildingValidator, resourceValidator, type BuildingDef, type ResourceDef } from './buildings.js';
+import { edictValidator, type EdictDef } from './edicts.js';
 
 export interface TerrainDef {
   readonly id: string;
@@ -53,6 +54,7 @@ export class DefinitionDatabase {
     readonly overlays: ReadonlyMap<'river' | 'lake', OverlayDef>,
     readonly resources: ReadonlyMap<string, ResourceDef>,
     readonly buildings: ReadonlyMap<string, BuildingDef>,
+    readonly edicts: ReadonlyMap<string, EdictDef>,
   ) {}
 
   /** Load a single-mod content set (convenience; delegates to the mod loader). */
@@ -70,7 +72,8 @@ export class DefinitionDatabase {
     const overlays = [...(defs.get('overlay') as Map<string, unknown>).values()] as OverlayDef[];
     const resources = [...(defs.get('resource') as Map<string, unknown>).values()] as ResourceDef[];
     const buildings = [...(defs.get('building') as Map<string, unknown>).values()] as BuildingDef[];
-    return { db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings), report };
+    const edicts = [...(defs.get('edict') as Map<string, unknown>).values()] as EdictDef[];
+    return { db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts), report };
   }
 
   /** Integrity gate over already-validated defs (unique ids, exact coverage). */
@@ -79,6 +82,7 @@ export class DefinitionDatabase {
     overlays: readonly OverlayDef[],
     resources: readonly ResourceDef[] = [],
     buildings: readonly BuildingDef[] = [],
+    edicts: readonly EdictDef[] = [],
   ): DefinitionDatabase {
     // referential integrity: unique ids, exact biome coverage, overlay kinds
     const byId = new Map<string, TerrainDef>();
@@ -108,19 +112,24 @@ export class DefinitionDatabase {
     }
     const resourceMap = new Map(resources.map((r) => [r.id, r]));
     const buildingMap = new Map(buildings.map((b) => [b.id, b]));
-    // cross-kind references: building costs and outputs must name real resources
+    // cross-kind references: building costs and recipe yields must name real resources
     for (const b of buildings) {
       for (const resId of Object.keys(b.cost)) {
         if (!resourceMap.has(resId)) integrity.push(`building '${b.id}' cost references unknown resource '${resId}'`);
       }
-      if (b.produces !== undefined && !resourceMap.has(b.produces.resource)) {
-        integrity.push(`building '${b.id}' produces unknown resource '${b.produces.resource}'`);
+      for (const [ri, recipe] of (b.recipes ?? []).entries()) {
+        for (const y of [...recipe.inputs, ...recipe.outputs]) {
+          if (!resourceMap.has(y.resource)) {
+            integrity.push(`building '${b.id}' recipe[${ri}] references unknown resource '${y.resource}'`);
+          }
+        }
       }
     }
     if (integrity.length > 0) {
       throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
     }
-    return new DefinitionDatabase(byId, byCode, overlayMap, resourceMap, buildingMap);
+    const edictMap = new Map(edicts.map((e) => [e.id, e]));
+    return new DefinitionDatabase(byId, byCode, overlayMap, resourceMap, buildingMap, edictMap);
   }
 }
 
@@ -130,4 +139,5 @@ export const TERRAIN_KINDS: readonly DefKindSpec<unknown>[] = [
   { kind: 'overlay', pathPrefix: 'defs/overlays/', validator: overlayValidator as Validator<unknown> },
   { kind: 'resource', pathPrefix: 'defs/resources/', validator: resourceValidator as Validator<unknown> },
   { kind: 'building', pathPrefix: 'defs/buildings/', validator: buildingValidator as Validator<unknown> },
+  { kind: 'edict', pathPrefix: 'defs/edicts/', validator: edictValidator as Validator<unknown> },
 ];

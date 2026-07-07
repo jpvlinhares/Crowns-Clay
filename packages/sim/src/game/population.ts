@@ -4,8 +4,9 @@
  * Cohort math is authoritative (f64 counts; fractional people accumulate
  * deterministically). Daily flow, phase-staggered per doc 08:
  *
- *   hourly: jobs solver (builders first, then production by stable order)
- *           → production (perDay/24 × workforce efficiency, storage-capped)
+ *   hourly: jobs solver (builders first, then production by stable order);
+ *           recipe production itself lives in the Economy subsystem (M13,
+ *           economy.ts) and consumes the workers assigned here
  *   daily : needs (eat → fed fraction with the FORAGE FLOOR → happiness EMA)
  *           → population (births · maturation · senescence · deaths)
  *
@@ -19,14 +20,15 @@ import { SoAComponent, World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { BUILDERS_PER_SITE, type VillageGameplay } from './villages.js';
+import { INERT_MODIFIERS, type StatModifierView } from './economy.js';
 
 // ---------------------------------------------------------------- constants
 // (exported so curve tests assert against the same numbers the sim uses)
 
 export const FOOD_PER_PERSON_DAY = 0.1;
 export const FORAGE_FLOOR = 0.4; // minimum fed fraction under famine
-export const BASE_STORAGE = 150; // per resource, before storage buildings
 
+export const HAULER_POOL_CAP = 0.2; // haulers may claim at most this share of the adult pool (M14)
 export const BIRTH_RATE = 0.00025; // per adult per day at full food & shelter (tuned M12: ~4%/yr net fed growth)
 export const MATURE_RATE = 1 / (14 * 360); // children → adults
 export const SENESCE_RATE = 1 / (35 * 360); // adults → elders
@@ -50,6 +52,7 @@ export type PopulationComponent = SoAComponent<{
   elders: 'f64';
   happiness: 'f64'; // 0..100
   foodSecurity: 'f64'; // 0..1, EMA of fed fraction
+  haulers: 'f64'; // adults assigned to hauling this hour (jobs solver, M14)
 }>;
 
 export interface PopulationGameplay {
@@ -65,6 +68,7 @@ export function registerPopulationGameplay(
   db: DefinitionDatabase,
   game: VillageGameplay,
   starting: StartingPopulation,
+  mods: StatModifierView = INERT_MODIFIERS,
 ): PopulationGameplay {
   const Population: PopulationComponent = world.defineSoA('population', {
     children: 'f64',
@@ -72,21 +76,25 @@ export function registerPopulationGameplay(
     elders: 'f64',
     happiness: 'f64',
     foodSecurity: 'f64',
+    haulers: 'f64',
   });
   const { VillageCore, Stockpile, BuildingCore } = game.comps;
   const foodCode = game.ops.resourceCode('base:resource.food') as number;
   game.settings.laborGated = true; // construction now needs builders
 
   // newly founded villages receive their settlers (decoupled via the event bus;
-  // founding scopes must declare Population in their writes)
-  kernel.subscribe<{ village: number }>('village.founded', (event) => {
+  // founding scopes must declare Population in their writes). Settler-founded
+  // villages (M15) carry their party's cohorts in the event.
+  kernel.subscribe<{ village: number; settlers?: StartingPopulation }>('village.founded', (event) => {
     const village = event.data.village as EntityId;
+    const cohorts = event.data.settlers ?? starting;
     world.attach(village, Population, {
-      children: starting.children,
-      adults: starting.adults,
-      elders: starting.elders,
+      children: cohorts.children,
+      adults: cohorts.adults,
+      elders: cohorts.elders,
       happiness: 60,
       foodSecurity: 1,
+      haulers: 0,
     });
   });
 
@@ -98,18 +106,27 @@ export function registerPopulationGameplay(
   const jobs: SimSystem = {
     name: 'jobs',
     period: 1,
-    access: { writes: [BuildingCore], reads: [Population, VillageCore] },
+    access: { writes: [BuildingCore, Population], reads: [VillageCore] },
     update(): void {
-      const pop = world.read(Population);
+      const pop = world.write(Population);
       const b = world.write(BuildingCore);
       // available adults per village
       const available = new Map<number, number>();
       world.query([Population, VillageCore]).forEach((vi) => {
         available.set(vi, Math.floor(pop.adults[vi] as number));
       });
-      // builders first (construction is the village's urgent work),
-      // then production — both in ascending entity order (deterministic)
+      // builders first (construction is the village's urgent work), then
+      // haulers (logistics staff, M14 — capped so production never starves
+      // of hands entirely), then production — ascending entity order
       for (const pass of ['sites', 'production'] as const) {
+        if (pass === 'production' && game.settings.haulerTarget > 0) {
+          world.query([Population, VillageCore]).forEach((vi) => {
+            const pool = available.get(vi) ?? 0;
+            const claimed = Math.min(game.settings.haulerTarget, Math.floor(pool * HAULER_POOL_CAP));
+            pop.haulers[vi] = claimed;
+            available.set(vi, pool - claimed);
+          });
+        }
         world.query([BuildingCore]).forEach((i) => {
           const vi = index(b.village[i] as number);
           const pool = available.get(vi);
@@ -128,39 +145,6 @@ export function registerPopulationGameplay(
     },
   };
 
-  // ---------------- hourly: production ----------------
-  const production: SimSystem = {
-    name: 'production',
-    period: 1,
-    access: { writes: [Stockpile], reads: [BuildingCore, VillageCore] },
-    update(): void {
-      const b = world.read(BuildingCore);
-      // storage caps per village (recomputed cheaply; buildings are few)
-      const caps = new Map<number, number>();
-      world.query([BuildingCore]).forEach((i) => {
-        if ((b.complete[i] as number) !== 1) return;
-        const vi = index(b.village[i] as number);
-        caps.set(vi, (caps.get(vi) ?? BASE_STORAGE) + (defOf(b, i).storage?.capacity ?? 0));
-      });
-      const stocks = world.writeObj(Stockpile);
-      world.query([BuildingCore]).forEach((i) => {
-        if ((b.complete[i] as number) !== 1) return;
-        const def = defOf(b, i);
-        if (def.produces === undefined) return;
-        const required = def.workers?.required ?? 0;
-        const efficiency = required === 0 ? 1 : (b.workers[i] as number) / required;
-        if (efficiency <= 0) return;
-        const vi = index(b.village[i] as number);
-        const stock = stocks.tryGet(vi);
-        if (stock === undefined) return;
-        const code = game.ops.resourceCode(def.produces.resource) as number;
-        const cap = caps.get(vi) ?? BASE_STORAGE;
-        const current = stock.get(code) ?? 0;
-        stock.set(code, Math.min(cap, current + (def.produces.perDay / TICKS_PER_DAY) * efficiency));
-      });
-    },
-  };
-
   // ---------------- daily: needs (eat, forage floor, happiness) ----------------
   const needs: SimSystem = {
     name: 'needs',
@@ -171,12 +155,18 @@ export function registerPopulationGameplay(
       const pop = world.write(Population);
       const stocks = world.writeObj(Stockpile);
       const b = world.read(BuildingCore);
-      // housing capacity per village
+      // housing capacity and service-aura joy per village (aura strength is a
+      // flat happiness bonus until needs v2 — radius bites at M18, GDD §5)
       const housing = new Map<number, number>();
+      const serviceJoy = new Map<number, number>();
       world.query([BuildingCore]).forEach((i) => {
         if ((b.complete[i] as number) !== 1) return;
         const vi = index(b.village[i] as number);
-        housing.set(vi, (housing.get(vi) ?? 0) + (defOf(b, i).housing?.capacity ?? 0));
+        const def = defOf(b, i);
+        housing.set(vi, (housing.get(vi) ?? 0) + (def.housing?.capacity ?? 0));
+        if (def.serviceAura?.need === 'joy') {
+          serviceJoy.set(vi, Math.min(15, (serviceJoy.get(vi) ?? 0) + def.serviceAura.strength));
+        }
       });
       world.query([Population, VillageCore]).forEach((vi, village) => {
         const total =
@@ -187,13 +177,23 @@ export function registerPopulationGameplay(
         const have = stock.get(foodCode) ?? 0;
         const eaten = Math.min(have, need);
         stock.set(foodCode, have - eaten);
+        // the economy ledger reconciles this flow (conservation, doc 08 §4)
+        ctx.events.publish({
+          type: 'village.fed',
+          tick: ctx.tick,
+          data: { village: village as number, eaten, need, resource: foodCode },
+        });
         // FORAGE FLOOR: below it, foragers make up the difference (GDD §4)
         const fed = Math.max(FORAGE_FLOOR, need > 0 ? eaten / need : 1);
         pop.foodSecurity[vi] =
           (pop.foodSecurity[vi] as number) * (1 - HAPPINESS_ALPHA) + fed * HAPPINESS_ALPHA;
 
         const shelter = Math.min(1, (housing.get(vi) ?? 0) / total);
-        const target = (fed * 0.7 + shelter * 0.3) * 100;
+        // service auras (M15) and edict drifts (M16) shift the daily target
+        const target = Math.max(
+          0,
+          Math.min(100, (fed * 0.7 + shelter * 0.3) * 100 + (serviceJoy.get(vi) ?? 0) + mods.add('village.happinessDrift')),
+        );
         pop.happiness[vi] =
           (pop.happiness[vi] as number) * (1 - HAPPINESS_ALPHA) + target * HAPPINESS_ALPHA;
         if (fed <= FORAGE_FLOOR && eaten < need) {
@@ -247,7 +247,6 @@ export function registerPopulationGameplay(
   };
 
   kernel.registerSystem(jobs);
-  kernel.registerSystem(production);
   kernel.registerSystem(needs);
   kernel.registerSystem(population);
 

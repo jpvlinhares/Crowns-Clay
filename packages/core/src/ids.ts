@@ -106,6 +106,17 @@ export class EntityAllocator {
     if (gen === undefined) throw new RangeError(`EntityAllocator.currentId: index ${index} never allocated`);
     return (((gen & GEN_MASK) << INDEX_BITS) | index) as EntityId;
   }
+
+  // ---- save/load (M17): both arrays ARE the allocator's whole state ----
+
+  state(): { generations: number[]; freeList: number[] } {
+    return { generations: [...this.generations], freeList: [...this.freeList] };
+  }
+
+  restore(state: { generations: readonly number[]; freeList: readonly number[] }): void {
+    this.generations = [...state.generations];
+    this.freeList = [...state.freeList];
+  }
 }
 
 export interface EntityIndexResolver {

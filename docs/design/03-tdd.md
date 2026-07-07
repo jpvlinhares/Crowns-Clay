@@ -164,6 +164,9 @@ Load: header → version check → MigrationChain(v_old→…→v_now) → valid
 
 - **Versioned codecs:** every component schema carries a version; migrations are pure functions
   registered in an ordered chain; CI keeps a corpus of historical saves that must always load (§13).
+  *(M17 delta: versions live per SECTION — kernel/world/roads — with per-section MigrationChains;
+  per-component versions ride inside the world section. Compression/chunked blobs deferred until
+  save sizes demand them; the quota strategy lands with PWA polish, M44.)*
 - **Autosave without stall:** serialization runs in the sim worker between ticks, sliced across
   frames; compression via native `CompressionStream`. Target: doc 11 (§ save/load).
 - **Quota strategy:** monitor `navigator.storage.estimate()`; warn, prune autosave ring, and prompt

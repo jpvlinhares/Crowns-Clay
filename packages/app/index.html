@@ -22,6 +22,30 @@
     #game canvas { position: absolute; inset: 0; touch-action: none; }
     #status.error { color: #e07070; }
     .hint { opacity: .6; }
+    /* ---- M18 panel framework, toasts ---- */
+    #panel-dock { position: absolute; top: 0; left: 0; bottom: 0; width: 300px;
+                  display: flex; flex-direction: column; gap: .5rem; padding: .5rem;
+                  pointer-events: none; z-index: 4; overflow-y: auto; }
+    .panel { display: none; pointer-events: auto; background: rgba(26, 22, 17, .95);
+             border: 1px solid #4a4030; border-radius: 4px; font-size: 12px; }
+    .panel.open { display: block; }
+    .panel > header { display: flex; justify-content: space-between; align-items: center;
+                      padding: .3rem .5rem; background: #2a241b; color: #d8b060;
+                      text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #4a4030; }
+    .panel > header button { padding: 0 .4rem; border: none; background: none; }
+    .panel-body { padding: .5rem; }
+    .panel-body table { width: 100%; border-collapse: collapse; }
+    .panel-body td { padding: 1px 4px; border-bottom: 1px solid #2a241b; }
+    .panel-body td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .panel-body .row { display: flex; gap: .4rem; align-items: center; margin: .3rem 0; flex-wrap: wrap; }
+    .panel-body select { background: #1a1712; color: #e8e0d0; border: 1px solid #3a3226; font: inherit; padding: .15rem; }
+    .panel-body button.armed { background: #d8b060; color: #14120f; }
+    #toasts { position: absolute; top: .5rem; left: 50%; transform: translateX(-50%);
+              display: flex; flex-direction: column; gap: .3rem; z-index: 6; pointer-events: none; }
+    .toast { padding: .35rem .7rem; border-radius: 3px; font-size: 12px; background: #2a241b;
+             border: 1px solid #4a4030; opacity: .95; }
+    .toast.attention { border-color: #d8b060; color: #d8b060; }
+    .toast.urgent { border-color: #e07070; color: #e07070; background: #3a1a17; }
     #debug { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; overflow-y: auto;
              background: rgba(20, 18, 15, .93); border-left: 1px solid #3a3226;
              padding: .6rem; display: none; z-index: 5; font-size: 12px; }
@@ -47,7 +71,16 @@
     <span class="stat">tick <b id="tick">0</b></span>
     <span class="stat"><b id="date">Year 0 · spring · day 1</b></span>
     <span class="stat">wanderers <b id="entities">0</b></span>
+    <span class="stat" id="kingdom-stats"></span>
     <span class="stat" id="village-stats"></span>
+    <span class="group" id="ui-toolbar"></span>
+    <span class="group">
+      <button id="btn-save" title="Save to slot 'manual'">💾</button>
+      <button id="btn-load" title="Load slot 'manual'">📂</button>
+      <button id="btn-export" title="Export .crown file">⇩</button>
+      <button id="btn-import" title="Import .crown file">⇧</button>
+      <input id="import-file" type="file" accept=".crown,.json" style="display:none" />
+    </span>
     <span class="group">
       <button data-speed="0">⏸</button>
       <button data-speed="1">1×</button>
@@ -59,6 +92,8 @@
     <span class="stat" id="status" style="margin-left:auto"></span>
   </header>
   <div id="game">
+    <div id="panel-dock"></div>
+    <div id="toasts"></div>
     <aside id="debug">
       <h2>Systems (ms/tick)</h2>
       <table id="dbg-systems"><tbody></tbody></table>

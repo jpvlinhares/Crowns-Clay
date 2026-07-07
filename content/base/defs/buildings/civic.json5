@@ -42,4 +42,18 @@
     "storage": { "capacity": 400 },
     "tags": [],
   },
+  {
+    // First tier-gated building (M15): a Village (tier 2) earns its tavern.
+    // The aura feeds the happiness target as a flat bonus until needs v2 (M18).
+    "id": "base:building.tavern",
+    "name": "Tavern",
+    "category": "service",
+    "footprint": { "w": 2, "h": 1 },
+    "cost": { "base:resource.wood": 35, "base:resource.planks": 10 },
+    "buildTicks": 72,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "serviceAura": { "need": "joy", "strength": 8, "radius": 8 },
+    "tags": [],
+  },
 ]

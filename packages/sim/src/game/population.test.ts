@@ -7,6 +7,8 @@ import { World } from '../ecs.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
 import { registerPopulationGameplay, FOOD_PER_PERSON_DAY, FORAGE_FLOOR } from './population.js';
+import { registerEconomyGameplay } from './economy.js';
+import { registerLogisticsGameplay } from './logistics.js';
 
 /** Open farmable plain everywhere — population math without terrain noise. */
 const plain: TerrainAccessor = {
@@ -14,6 +16,7 @@ const plain: TerrainAccessor = {
   height: 64,
   tagsAt: () => ['open', 'farmable', 'mineable', 'woodland'],
   riverAt: () => false,
+  movementCostAt: () => 1,
 };
 
 const START_POP = { children: 12, adults: 30, elders: 5 };
@@ -29,6 +32,9 @@ function makeVillage(options: { food?: number; farms?: number; houses?: number }
   };
   const game = registerVillageGameplay(kernel, world, db, plain, stock);
   const popGame = registerPopulationGameplay(kernel, world, db, game, START_POP);
+  const econ = registerEconomyGameplay(kernel, world, db, game);
+  const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
+  const logi = registerLogisticsGameplay(kernel, world, db, game, popGame, econ, Position);
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
 
@@ -82,7 +88,7 @@ function makeVillage(options: { food?: number; farms?: number; houses?: number }
     const s = world.readObj(game.comps.Stockpile).get(vi);
     return s.get(game.ops.resourceCode('base:resource.food') as number) ?? 0;
   };
-  return { kernel, world, game, popGame, villageId, vi, days, pop, food, submit, placeNear };
+  return { kernel, world, game, popGame, econ, logi, villageId, vi, days, pop, food, submit, placeNear };
 }
 
 // ---------------- consumption & production coupling ----------------
@@ -90,14 +96,23 @@ function makeVillage(options: { food?: number; farms?: number; houses?: number }
 test('needs: daily consumption is pop × ration; farms replace what is eaten', () => {
   // start UNDER the 150 storage cap, or production clamps and the delta reads 0
   const v = makeVillage({ food: 60, farms: 1, houses: 4 });
-  v.days(6); // farm (72 ticks) completes; workers staff it
-  const before = v.food();
+  const foodCode = v.game.ops.resourceCode('base:resource.food') as number;
+  v.days(6); // farm (72 ticks) completes; workers staff it; haulers walk the route
+  v.econ.ledger.drain(); // reconcile just the next day's flows
+  const before = v.logi.totalOf(v.vi, foodCode); // stockpile + farm outbox + carts (M14)
   const total = v.pop().total;
   v.days(1);
-  const delta = v.food() - before;
-  // one fully-staffed farm: +8/day; consumption ≈ total × 0.1
-  const expected = 8 - total * FOOD_PER_PERSON_DAY;
-  assert.ok(Math.abs(delta - expected) < 0.5, `daily food delta ${delta.toFixed(2)} ≠ ~${expected.toFixed(2)}`);
+  const flows = v.econ.ledger.of(v.vi).get(foodCode);
+  assert.ok(flows !== undefined, 'ledger tracked food flows');
+  // one fully-staffed farm: +8/day; consumption ≈ total × ration; and the
+  // village-total delta reconciles against the ledger (M13 conservation,
+  // doc 08 §4 — hauling only redistributes, it never creates or destroys)
+  assert.ok(Math.abs(flows.produced - 8) < 0.01, `farm produced ${flows.produced.toFixed(2)} ≠ ~8`);
+  const expectedEaten = total * FOOD_PER_PERSON_DAY;
+  assert.ok(Math.abs(flows.eaten - expectedEaten) < 0.05, `eaten ${flows.eaten.toFixed(2)} ≠ ~${expectedEaten.toFixed(2)}`);
+  const delta = v.logi.totalOf(v.vi, foodCode) - before;
+  const reconciled = flows.produced - flows.eaten - flows.spoiled;
+  assert.ok(Math.abs(delta - reconciled) < 1e-9, `total delta ${delta} must reconcile to ${reconciled}`);
 });
 
 test('jobs: understaffed production scales by workforce efficiency', () => {
@@ -108,12 +123,12 @@ test('jobs: understaffed production scales by workforce efficiency', () => {
   p.adults[v.vi] = 2.9;
   p.children[v.vi] = 0;
   p.elders[v.vi] = 0;
+  v.days(1); // let the jobs solver settle on the reduced pool
+  v.econ.ledger.drain();
   v.days(1);
-  const before = v.food();
-  const eaters = v.pop().total;
-  v.days(1);
-  const produced = v.food() - before + eaters * FOOD_PER_PERSON_DAY;
-  assert.ok(Math.abs(produced - 4) < 0.4, `2/4 workers should yield ~4/day, got ${produced.toFixed(2)}`);
+  const foodCode = v.game.ops.resourceCode('base:resource.food') as number;
+  const produced = v.econ.ledger.of(v.vi).get(foodCode)?.produced ?? 0;
+  assert.ok(Math.abs(produced - 4) < 0.05, `2/4 workers should yield ~4/day, got ${produced.toFixed(2)}`);
 });
 
 test('construction: labor-gated sites stall with no adults and resume with them', () => {

@@ -110,6 +110,7 @@ function applyPatchOps(
       else existing.push(value);
     } else if ('remove' in op) {
       const nav = at(op['remove']);
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- patch op keys are author-supplied by design (doc 09 §7)
       if (nav !== null) delete nav.parent[nav.key];
     } else {
       errors.push(`${label} op[${index}]: unknown op (use set | mergeAppend | remove)`);

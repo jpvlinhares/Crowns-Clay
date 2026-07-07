@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 .DS_Store
 coverage/
+
+# local agent/session settings
+.claude/settings.local.json
