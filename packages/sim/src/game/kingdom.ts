@@ -135,10 +135,25 @@ export interface KingdomGameplay {
   readonly CharacterName: ObjectComponent<string>;
   readonly ledger: KingdomLedger;
   readonly mods: StatModifiers;
+  /** Village → owning kingdom (M22); only defined when `kingdomCount > 1` was requested. */
+  readonly VillageOwner?: SoAComponent<{ kingdom: 'eid' }>;
   kingdomEntity(): EntityId | null;
+  /** All kingdom entities, player first (issuer 1), then AI kingdoms in spawn order (M22). */
+  kingdomEntities(): readonly EntityId[];
   treasury(): number;
-  /** Re-bind the kingdom entity and rebuild the modifier board after save hydration (M17). */
+  /** Re-bind the kingdom entities and rebuild the modifier board after save hydration (M17). */
   refreshAfterLoad(): void;
+}
+
+export interface KingdomGameplayOptions {
+  /**
+   * Number of kingdoms to found (M22). Defaults to 1 — the exact single-
+   * kingdom code path this module has always run, so existing single-
+   * kingdom compositions (terra.ts, tests) are byte-identical: no new
+   * component, no extra spawn, no extra RNG draw. `VillageOwner` and
+   * per-kingdom tax/office scoping only activate when this is `> 1`.
+   */
+  readonly kingdomCount?: number;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -151,10 +166,14 @@ export function registerKingdomGameplay(
   popGame: PopulationGameplay,
   econ: EconomyGameplay,
   mods: StatModifiers,
+  options: KingdomGameplayOptions = {},
 ): KingdomGameplay {
   const { VillageCore, VillageName, BuildingCore } = game.comps;
   const { Population } = popGame;
   const index = (id: number): number => id & 0x3fffff;
+  const kingdomCount = options.kingdomCount ?? 1;
+  const VillageOwner: SoAComponent<{ kingdom: 'eid' }> | undefined =
+    kingdomCount > 1 ? world.defineSoA('villageOwner', { kingdom: 'eid' }) : undefined;
 
   const Kingdom: KingdomComponent = world.defineSoA('kingdom', {
     treasury: 'f64',
@@ -187,11 +206,19 @@ export function registerKingdomGameplay(
   const edictCode = new Map(edictIds.map((id, i) => [id, i]));
   const edictById = (code: number): EdictDef => db.edicts.get(edictIds[code] as string) as EdictDef;
 
-  let kingdomId: EntityId | null = null;
+  const kingdomIds: EntityId[] = [];
+  /** Resolve the acting kingdom for a command from its issuer (1=player, 2..n=AI, M22); falls
+   * back to the player's kingdom for issuer 0 or an out-of-range issuer, preserving today's
+   * single-kingdom behaviour when kingdomCount is 1 (every existing test uses issuer: 1). */
+  const kingdomForIssuer = (issuer: number): EntityId | null => kingdomIds[issuer - 1] ?? kingdomIds[0] ?? null;
 
   // ---------------- modifier board: edicts + offices, one rebuild ----------------
+  // NB: the modifier board (`mods`) is shared across all kingdoms (M22 scoping note,
+  // docs/design/07-ai-design.md) — only the player's kingdom (kingdomIds[0]) ever enacts
+  // edicts or appoints offices today, so this stays bound to it regardless of kingdomCount.
   const rebuildModifiers = (): void => {
-    if (kingdomId === null) return;
+    const kingdomId = kingdomIds[0];
+    if (kingdomId === undefined) return;
     const ki = index(kingdomId as number);
     const sources: { target: string; op: 'add' | 'mul'; value: number }[] = [];
     const active = world.readObj(ActiveEdicts).tryGet(ki);
@@ -215,22 +242,24 @@ export function registerKingdomGameplay(
     phase: 1,
     access: { writes: [Kingdom, ActiveEdicts, Character, CharacterName] },
     update(ctx: TickContext): void {
-      const kingdom = world.spawn();
-      world.attach(kingdom, Kingdom, { treasury: STARTING_TREASURY, steward: 0, marshal: 0, chancellor: 0, scholar: 0 });
-      world.attach(kingdom, ActiveEdicts, new Map());
-      kingdomId = kingdom;
-      for (let n = 0; n < ADVISOR_POOL; n++) {
-        const character = world.spawn();
-        world.attach(character, Character, {
-          age: 25 + ctx.rng.int(0, 30),
-          stewardship: ctx.rng.int(2, 18),
-          martial: ctx.rng.int(2, 18),
-          diplomacy: ctx.rng.int(2, 18),
-          scholarship: ctx.rng.int(2, 18),
-        });
-        world.attach(character, CharacterName, ADVISOR_NAMES[ctx.rng.int(0, ADVISOR_NAMES.length - 1)] as string);
+      for (let k = 0; k < kingdomCount; k++) {
+        const kingdom = world.spawn();
+        world.attach(kingdom, Kingdom, { treasury: STARTING_TREASURY, steward: 0, marshal: 0, chancellor: 0, scholar: 0 });
+        world.attach(kingdom, ActiveEdicts, new Map());
+        kingdomIds.push(kingdom);
+        for (let n = 0; n < ADVISOR_POOL; n++) {
+          const character = world.spawn();
+          world.attach(character, Character, {
+            age: 25 + ctx.rng.int(0, 30),
+            stewardship: ctx.rng.int(2, 18),
+            martial: ctx.rng.int(2, 18),
+            diplomacy: ctx.rng.int(2, 18),
+            scholarship: ctx.rng.int(2, 18),
+          });
+          world.attach(character, CharacterName, ADVISOR_NAMES[ctx.rng.int(0, ADVISOR_NAMES.length - 1)] as string);
+        }
+        ctx.events.publish({ type: 'kingdom.founded', tick: ctx.tick, data: { kingdom: kingdom as number } });
       }
-      ctx.events.publish({ type: 'kingdom.founded', tick: ctx.tick, data: { kingdom: kingdom as number } });
     },
   };
 
@@ -250,7 +279,8 @@ export function registerKingdomGameplay(
     core.taxRate[index(p.villageId)] = rate;
   });
 
-  kernel.registerCommand<{ edict: string }>('kingdom.enactEdict', (ctx, p) => {
+  kernel.registerCommand<{ edict: string }>('kingdom.enactEdict', (ctx, p, command) => {
+    const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === null) return reject(ctx, 'kingdom.enactEdict', 'no kingdom');
     const code = edictCode.get(String(p.edict));
     if (code === undefined) return reject(ctx, 'kingdom.enactEdict', `unknown edict '${String(p.edict)}'`);
@@ -269,7 +299,8 @@ export function registerKingdomGameplay(
     ctx.events.publish({ type: 'kingdom.edictEnacted', tick: ctx.tick, data: { edict: String(p.edict) } });
   });
 
-  kernel.registerCommand<{ edict: string }>('kingdom.repealEdict', (ctx, p) => {
+  kernel.registerCommand<{ edict: string }>('kingdom.repealEdict', (ctx, p, command) => {
+    const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === null) return reject(ctx, 'kingdom.repealEdict', 'no kingdom');
     const code = edictCode.get(String(p.edict));
     if (code === undefined) return reject(ctx, 'kingdom.repealEdict', `unknown edict '${String(p.edict)}'`);
@@ -280,7 +311,8 @@ export function registerKingdomGameplay(
     ctx.events.publish({ type: 'kingdom.edictRepealed', tick: ctx.tick, data: { edict: String(p.edict) } });
   });
 
-  kernel.registerCommand<{ office: string; characterId: number }>('kingdom.appoint', (ctx, p) => {
+  kernel.registerCommand<{ office: string; characterId: number }>('kingdom.appoint', (ctx, p, command) => {
+    const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === null) return reject(ctx, 'kingdom.appoint', 'no kingdom');
     const office = String(p.office) as Office;
     if (!OFFICES.includes(office)) return reject(ctx, 'kingdom.appoint', `unknown office '${String(p.office)}' (${OFFICES.join('/')})`);
@@ -306,18 +338,22 @@ export function registerKingdomGameplay(
     phase: 6,
     access: {
       writes: [Kingdom, ActiveEdicts, Population],
-      reads: [VillageCore, VillageName, BuildingCore, Character],
+      reads: [VillageCore, VillageName, BuildingCore, Character, ...(VillageOwner !== undefined ? [VillageOwner] : [])],
     },
     update(ctx: TickContext): void {
-      if (kingdomId === null) return;
-      const ki = index(kingdomId as number);
+      if (kingdomIds.length === 0) return;
       const k = world.write(Kingdom);
       const pop = world.write(Population);
       const core = world.read(VillageCore);
       const names = world.readObj(VillageName);
       const b = world.read(BuildingCore);
+      const c = world.read(Character);
+      // village → owning kingdom, when multi-kingdom (M22); undefined when kingdomCount is 1,
+      // in which case every village taxes into the single kingdom — today's exact behaviour.
+      const ownerOf = VillageOwner !== undefined ? world.read(VillageOwner) : null;
 
-      // production value per village: installed recipe output × staffing × price
+      // production value per village: installed recipe output × staffing × price (shared
+      // across kingdoms — computed once, not per kingdom)
       const value = new Map<number, number>();
       world.query([BuildingCore]).forEach((i) => {
         if ((b.complete[i] as number) !== 1) return;
@@ -336,73 +372,76 @@ export function registerKingdomGameplay(
         value.set(vi, (value.get(vi) ?? 0) + dayValue * efficiency);
       });
 
-      let taxes = 0;
-      const taxYield = mods.mul('kingdom.taxYield');
-      world.query([Population, VillageCore]).forEach((vi) => {
-        const rate = TAX_RATES[core.taxRate[vi] as number] ?? TAX_RATES[2];
-        const happiness = pop.happiness[vi] as number;
-        const prosperity = (value.get(vi) ?? 0) * (0.5 + happiness / 200); // GDD §2 happiness factor
-        const take = prosperity * rate.take * taxYield;
-        if (take > 0) {
-          k.treasury[ki] = (k.treasury[ki] as number) + take;
-          taxes += take;
-          ledger.record({ tick: ctx.tick, kind: 'tax', amount: take, detail: names.tryGet(vi) ?? `village ${vi}` });
-        }
-        // the tax-pressure curve: happiness drifts with the rate (bounded)
-        pop.happiness[vi] = Math.max(0, Math.min(100, happiness + rate.happiness));
-      });
+      for (const kingdomId of kingdomIds) {
+        const ki = index(kingdomId as number);
+        let taxes = 0;
+        const taxYield = mods.mul('kingdom.taxYield');
+        world.query([Population, VillageCore]).forEach((vi) => {
+          if (ownerOf !== null && (ownerOf.kingdom[vi] as number) !== (kingdomId as number)) return;
+          const rate = TAX_RATES[core.taxRate[vi] as number] ?? TAX_RATES[2];
+          const happiness = pop.happiness[vi] as number;
+          const prosperity = (value.get(vi) ?? 0) * (0.5 + happiness / 200); // GDD §2 happiness factor
+          const take = prosperity * rate.take * taxYield;
+          if (take > 0) {
+            k.treasury[ki] = (k.treasury[ki] as number) + take;
+            taxes += take;
+            ledger.record({ tick: ctx.tick, kind: 'tax', amount: take, detail: names.tryGet(vi) ?? `village ${vi}` });
+          }
+          // the tax-pressure curve: happiness drifts with the rate (bounded)
+          pop.happiness[vi] = Math.max(0, Math.min(100, happiness + rate.happiness));
+        });
 
-      // edict upkeep — Chancellor discounts it; unpayable edicts LAPSE
-      let upkeepTotal = 0;
-      const chancellor = k.chancellor[ki] as number;
-      const c = world.read(Character);
-      const discount =
-        chancellor !== 0 && world.isAlive(chancellor as EntityId)
-          ? 1 - (c.diplomacy[index(chancellor)] as number) / 100 // up to −20%
-          : 1;
-      const active = world.writeObj(ActiveEdicts).tryGet(ki);
-      if (active !== undefined) {
-        for (const code of [...active.keys()].sort((a, z) => a - z)) {
-          const def = edictById(code);
-          const cost = def.upkeep * discount;
-          if (cost === 0) continue;
-          if ((k.treasury[ki] as number) < cost) {
-            active.delete(code);
-            ctx.events.publish({ type: 'kingdom.edictLapsed', tick: ctx.tick, data: { edict: def.id, reason: 'treasury empty' } });
+        // edict upkeep — Chancellor discounts it; unpayable edicts LAPSE
+        let upkeepTotal = 0;
+        const chancellor = k.chancellor[ki] as number;
+        const discount =
+          chancellor !== 0 && world.isAlive(chancellor as EntityId)
+            ? 1 - (c.diplomacy[index(chancellor)] as number) / 100 // up to −20%
+            : 1;
+        const active = world.writeObj(ActiveEdicts).tryGet(ki);
+        if (active !== undefined) {
+          for (const code of [...active.keys()].sort((a, z) => a - z)) {
+            const def = edictById(code);
+            const cost = def.upkeep * discount;
+            if (cost === 0) continue;
+            if ((k.treasury[ki] as number) < cost) {
+              active.delete(code);
+              ctx.events.publish({ type: 'kingdom.edictLapsed', tick: ctx.tick, data: { edict: def.id, reason: 'treasury empty' } });
+              continue;
+            }
+            k.treasury[ki] = (k.treasury[ki] as number) - cost;
+            upkeepTotal += cost;
+            ledger.record({ tick: ctx.tick, kind: 'edict-upkeep', amount: -cost, detail: def.id });
+          }
+          rebuildModifiers(); // lapses (and steward death below) change the board
+        }
+
+        // advisor salaries: every seated advisor draws pay
+        let salaries = 0;
+        for (const office of OFFICES) {
+          const seat = k[office][ki] as number;
+          if (seat === 0) continue;
+          if (!world.isAlive(seat as EntityId)) {
+            k[office][ki] = 0; // vacated by death (aging system below)
             continue;
           }
-          k.treasury[ki] = (k.treasury[ki] as number) - cost;
-          upkeepTotal += cost;
-          ledger.record({ tick: ctx.tick, kind: 'edict-upkeep', amount: -cost, detail: def.id });
+          k.treasury[ki] = (k.treasury[ki] as number) - ADVISOR_SALARY;
+          salaries += ADVISOR_SALARY;
+          ledger.record({ tick: ctx.tick, kind: 'advisor-salary', amount: -ADVISOR_SALARY, detail: office });
         }
-        rebuildModifiers(); // lapses (and steward death below) change the board
-      }
 
-      // advisor salaries: every seated advisor draws pay
-      let salaries = 0;
-      for (const office of OFFICES) {
-        const seat = k[office][ki] as number;
-        if (seat === 0) continue;
-        if (!world.isAlive(seat as EntityId)) {
-          k[office][ki] = 0; // vacated by death (aging system below)
-          continue;
-        }
-        k.treasury[ki] = (k.treasury[ki] as number) - ADVISOR_SALARY;
-        salaries += ADVISOR_SALARY;
-        ledger.record({ tick: ctx.tick, kind: 'advisor-salary', amount: -ADVISOR_SALARY, detail: office });
+        ctx.events.publish({
+          type: 'kingdom.rollup',
+          tick: ctx.tick,
+          data: {
+            treasury: k.treasury[ki] as number,
+            taxes,
+            upkeep: upkeepTotal,
+            salaries,
+            net: taxes - upkeepTotal - salaries,
+          },
+        });
       }
-
-      ctx.events.publish({
-        type: 'kingdom.rollup',
-        tick: ctx.tick,
-        data: {
-          treasury: k.treasury[ki] as number,
-          taxes,
-          upkeep: upkeepTotal,
-          salaries,
-          net: taxes - upkeepTotal - salaries,
-        },
-      });
     },
   };
 
@@ -431,13 +470,15 @@ export function registerKingdomGameplay(
           tick: ctx.tick,
           data: { characterId: character as number, name: names.tryGet(ci) ?? 'unknown', age: c.age[ci] as number },
         });
-        if (kingdomId !== null) {
+        if (kingdomIds.length > 0) {
           const k = world.write(Kingdom);
-          const ki = index(kingdomId as number);
-          for (const office of OFFICES) {
-            if ((k[office][ki] as number) === (character as number)) {
-              k[office][ki] = 0;
-              ctx.events.publish({ type: 'kingdom.officeVacated', tick: ctx.tick, data: { office } });
+          for (const kingdomId of kingdomIds) {
+            const ki = index(kingdomId as number);
+            for (const office of OFFICES) {
+              if ((k[office][ki] as number) === (character as number)) {
+                k[office][ki] = 0;
+                ctx.events.publish({ type: 'kingdom.officeVacated', tick: ctx.tick, data: { office } });
+              }
             }
           }
         }
@@ -458,16 +499,17 @@ export function registerKingdomGameplay(
     CharacterName,
     ledger,
     mods,
-    kingdomEntity: () => kingdomId,
+    ...(VillageOwner !== undefined ? { VillageOwner } : {}),
+    kingdomEntity: () => kingdomIds[0] ?? null,
+    kingdomEntities: () => kingdomIds,
     treasury(): number {
-      if (kingdomId === null) return 0;
+      const kingdomId = kingdomIds[0];
+      if (kingdomId === undefined) return 0;
       return world.read(Kingdom).treasury[index(kingdomId as number)] as number;
     },
     refreshAfterLoad(): void {
-      kingdomId = null;
-      world.query([Kingdom]).forEach((_i, entity) => {
-        if (kingdomId === null) kingdomId = entity;
-      });
+      kingdomIds.length = 0;
+      world.query([Kingdom]).forEach((_i, entity) => kingdomIds.push(entity));
       rebuildModifiers();
     },
   };

@@ -26,8 +26,13 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M15 — Multi-village & founding (settler parties, site scoring, village tiers 1–2) | ✅ |
 | M16 — Kingdom layer (treasury, taxes, gold ledger, edicts v1, advisors v1) | ✅ |
 | M17 — Save/load v1 (versioned codecs, IndexedDB slots, export/import, autosave, save corpus) | ✅ |
-| M18 — UI pass 1 + HUD (panel framework, player panels, build palette, notifications) | ✅ this commit — **no fixture changes** (presentation is hash-inert) · **Phase 2 complete: playable economy sandbox** |
-| M19 — AI kernel & sensors (brain scheduling, knowledge model, fog of information) | next — Phase 3 begins |
+| M18 — UI pass 1 + HUD (panel framework, player panels, build palette, notifications) | ✅ — **no fixture changes** (presentation is hash-inert) · **Phase 2 complete: playable economy sandbox** |
+| M19 — AI kernel & sensors (brain scheduling, knowledge model, fog of information) | ✅ — **Phase 3 begins** |
+| M20 — AI economy & construction manager (settlement-needs evaluators, build queues) | ✅ |
+| M21 — AI strategic planner v1 (plan archetypes, utility scoring, hysteresis) | ✅ |
+| M22 — Multiple kingdoms & borders (kingdom placement fairness, territory, scouting) | ✅ |
+| M23 — Diplomacy v1 (opinion, gifts/insults, NAP & trade pacts, deal evaluator) | ✅ |
+| M24 — AI harness & nightly (8-kingdom AI-vs-AI campaign, behavioural fingerprints, perf telemetry) | ✅ this commit — **Phase 3 complete: rivals awaken** |
 
 ## Layout (TDD §3)
 
@@ -95,6 +100,89 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### AI harness & nightly (M24) — Phase 3 complete: rivals awaken
+
+The Phase 3 gate: a headless, 8-kingdom AI-vs-AI campaign runs 50 simulated years in one test
+(`packages/sim/src/ai/multiKingdom.test.ts`), driving every kingdom (no inert "player" seat) through
+the full M19–M23 stack at once — construction, planning, scouting, diplomacy — and asserting three
+things doc 11/13 have named since M19 but nothing had measured yet: **no crash** across the full
+run, **survival** (every kingdom's population stays above zero), and a **behavioural fingerprint** —
+expansion-leaning kingdoms choose `ExpandSettle` measurably more often than economy-leaning ones,
+the same regression-testing-character idea as the design doc's "Warmonger wars more than Builder"
+example, standing in with mechanics that actually exist (war is M25; named personality archetypes
+are M36). **Perf telemetry** sums each AI system's tick cost, amortized by how often it actually
+runs, and checks it stays under doc 11's 30%-of-tick-budget ceiling at 8 kingdoms — genuinely
+verified now, not just cited. "Nightly" stays the doc's testing-*tier* concept (TDD §13) rather than
+a new scheduled workflow: the harness runs on every `npm test` (deliberately, ~15–25s of the ~27s
+suite — the literal gate scenario, not shrunk to fit a speed budget).
+
+### Diplomacy v1 (M23)
+
+Kingdoms can now deal with each other, not just watch (`packages/sim/src/game/diplomacy.ts`):
+**opinion** is pairwise (−100..100, per kingdom pair, not per kingdom), moved by **gifts** (gold ⇄
+opinion, capped and cooled down so spamming small gifts can't inflate it — GDD §10's own "gift-spam
+caps" concern) and **insults** (a flat penalty, same cooldown discipline), and **NAP/trade pacts**
+are proposed and accepted or rejected by a **deal evaluator** — `accept if value ≥ threshold ×
+trustFactor(opinion) × personalityMargin(weights)` (doc 07 §4), a pure function of opinion and
+personality only, never of who's asking (the roadmap's "deal-value symmetry" test objective). Every
+kingdom is fog-gated (M22): you can't gift, insult, or propose to a kingdom you haven't scouted.
+`ForgeAlliance` — the strategic planner's fourth archetype, deferred at M21 pending this milestone —
+is real now: an AI kingdom with a nearby, non-hostile, unpacted neighbor will propose a
+non-aggression pact on its own initiative. Reputation, alliances, vassalage, and joint wars are
+M35 "Diplomacy v2" — trade pacts have no real economic engine to plug into yet (no trade routes),
+so their value is deliberately nominal, not faked depth.
+
+### Multiple kingdoms & borders (M22)
+
+`kingdom.ts`'s long-deferred multi-kingdom retrofit lands, additive and opt-in
+(`registerKingdomGameplay(..., { kingdomCount })`, default 1) — the `terra-demo` golden replay's
+RNG draws and component set stay byte-identical, since `kingdomCount === 1` is the exact
+single-kingdom path the module always ran, not a new path that happens to match. N kingdoms are
+founded at **fairness-checked** start sites (`packages/sim/src/worldgen/fairPlacement.ts`):
+deterministic angular sectors around the map center, scored by the same site scorer M15's settlers
+use, retried at a wider radius if the spread of scores exceeds doc 13's ±15% band. Each AI kingdom
+gets its own village, M20's construction manager, and M21's strategic planner — real opponents for
+the first time. **Scouting** is Chebyshev-distance fog reveal (`packages/sim/src/ai/scouting.ts`) —
+the stand-in doc 07 §6 always intended for a system with no military units yet — and the **fog
+UI** is a map overlay (territory tint per kingdom, a dark punched-out-as-you-explore layer for
+unrevealed tiles), mirroring the existing road-overlay pattern in the renderer exactly.
+
+### AI strategic planner v1 (M21)
+
+A weekly utility-scoring layer above M20's construction manager (`packages/sim/src/ai/planner.ts`):
+each AI kingdom scores three real plan archetypes — `DevelopHeartland`, `ExpandSettle`, `Recover` —
+against its own considerations (welfare, unmet construction, settler readiness, crisis) and a small
+personality-weights object, picks the best with **hysteresis** (a bonus for staying on the current
+plan so it doesn't flip week to week), and publishes a `ai.planChosen` decision-log event every
+single evaluation — legible by construction, the doc 13 Risk R1 "why?" requirement met from day
+one. Choosing `ExpandSettle` submits a real `village.sendSettlers` command through the same bus a
+player uses. The rest of doc 07 §2's archetype list (`ConquestWar`, `ForgeAlliance`, `TechRace`, …)
+needs systems that don't exist yet — they're deferred to the milestones that build those systems,
+not faked as stub utilities that would undermine the plan-switch-stability test itself.
+
+### AI economy & construction manager (M20)
+
+The first AI that actually keeps a village alive: `packages/sim/src/ai/manager.ts`'s daily
+construction manager detects unmet **settlement needs** (food, housing — an extensible evaluator
+list, not hardcoded) and queues buildings through `village.build`, the identical command path a
+player uses. The test objective is literal: a standalone-harness village survives 20 years
+(172,800 ticks) completely unaided. Verified against the real content defs: farms have zero
+ongoing input cost, so keeping food-production and housing capacity in step with population is
+sufficient — no storage/production-chain depth is load-bearing for survival, so none was built
+prematurely.
+
+### AI kernel & sensors (M19) — Phase 3 begins
+
+The foundation the whole AI arc sits on (`packages/sim/src/ai/`): a **fog-of-information** query
+wrapper (`fogQuery.ts`) that's the *only* sanctioned way to read entities outside your own kingdom
+(enforced by a static test, not just convention), a **knowledge model** (`knowledge.ts`) of
+per-subject beliefs that decay in confidence and are read only through
+`believedValue = value ± noise(1−confidence)` — deterministic noise from a PRNG fork, never the
+authoritative value directly — and a **brain-scheduling** skeleton (`brain.ts`) running lightweight
+"shadow" AI kingdoms on the doc 08 §9 cadence (daily sensors/appraisal, weekly strategy). Real
+situation appraisal and plan scoring are M20/M21; M19 proves the scaffolding and the access
+discipline it all has to obey.
 
 ### UI pass 1 (M18) — the game is now played, not injected
 

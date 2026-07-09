@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   Camera2D,
   CHUNK_PX,
+  FOG_UNREVEALED_ALPHA,
   PresentationMirror,
   TILE_PX,
+  kingdomColor,
   tileColor,
   visibleChunks,
 } from './core.js';
@@ -143,4 +145,21 @@ test('mirror: alpha is clamped and applyFull resets everything', () => {
   m.applyFull([{ id: 9, kind: 1, x: 1, y: 1 }]);
   assert.equal(m.size, 1);
   assert.equal(m.view(1).find((e) => e.id === 1), undefined);
+});
+
+// ---------------- territory & fog (M22) ----------------
+
+test('kingdomColor: same index always yields the same color, distinct indices differ', () => {
+  assert.equal(kingdomColor(0), kingdomColor(0));
+  assert.notEqual(kingdomColor(0), kingdomColor(1));
+});
+
+test('kingdomColor: cycles for indices beyond the palette, including negative-safe wrap', () => {
+  const paletteSize = new Set([0, 1, 2, 3, 4, 5, 6, 7].map(kingdomColor)).size;
+  assert.ok(paletteSize <= 6, 'expected the palette to repeat within 8 indices');
+  assert.equal(kingdomColor(6), kingdomColor(0)); // wraps at palette length (6 colors)
+});
+
+test('FOG_UNREVEALED_ALPHA: a sane overlay alpha (visible but not opaque)', () => {
+  assert.ok(FOG_UNREVEALED_ALPHA > 0 && FOG_UNREVEALED_ALPHA < 1);
 });

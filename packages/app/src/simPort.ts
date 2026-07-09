@@ -10,7 +10,7 @@
 import type { FromSimMessage, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { TickDriver, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World } from '@crowns/sim';
 import { SnapshotEmitter } from './snapshots.js';
-import { BuildingEmitter, RoadEmitter, VillageStatsEmitter } from './buildingEmitter.js';
+import { BuildingEmitter, RoadEmitter, TerritoryEmitter, VillageStatsEmitter } from './buildingEmitter.js';
 import { composeTerra } from './terra.js';
 import { autosaveSlot, getSlot, putSlot } from './saveStore.js';
 
@@ -24,6 +24,8 @@ export interface SimSession {
   readonly buildingEmitter: BuildingEmitter;
   readonly villageEmitter: VillageStatsEmitter;
   readonly roadEmitter: RoadEmitter;
+  /** Territory/fog overlay (M22) — emits nothing for today's single-kingdom terra-demo session. */
+  readonly territoryEmitter: TerritoryEmitter;
   readonly saves: SaveManager;
   /** Player-facing content catalog (M18) — defs projected for the ui package. */
   readonly catalog: UICatalog;
@@ -67,6 +69,7 @@ export function createSession(seed: number, clock?: () => number): SimSession {
     buildingEmitter: new BuildingEmitter(c.world, c.game),
     villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db),
     roadEmitter: new RoadEmitter(c.logiGame.roads),
+    territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, null),
     saves: c.saves,
   };
 }
@@ -81,6 +84,7 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
 
   const sendFullSnapshot = (): void => {
     if (session === null) return;
+    const territory = session.territoryEmitter.full();
     send({
       kind: 'snapshotFull',
       tick: session.kernel.currentTick,
@@ -91,6 +95,8 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
       roads: session.roadEmitter.full(),
       catalog: session.catalog,
       kingdom: session.kingdomInfo(),
+      territory: territory.territory,
+      fogRevealed: territory.fogRevealed,
     });
   };
 
@@ -141,9 +147,11 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
     const b = session.buildingEmitter.delta();
     const villageStats = session.villageEmitter.delta();
     const roadsAdded = session.roadEmitter.delta();
+    const territory = session.territoryEmitter.delta();
     if (
       spawned.length > 0 || moved.length > 0 || despawned.length > 0 || villageStats.length > 0 ||
-      b.added.length > 0 || b.progress.length > 0 || b.removed.length > 0 || roadsAdded.length > 0
+      b.added.length > 0 || b.progress.length > 0 || b.removed.length > 0 || roadsAdded.length > 0 ||
+      territory.territoryAdded.length > 0 || territory.fogRevealedAdded.length > 0
     ) {
       send({
         kind: 'snapshotDelta',
@@ -156,6 +164,8 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
         buildingProgress: b.progress,
         buildingsRemoved: b.removed,
         roadsAdded,
+        territoryAdded: territory.territoryAdded,
+        fogRevealedAdded: territory.fogRevealedAdded,
       });
     }
     // sampling stream: at most one report per flush, whenever the interval has

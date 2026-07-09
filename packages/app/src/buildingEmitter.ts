@@ -1,7 +1,10 @@
 /** Building snapshot diffing (M11): rare adds/removes + progress for the few under construction. */
 import type { BuildingRec } from '@crowns/protocol';
-import type { VillageGameplay } from '@crowns/sim';
+import type { FogRegistry, KingdomGameplay, VillageGameplay } from '@crowns/sim';
 import type { World } from '@crowns/sim';
+
+/** Tiles within this Chebyshev radius of an owned village belong to its kingdom (M22). */
+const TERRITORY_RADIUS = 32;
 
 export class BuildingEmitter {
   private readonly known = new Map<number, number>(); // id → last progress sent
@@ -149,4 +152,115 @@ export class VillageStatsEmitter {
     });
     return out;
   }
+}
+
+/**
+ * Territory tint + fog-revealed tiles for the map overlay (M22). Add-only,
+ * mirroring `RoadEmitter`: territory (once a tile is claimed, it stays
+ * claimed) and fog reveal (once seen, stays seen — M22 v1's simple model)
+ * only ever grow. Gracefully emits nothing when the composition isn't
+ * multi-kingdom (`kingdomGame.VillageOwner` undefined) or has no fog
+ * registry — today's single-kingdom `terra-demo` session, for instance.
+ */
+export class TerritoryEmitter {
+  private readonly sentTerritory = new Set<number>(); // tile index -> already emitted
+  private readonly sentFog = new Set<number>();
+
+  constructor(
+    private readonly world: World,
+    private readonly game: VillageGameplay,
+    private readonly kingdomGame: KingdomGameplay,
+    private readonly fog: FogRegistry | null,
+  ) {}
+
+  private tileIndex(x: number, y: number): number {
+    return y * this.game.terrain.width + x;
+  }
+
+  /** Flat [x, y, kingdomIndex] triples for tiles within TERRITORY_RADIUS of an owned village. */
+  private computeTerritory(): number[] {
+    const VillageOwner = this.kingdomGame.VillageOwner;
+    if (VillageOwner === undefined) return [];
+    const kingdomIndexOf = new Map(this.kingdomGame.kingdomEntities().map((id, i) => [id as number, i]));
+    const core = this.world.read(this.game.comps.VillageCore);
+    const owner = this.world.read(VillageOwner);
+    const claimed = new Map<number, number>(); // tile index -> kingdomIndex (first village to claim it wins)
+    this.world.query([this.game.comps.VillageCore, VillageOwner]).forEach((vi) => {
+      const kingdomIndex = kingdomIndexOf.get(owner.kingdom[vi] as number);
+      if (kingdomIndex === undefined) return;
+      const cx = core.centerX[vi] as number;
+      const cy = core.centerY[vi] as number;
+      for (let dy = -TERRITORY_RADIUS; dy <= TERRITORY_RADIUS; dy++) {
+        for (let dx = -TERRITORY_RADIUS; dx <= TERRITORY_RADIUS; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) > TERRITORY_RADIUS) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 0 || y < 0 || x >= this.game.terrain.width || y >= this.game.terrain.height) continue;
+          const tile = this.tileIndex(x, y);
+          if (!claimed.has(tile)) claimed.set(tile, kingdomIndex);
+        }
+      }
+    });
+    const out: number[] = [];
+    for (const [tile, kingdomIndex] of claimed) {
+      out.push(tile % this.game.terrain.width, Math.floor(tile / this.game.terrain.width), kingdomIndex);
+    }
+    return out;
+  }
+
+  /** Flat [x, y] pairs: the player's own villages (always visible) + any foreign village
+   * revealed to the player's kingdom (fog index 0) via scouting. */
+  private computeFogRevealed(): number[] {
+    const VillageOwner = this.kingdomGame.VillageOwner;
+    const playerKingdom = this.kingdomGame.kingdomEntities()[0];
+    const core = this.world.read(this.game.comps.VillageCore);
+    const out: number[] = [];
+    this.world.query([this.game.comps.VillageCore]).forEach((vi) => {
+      const ownedByPlayer =
+        VillageOwner === undefined ||
+        (this.world.read(VillageOwner).kingdom[vi] as number) === (playerKingdom as number | undefined);
+      const revealedByFog = this.fog !== null && this.fog.isKnown(0, vi);
+      if (ownedByPlayer || revealedByFog) out.push(core.centerX[vi] as number, core.centerY[vi] as number);
+    });
+    return out;
+  }
+
+  full(): { territory: number[]; fogRevealed: number[] } {
+    const territory = this.computeTerritory();
+    const fogRevealed = this.computeFogRevealed();
+    this.sentTerritory.clear();
+    for (let i = 0; i + 2 < territory.length; i += 3) {
+      this.sentTerritory.add(this.tileIndex(territory[i] as number, territory[i + 1] as number));
+    }
+    this.sentFog.clear();
+    for (let i = 0; i + 1 < fogRevealed.length; i += 2) {
+      this.sentFog.add(this.tileIndex(fogRevealed[i] as number, fogRevealed[i + 1] as number));
+    }
+    return { territory, fogRevealed };
+  }
+
+  delta(): { territoryAdded: number[]; fogRevealedAdded: number[] } {
+    const territoryAdded: number[] = [];
+    for (const triple of chunk3(this.computeTerritory())) {
+      const tile = this.tileIndex(triple[0], triple[1]);
+      if (this.sentTerritory.has(tile)) continue;
+      this.sentTerritory.add(tile);
+      territoryAdded.push(...triple);
+    }
+    const fogRevealedAdded: number[] = [];
+    for (const pair of chunk2(this.computeFogRevealed())) {
+      const tile = this.tileIndex(pair[0], pair[1]);
+      if (this.sentFog.has(tile)) continue;
+      this.sentFog.add(tile);
+      fogRevealedAdded.push(...pair);
+    }
+    return { territoryAdded, fogRevealedAdded };
+  }
+}
+
+function* chunk3(flat: readonly number[]): Generator<[number, number, number]> {
+  for (let i = 0; i + 2 < flat.length; i += 3) yield [flat[i] as number, flat[i + 1] as number, flat[i + 2] as number];
+}
+function* chunk2(flat: readonly number[]): Generator<[number, number]> {
+  for (let i = 0; i + 1 < flat.length; i += 2) yield [flat[i] as number, flat[i + 1] as number];
 }

@@ -122,6 +122,29 @@ Player  { settings: {...}, chronicle: ChronicleEntry[],   // meta, outside sim s
           keybinds, unlockedCosmetics: string[] }
 ```
 
+**M19 delta — `KnowledgeModel` (fog of information, AI doc §6):** implemented as a
+per-kingdom collection of `KnowledgeFact`, packed as a flat `number[]` (the ECS
+object-component save codec only knows `string | number[] | Map<number,number>`,
+and a fact needs several floats):
+
+```
+KnowledgeFact { subject: Id, kind: armyStrength|treasury|techLevel|villageState|intent,
+                value: number, confidence: 0..1, lastUpdated: tick,
+                source: scout|trade|envoy|battle|rumor }
+```
+
+Facts are overwritten on refresh (one fact per `(subject, kind)`), decay in
+confidence over elapsed ticks (`decayAll`), and are read only through
+`believedValue = value ± noise(1−confidence)` — deterministic PRNG fork keyed
+by `(subject, kind, tick)`, never the authoritative value directly. Fog
+enforcement (which entities a kingdom may query at all) is a separate,
+entity-level mechanism — see `packages/sim/src/ai/fogQuery.ts` — layered on
+top of the ECS's existing component-level declared-access checks, not folded
+into them. M19 ships the mechanism and a brain-scheduling skeleton (sensor /
+appraisal / strategic systems on the doc 08 §9 cadence, staggered per
+kingdom); situation appraisal and plan scoring that actually *use* believed
+values are M20/M21.
+
 ## §6. Character (notables)
 
 ```
