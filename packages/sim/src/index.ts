@@ -154,3 +154,74 @@ export {
   type LedgerEntry,
   type Office,
 } from './game/kingdom.js';
+export {
+  KnowledgeModel,
+  hashKnowledge,
+  type KnowledgeFact,
+  type FactKind,
+  type FactSource,
+} from './ai/knowledge.js';
+export { FogRegistry, fogQuery, type FogQuery } from './ai/fogQuery.js';
+export {
+  registerAiKernel,
+  type AiGameplay,
+  type AiKingdomInfo,
+  type AiKernelOptions,
+} from './ai/brain.js';
+export { findBuildSite, type BuildSite } from './ai/placement.js';
+export {
+  detectNeeds,
+  productionCapacity,
+  housingCapacity,
+  foodNeed,
+  housingNeed,
+  DEFAULT_NEED_EVALUATORS,
+  type SettlementNeed,
+  type NeedEvaluator,
+  type NeedContext,
+} from './ai/needs.js';
+export {
+  chooseBuildTarget,
+  registerAiConstructionManager,
+  type BuildIntent,
+  type AiConstructionOptions,
+} from './ai/manager.js';
+export {
+  computeConsiderations,
+  planAwareNeeds,
+  registerAiStrategicPlanner,
+  defineAiPlanState,
+  DEFAULT_PERSONALITY_WEIGHTS,
+  DEFAULT_PLAN_ARCHETYPES,
+  type PersonalityWeights,
+  type Considerations,
+  type PlanArchetype,
+  type AiStrategicPlanner,
+  type AiStrategicPlannerOptions,
+  type AiDiplomacyContext,
+} from './ai/planner.js';
+export {
+  registerDiplomacyGameplay,
+  evaluateDeal,
+  trustFactor,
+  personalityMargin,
+  napValue,
+  pactValue,
+  DiplomacyState,
+  TRADE_VALUE,
+  ACCEPT_THRESHOLD,
+  GIFT_OPINION_PER_GOLD,
+  MAX_GIFT_OPINION,
+  GIFT_COOLDOWN_TICKS,
+  INSULT_OPINION_DELTA,
+  INSULT_COOLDOWN_TICKS,
+  BREAK_PACT_OPINION_PENALTY,
+  PACT_NAP,
+  PACT_TRADE,
+  type PactType,
+  type DealEvaluation,
+  type DiplomaticRelation,
+  type DiplomacyOptions,
+  type DiplomacyGameplay,
+  type DiplomacyPersonality,
+} from './game/diplomacy.js';

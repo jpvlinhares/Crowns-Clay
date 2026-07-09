@@ -13,8 +13,11 @@ import {
   Camera2D,
   CHUNK_PX,
   CHUNK_TILES,
+  FOG_UNREVEALED_ALPHA,
   PresentationMirror,
   TILE_PX,
+  chunkKey,
+  kingdomColor,
   tileColor,
   type RenderableEntity,
 } from './core.js';
@@ -47,6 +50,17 @@ export class PixiRenderer {
   private readonly roadLayer = new Container();
   private readonly roadTiles = new Set<number>();
   private readonly scratch: RenderableEntity[] = [];
+  // territory tint (M22): flat [x, y, kingdomIndex] triples, add-only (mirrors roads)
+  private readonly territoryLayer = new Container();
+  private readonly territoryTiles = new Set<number>();
+  // fog of information (M22): dark overlay per chunk, punched out per revealed tile.
+  // Inactive until addFogRevealed() is actually called — a composition that never reports
+  // fog data (e.g. the single-kingdom terra-demo session) must render normally, not as an
+  // all-dark map with nothing ever revealed.
+  private readonly fogLayer = new Container();
+  private readonly fogGraphics = new Map<number, Graphics>();
+  private readonly revealedTiles = new Set<number>();
+  private fogActive = false;
 
   constructor(
     private readonly widthTiles: number,
@@ -156,6 +170,57 @@ export class PixiRenderer {
     this.addRoads(triples);
   }
 
+  // ---------- territory layer (M22): flat [x, y, kingdomIndex] triples, add-only ----------
+
+  addTerritory(triples: readonly number[]): void {
+    for (let i = 0; i + 2 < triples.length; i += 3) {
+      const x = triples[i] as number;
+      const y = triples[i + 1] as number;
+      const kingdomIndex = triples[i + 2] as number;
+      const tile = y * this.widthTiles + x;
+      if (this.territoryTiles.has(tile)) continue;
+      this.territoryTiles.add(tile);
+      const g = new Graphics();
+      g.rect(0, 0, TILE_PX, TILE_PX).fill({ color: kingdomColor(kingdomIndex), alpha: 0.22 });
+      g.x = x * TILE_PX;
+      g.y = y * TILE_PX;
+      this.territoryLayer.addChild(g);
+    }
+  }
+
+  setTerritory(triples: readonly number[]): void {
+    this.territoryLayer.removeChildren().forEach((child) => child.destroy());
+    this.territoryTiles.clear();
+    this.addTerritory(triples);
+  }
+
+  // ---------- fog-of-information layer (M22): flat [x, y] pairs, add-only reveal ----------
+
+  /** Marks tiles as revealed (never re-hidden in this MVP) and re-bakes any affected chunk.
+   * The first call activates the fog layer for every currently-visible chunk too — before
+   * this, the layer stays inactive (see `fogActive`), so a composition with no fog data
+   * (e.g. single-kingdom terra-demo) never shows an all-dark map. */
+  addFogRevealed(pairs: readonly number[]): void {
+    if (pairs.length === 0) return;
+    const activating = !this.fogActive;
+    this.fogActive = true;
+    const affectedChunks = new Set<number>();
+    for (let i = 0; i + 1 < pairs.length; i += 2) {
+      const x = pairs[i] as number;
+      const y = pairs[i + 1] as number;
+      this.revealedTiles.add(y * this.widthTiles + x);
+      affectedChunks.add(chunkKey(Math.floor(x / CHUNK_TILES), Math.floor(y / CHUNK_TILES)));
+    }
+    if (activating) {
+      // bake fog for every terrain chunk already on screen, not just the ones just revealed
+      for (const key of this.chunkGraphics.keys()) this.bakeFogChunk(key);
+    } else {
+      for (const key of affectedChunks) {
+        if (this.fogGraphics.has(key)) this.bakeFogChunk(key);
+      }
+    }
+  }
+
   /** Last-known record for a building sprite (M18 player inspector join). */
   buildingRec(id: number): BuildingRec | null {
     return this.buildingSprites.get(id)?.rec ?? null;
@@ -193,9 +258,11 @@ export class PixiRenderer {
   async init(resizeTo: HTMLElement | Window): Promise<HTMLCanvasElement> {
     await this.app.init({ background: 0x14120f, resizeTo, antialias: false });
     this.worldLayer.addChild(this.terrainLayer);
+    this.worldLayer.addChild(this.territoryLayer); // tint, over terrain, under roads
     this.worldLayer.addChild(this.roadLayer); // under buildings, over terrain
     this.worldLayer.addChild(this.buildingLayer);
     this.worldLayer.addChild(this.entityLayer);
+    this.worldLayer.addChild(this.fogLayer); // topmost — obscures everything unrevealed
     this.app.stage.addChild(this.worldLayer);
     return this.app.canvas;
   }
@@ -217,14 +284,21 @@ export class PixiRenderer {
   /** Execute the ChunkTracker's verdicts (bake/show/hide/evict — terrain.ts). */
   private syncChunks(): void {
     const plan = this.tracker.plan(this.camera.visibleRect());
-    for (const key of plan.bake) this.bakeChunk(key);
+    for (const key of plan.bake) {
+      this.bakeChunk(key);
+      if (this.fogActive) this.bakeFogChunk(key); // fog is keyed identically to terrain chunks
+    }
     for (const key of plan.show) {
       const g = this.chunkGraphics.get(key);
       if (g !== undefined) g.visible = true;
+      const fg = this.fogGraphics.get(key);
+      if (fg !== undefined) fg.visible = true;
     }
     for (const key of plan.hide) {
       const g = this.chunkGraphics.get(key);
       if (g !== undefined) g.visible = false;
+      const fg = this.fogGraphics.get(key);
+      if (fg !== undefined) fg.visible = false;
     }
     for (const key of plan.evict) {
       const g = this.chunkGraphics.get(key);
@@ -232,6 +306,40 @@ export class PixiRenderer {
         this.terrainLayer.removeChild(g);
         g.destroy();
         this.chunkGraphics.delete(key);
+      }
+      const fg = this.fogGraphics.get(key);
+      if (fg !== undefined) {
+        this.fogLayer.removeChild(fg);
+        fg.destroy();
+        this.fogGraphics.delete(key);
+      }
+    }
+  }
+
+  /** (Re)draw one chunk's fog overlay: a dark rect per tile not yet in `revealedTiles`. */
+  private bakeFogChunk(key: number): void {
+    const cx = key % 4096;
+    const cy = (key / 4096) | 0;
+    let g = this.fogGraphics.get(key);
+    if (g === undefined) {
+      g = new Graphics();
+      g.x = cx * CHUNK_PX;
+      g.y = cy * CHUNK_PX;
+      this.fogLayer.addChild(g);
+      this.fogGraphics.set(key, g);
+    } else {
+      g.clear();
+    }
+    const tx0 = cx * CHUNK_TILES;
+    const ty0 = cy * CHUNK_TILES;
+    for (let ty = 0; ty < CHUNK_TILES; ty++) {
+      const wy = ty0 + ty;
+      if (wy >= this.heightTiles) break;
+      for (let tx = 0; tx < CHUNK_TILES; tx++) {
+        const wx = tx0 + tx;
+        if (wx >= this.widthTiles) break;
+        if (this.revealedTiles.has(wy * this.widthTiles + wx)) continue; // punched out
+        g.rect(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX).fill({ color: 0x000000, alpha: FOG_UNREVEALED_ALPHA });
       }
     }
   }

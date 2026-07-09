@@ -225,6 +225,10 @@ export class VillageOps {
     name: string,
     startingStock: Readonly<Record<string, number>> | ReadonlyMap<number, number>,
     settlers?: { children: number; adults: number; elders: number },
+    /** Tags the founded village with its owning kingdom (M22, multi-kingdom only) — the
+     * component reference is passed in rather than imported, so villages.ts stays decoupled
+     * from kingdom.ts. Omitted for every existing single-kingdom caller. */
+    owner?: { component: SoAComponent<{ kingdom: 'eid' }>; kingdomId: EntityId },
   ): EntityId | string {
     const centerDef = this.db.buildings.get(CENTER_DEF_ID) as BuildingDef;
     const verdict = this.validatePlacement(centerDef, x, y, null);
@@ -256,6 +260,7 @@ export class VillageOps {
     });
     this.world.attach(village, this.comps.VillageName, name);
     this.world.attach(village, this.comps.Stockpile, stock);
+    if (owner !== undefined) this.world.attach(village, owner.component, { kingdom: owner.kingdomId as number });
     this.centers.push({ x, y, village });
 
     const placed = this.placeValidated(centerDef, x, y, village);

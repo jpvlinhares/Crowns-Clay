@@ -113,6 +113,10 @@ export type FromSimMessage =
       catalog?: UICatalog;
       /** kingdom snapshot for panel bootstrapping (M18) */
       kingdom?: { activeEdicts: string[] };
+      /** flat [x, y, kingdomIndex] triples, all currently-owned tiles (M22) */
+      territory?: number[];
+      /** flat [x, y] pairs, every tile ever revealed to the player's kingdom (M22) */
+      fogRevealed?: number[];
     }
   | {
       kind: 'snapshotDelta';
@@ -141,6 +145,10 @@ export type FromSimMessage =
       buildingsRemoved?: number[];
       /** flat [x, y, level] triples for road tiles added since last delta (M14) */
       roadsAdded?: number[];
+      /** flat [x, y, kingdomIndex] triples, newly-owned tiles since last delta (M22) */
+      territoryAdded?: number[];
+      /** flat [x, y] pairs, newly-revealed tiles since last delta (M22) */
+      fogRevealedAdded?: number[];
     }
   | { kind: 'hash'; tick: number; hash: number }
   // ---- save/load results (M17) ----

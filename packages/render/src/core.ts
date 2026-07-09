@@ -146,6 +146,18 @@ export function tileColor(x: number, y: number): number {
   return PALETTE[h % PALETTE.length] as number;
 }
 
+// ---------------------------------------------------------------- territory & fog (M22)
+
+/** One tint per kingdom index, cycling if there are more kingdoms than colors. */
+const KINGDOM_COLORS = [0x3f7ac0, 0xc0503f, 0x4fa860, 0xc0a03f, 0x8a5ac0, 0x3fb8b0] as const;
+
+export function kingdomColor(kingdomIndex: number): number {
+  return KINGDOM_COLORS[((kingdomIndex % KINGDOM_COLORS.length) + KINGDOM_COLORS.length) % KINGDOM_COLORS.length] as number;
+}
+
+/** Alpha of the dark overlay drawn over tiles never revealed to the player (fog UI). */
+export const FOG_UNREVEALED_ALPHA = 0.75;
+
 // ---------------------------------------------------------------- mirror
 
 interface MirrorEntity {
