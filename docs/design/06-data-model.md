@@ -267,6 +267,24 @@ AIPersonalityDef { id, name, desc,
    taunts/voiceSet: LocalizedText groups, tags, props }
 ```
 
+**M36 delta (packages/data/src/personalities.ts, packages/sim/src/ai/personality.ts):** ships 7
+tuned base archetypes (Warmonger, Builder, Merchant, Schemer, Zealot, Steward, Opportunist —
+doc 07 §9's exact roster), content not code, validated at load like every other def kind
+(`personalityValidator`, unique-id integrity check only — `planBiases` keys are `PlanArchetype`
+ids, a sim-layer concept `@crowns/data` doesn't see, same reasoning as event `command` effects).
+`favoredVictory` stays freeform tags (no `VictoryType` enum exists until M37) and
+`taunts`/`voiceSet` drop `LocalizedText` for flat strings (no locale system until M44) — both
+the "ship the real shape once its dependency lands" pattern M32/M33 used. ai/personality.ts is
+the ONLY place this content touches AI behaviour: `perturbWeights` adds small seeded per-
+campaign jitter (doc 07 §9: "so two Warmongers differ"); `toPlannerWeights`/
+`toDiplomacyPersonality` map the full 8-axis `weights` onto the narrower structural subsets
+`PersonalityWeights`/`DiplomacyPersonality` already used (ai/planner.ts, game/diplomacy.ts) —
+`planBiases` rides along on `PersonalityWeights` itself, a new optional field the planner's
+scoring loop multiplies in (default 1, so every pre-M36 caller is unaffected). `describePersonality`
+is the "legibility" piece (doc 07 §9: the diplomacy screen surfaces observed traits once the
+player has evidence) — a pure weights→tags function; gating that behind the knowledge model's
+per-fact confidence (knowledge.ts, M19) is left to a future UI, not modelled here.
+
 ## §8. TechDef
 
 ```

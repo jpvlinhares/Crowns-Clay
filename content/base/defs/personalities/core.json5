@@ -1,0 +1,160 @@
+// Base AI personality archetypes (M36; GDD §11; doc 07 §9). `planBiases` keys
+// are ai/planner.ts PlanArchetype ids: DevelopHeartland, ExpandSettle,
+// ForgeAlliance, MilitaryBuildup, ConquestWar, TechRace (Recover is crisis-
+// driven, not personality-biased, and stays out of every profile below).
+[
+  {
+    "id": "base:personality.warmonger",
+    "name": "Warmonger",
+    "desc": "Sees every border as an opportunity and every rival as a future conquest.",
+    "weights": {
+      "expansion": 0.5, "aggression": 0.95, "economy": 0.3, "tech": 0.25,
+      "diplomacyTrust": 0.15, "riskTolerance": 0.85, "grudgeRetention": 0.7, "honor": 0.3,
+    },
+    "preferences": {
+      "favoredVictory": ["conquest"],
+      "favoredUnits": ["cavalry", "infantry"],
+      "buildStyle": ["fortified", "aggressive"],
+      "insultThreshold": -10,
+      "giftReceptivity": 0.6,
+    },
+    "planBiases": { "MilitaryBuildup": 1.4, "ConquestWar": 1.5, "ForgeAlliance": 0.5 },
+    "taunts": {
+      "warDeclared": ["Your walls will not save you.", "This land will run red before the snows come."],
+      "victory": ["As it should be."],
+    },
+    "tags": ["martial", "hostile"],
+  },
+  {
+    "id": "base:personality.builder",
+    "name": "Builder",
+    "desc": "Measures greatness in granaries and city walls raised, not battles won.",
+    "weights": {
+      "expansion": 0.35, "aggression": 0.1, "economy": 0.9, "tech": 0.45,
+      "diplomacyTrust": 0.55, "riskTolerance": 0.25, "grudgeRetention": 0.3, "honor": 0.65,
+    },
+    "preferences": {
+      "favoredVictory": ["prosperity", "legacy"],
+      "favoredUnits": ["infantry"],
+      "buildStyle": ["sprawling", "orderly"],
+      "insultThreshold": -60,
+      "giftReceptivity": 1.2,
+    },
+    "planBiases": { "DevelopHeartland": 1.5, "MilitaryBuildup": 0.4, "ConquestWar": 0.3 },
+    "taunts": {
+      "warDeclared": ["We had no wish for this."],
+      "victory": ["Let the histories note what patience builds."],
+    },
+    "tags": ["economy", "peaceful"],
+  },
+  {
+    "id": "base:personality.merchant",
+    "name": "Merchant",
+    "desc": "A ledger of favors owed and owing — every kingdom is a trading partner first.",
+    "weights": {
+      "expansion": 0.4, "aggression": 0.1, "economy": 0.75, "tech": 0.3,
+      "diplomacyTrust": 0.85, "riskTolerance": 0.45, "grudgeRetention": 0.25, "honor": 0.75,
+    },
+    "preferences": {
+      "favoredVictory": ["prosperity"],
+      "favoredUnits": ["support"],
+      "buildStyle": ["coastal", "orderly"],
+      "insultThreshold": -70,
+      "giftReceptivity": 1.6,
+    },
+    "planBiases": { "ForgeAlliance": 1.6, "DevelopHeartland": 1.1, "ConquestWar": 0.3 },
+    "taunts": {
+      "allianceProposed": ["A deal that profits us both — what could be simpler?"],
+      "insulted": ["That was bad business on your part."],
+    },
+    "tags": ["diplomacy", "economy"],
+  },
+  {
+    "id": "base:personality.schemer",
+    "name": "Schemer",
+    "desc": "Every pact is a stepping stone; every alliance, a knife kept warm.",
+    "weights": {
+      "expansion": 0.5, "aggression": 0.55, "economy": 0.45, "tech": 0.3,
+      "diplomacyTrust": 0.4, "riskTolerance": 0.65, "grudgeRetention": 0.85, "honor": 0.1,
+    },
+    "preferences": {
+      "favoredVictory": ["conquest", "hegemony"],
+      "favoredUnits": ["cavalry", "siege"],
+      "buildStyle": ["fortified"],
+      "insultThreshold": -20,
+      "giftReceptivity": 0.8,
+    },
+    "planBiases": { "ConquestWar": 1.3, "ForgeAlliance": 1.2, "MilitaryBuildup": 0.9 },
+    "taunts": {
+      "pactBroken": ["I did warn you not to trust me."],
+      "warDeclared": ["Nothing personal. Well — a little personal."],
+    },
+    "tags": ["diplomacy", "hostile"],
+  },
+  {
+    "id": "base:personality.zealot",
+    "name": "Zealot",
+    "desc": "A crusading conviction that its cause justifies any border it crosses.",
+    "weights": {
+      "expansion": 0.55, "aggression": 0.6, "economy": 0.35, "tech": 0.25,
+      "diplomacyTrust": 0.35, "riskTolerance": 0.7, "grudgeRetention": 0.6, "honor": 0.9,
+    },
+    "preferences": {
+      "favoredVictory": ["conquest", "chronicle"],
+      "favoredUnits": ["infantry", "cavalry"],
+      "buildStyle": ["aggressive", "fortified"],
+      "insultThreshold": -30,
+      "giftReceptivity": 0.7,
+    },
+    "planBiases": { "ConquestWar": 1.2, "ExpandSettle": 1.2, "ForgeAlliance": 0.5 },
+    "taunts": {
+      "warDeclared": ["The cause does not ask your permission."],
+      "victory": ["Vindicated."],
+    },
+    "tags": ["martial", "expansion"],
+  },
+  {
+    "id": "base:personality.steward",
+    "name": "Steward",
+    "desc": "Steady, unhurried, and quietly certain that the long game always wins.",
+    "weights": {
+      "expansion": 0.4, "aggression": 0.15, "economy": 0.7, "tech": 0.5,
+      "diplomacyTrust": 0.6, "riskTolerance": 0.3, "grudgeRetention": 0.35, "honor": 0.7,
+    },
+    "preferences": {
+      "favoredVictory": ["prosperity", "chronicle"],
+      "favoredUnits": ["infantry", "support"],
+      "buildStyle": ["orderly"],
+      "insultThreshold": -50,
+      "giftReceptivity": 1.1,
+    },
+    "planBiases": { "DevelopHeartland": 1.3, "TechRace": 1.2, "ConquestWar": 0.3 },
+    "taunts": {
+      "warDeclared": ["We are ready for this, whether we wished it or not."],
+      "victory": ["Steady hands built this."],
+    },
+    "tags": ["economy", "scholarship"],
+  },
+  {
+    "id": "base:personality.opportunist",
+    "name": "Opportunist",
+    "desc": "Commits to nothing but the next advantage — whichever door opens first.",
+    "weights": {
+      "expansion": 0.6, "aggression": 0.4, "economy": 0.5, "tech": 0.4,
+      "diplomacyTrust": 0.45, "riskTolerance": 0.75, "grudgeRetention": 0.4, "honor": 0.4,
+    },
+    "preferences": {
+      "favoredVictory": ["hegemony", "chronicle"],
+      "favoredUnits": ["cavalry", "ranged"],
+      "buildStyle": ["sprawling"],
+      "insultThreshold": -40,
+      "giftReceptivity": 1.0,
+    },
+    "planBiases": { "ExpandSettle": 1.4, "TechRace": 0.9, "MilitaryBuildup": 0.8 },
+    "taunts": {
+      "warDeclared": ["Well, the opportunity presented itself."],
+      "victory": ["I saw the opening. I took it."],
+    },
+    "tags": ["expansion", "flexible"],
+  },
+]

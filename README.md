@@ -43,7 +43,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M32 — Research (tech tree data, scholars, era gates, diffusion) | ✅ — **Phase 5 begins: depth** |
 | M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ |
 | M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ |
-| M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ this commit |
+| M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ |
+| M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ this commit |
 
 ## Layout (TDD §3)
 
@@ -111,6 +112,31 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Personalities (M36)
+
+AI kingdoms have real, tuned identities now (`content/base/defs/personalities/core.json5`,
+`packages/sim/src/ai/personality.ts`, GDD §11, doc 07 §9): the 7 archetypes doc 07 §9 always
+promised — **Warmonger, Builder, Merchant, Schemer, Zealot, Steward, Opportunist** — each a full
+8-axis weight profile plus `planBiases` (per-`PlanArchetype` utility multipliers). `ai/
+personality.ts` is the ONLY place this content touches AI behaviour, since `@crowns/data` never
+depends on `sim/`: `perturbWeights` adds small seeded jitter so two kingdoms sharing an archetype
+still diverge ("two Warmongers differ"); `toPlannerWeights`/`toDiplomacyPersonality` map the full
+weights onto the narrow structural subsets `ai/planner.ts`/`game/diplomacy.ts` already consume —
+`planBiases` rides along as a new, optional `PersonalityWeights` field the planner's scoring loop
+multiplies in, defaulting to 1 so no milestone before this one changed behaviour. The T objective
+— **blind fingerprint test** — takes each archetype's `PlanArchetype.utility` score vector under a
+fixed, generous "every opportunity available" scenario as its fingerprint (the same "unit-test the
+scoring function against synthetic `Considerations`" pattern M21's own tests already use, not an
+emergent multi-year economy — whether the real simulation ever reaches that generous scenario is a
+separate, much harder balance question for M46, not this one): several perturbed instances per
+archetype are classified — without the classifier ever being told which archetype produced them —
+against all 7 canonical fingerprints by correlation, and every one lands correctly, proving the
+profiles are behaviourally distinct, not just differently worded flavour text. A companion smoke
+test drives all 7 through a real, short AI-vs-AI campaign to confirm nothing crashes and real
+divergence shows up in practice. `describePersonality` is the pure "Known for..." legibility
+piece — confidence-gating it behind the knowledge model (M19) for a real diplomacy screen is left
+to a future UI.
 
 ### Diplomacy v2 (M35)
 

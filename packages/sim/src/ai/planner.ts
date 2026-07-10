@@ -14,9 +14,12 @@
  * doc 07 §2's list (PunitiveRaid, FortifyBorder, PrepareVictory, ...) stays
  * deferred pending their own systems.
  *
- * `PersonalityWeights` here is a minimal in-code subset (not the content-
- * defined, mod-loadable `AIPersonalityDef` of doc 06 §7 — that full system,
- * with 7 tuned archetypes and perturbation, is M36).
+ * `PersonalityWeights` stays a minimal STRUCTURAL subset of the content-
+ * defined, mod-loadable `AIPersonalityDef` (doc 06 §7) — this module never
+ * imports @crowns/data's personality content directly (ai/personality.ts,
+ * M36, maps `AIPersonalityDef.weights` onto this shape and carries
+ * `planBiases` along, added below); the 7 tuned archetypes and seeded
+ * perturbation live entirely in that adapter, not here.
  *
  * Standalone and single-village-bound, like M20: a village steering itself
  * needs no fog, so this doesn't touch M19's brain.ts/AiKingdom/Knowledge,
@@ -47,6 +50,10 @@ export interface PersonalityWeights {
   readonly aggression?: number; // 0..1
   /** How readily this kingdom invests in research over other priorities (M32); optional, defaults to 0.5. */
   readonly tech?: number; // 0..1
+  /** Per-`PlanArchetype.id` utility multiplier (M36; ai/personality.ts's `toPlannerWeights`
+   * carries an `AIPersonalityDef.planBiases` here) — optional, defaults to 1 (no change) for
+   * every archetype, so every pre-M36 caller's behaviour is untouched. */
+  readonly planBiases?: Readonly<Record<string, number>>;
 }
 
 export const DEFAULT_PERSONALITY_WEIGHTS: PersonalityWeights = {
@@ -347,7 +354,7 @@ export function registerAiStrategicPlanner(
       let bestIndex = previousIndex;
       let bestScore = -Infinity;
       archetypes.forEach((archetype, i) => {
-        const raw = archetype.utility(considerations, weights);
+        const raw = archetype.utility(considerations, weights) * (weights.planBiases?.[archetype.id] ?? 1);
         scores[archetype.id] = raw;
         const effective = raw + (i === previousIndex ? HYSTERESIS_BONUS : 0);
         if (effective > bestScore) {

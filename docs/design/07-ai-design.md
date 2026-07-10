@@ -338,6 +338,22 @@ deferred, "data now, active later" (M25's own precedent for `BuildingDef.militar
   choices; the diplomacy screen surfaces observed traits ("Known for: holding grudges") once the
   player has evidence (knowledge model), directly serving Vision success criterion 6.
 
+**M36 delta:** all 7 archetypes are real content now (`content/base/defs/personalities/core.json5`),
+each with a distinct `weights`/`planBiases` profile — `ai/personality.ts`'s `perturbWeights` is the
+seeded jitter, `toPlannerWeights` carries `planBiases` into `ai/planner.ts`'s scoring loop (a new
+optional multiplier, default 1, so no prior planner behaviour changed). The T objective — **blind
+fingerprint test** — treats each archetype's `PlanArchetype.utility` score vector under a fixed,
+generous "every opportunity available" scenario as its fingerprint (planner.test.ts's own "unit-
+test the scoring function against synthetic `Considerations`" pattern, not an emergent multi-year
+economy — whether the real simulation's economy ever REACHES that generous scenario is a separate,
+much harder balance question, M46's job): several perturbed instances per archetype are classified,
+blind, against all 7 canonical fingerprints by correlation, and every one lands on its own
+archetype — proof the 7 profiles are behaviourally distinct, not just differently worded flavour
+text. A companion smoke test runs all 7 through a real, short AI-vs-AI campaign
+(`composeMultiKingdom`) to confirm nothing crashes and real divergence shows up in practice.
+`describePersonality` (the "Known for..." legibility piece) is pure and confidence-gating it behind
+the knowledge model stays a future UI's job — no new fact kind was added here.
+
 ## §10. Difficulty Scaling (capability-first)
 
 | Lever (in order of preference) | Story | Fair | Hard | Brutal |

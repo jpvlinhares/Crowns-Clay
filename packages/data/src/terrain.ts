@@ -16,6 +16,7 @@ import { unitValidator, type UnitDef } from './units.js';
 import { techValidator, ERA_ORDER, type TechDef } from './techs.js';
 import { eventValidator, type EventDef, type EffectExpr, type PredicateExpr } from './events.js';
 import { traitValidator, type TraitDef } from './traits.js';
+import { personalityValidator, type AIPersonalityDef } from './personalities.js';
 
 export interface TerrainDef {
   readonly id: string;
@@ -63,6 +64,7 @@ export class DefinitionDatabase {
     readonly techs: ReadonlyMap<string, TechDef>,
     readonly events: ReadonlyMap<string, EventDef>,
     readonly traits: ReadonlyMap<string, TraitDef>,
+    readonly personalities: ReadonlyMap<string, AIPersonalityDef>,
   ) {}
 
   /** Load a single-mod content set (convenience; delegates to the mod loader). */
@@ -85,7 +87,11 @@ export class DefinitionDatabase {
     const techs = [...(defs.get('tech') as Map<string, unknown>).values()] as TechDef[];
     const events = [...(defs.get('event') as Map<string, unknown>).values()] as EventDef[];
     const traits = [...(defs.get('trait') as Map<string, unknown>).values()] as TraitDef[];
-    return { db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts, units, techs, events, traits), report };
+    const personalities = [...(defs.get('personality') as Map<string, unknown>).values()] as AIPersonalityDef[];
+    return {
+      db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts, units, techs, events, traits, personalities),
+      report,
+    };
   }
 
   /** Integrity gate over already-validated defs (unique ids, exact coverage). */
@@ -99,6 +105,7 @@ export class DefinitionDatabase {
     techs: readonly TechDef[] = [],
     events: readonly EventDef[] = [],
     traits: readonly TraitDef[] = [],
+    personalities: readonly AIPersonalityDef[] = [],
   ): DefinitionDatabase {
     // referential integrity: unique ids, exact biome coverage, overlay kinds
     const byId = new Map<string, TerrainDef>();
@@ -272,7 +279,22 @@ export class DefinitionDatabase {
     }
     const traitMap = new Map(traits.map((t) => [t.id, t]));
 
-    return new DefinitionDatabase(byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap, traitMap);
+    // M36: personalities are self-contained (`planBiases` keys are ai/planner.ts PlanArchetype
+    // ids — a sim-layer concept this package doesn't see, same reasoning as event 'command'
+    // effects above) — only a unique-id check applies.
+    const personalitySeen = new Set<string>();
+    for (const p of personalities) {
+      if (personalitySeen.has(p.id)) integrity.push(`duplicate personality id '${p.id}'`);
+      personalitySeen.add(p.id);
+    }
+    if (integrity.length > 0) {
+      throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
+    }
+    const personalityMap = new Map(personalities.map((p) => [p.id, p]));
+
+    return new DefinitionDatabase(
+      byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap, traitMap, personalityMap,
+    );
   }
 }
 
@@ -287,4 +309,5 @@ export const TERRAIN_KINDS: readonly DefKindSpec<unknown>[] = [
   { kind: 'tech', pathPrefix: 'defs/techs/', validator: techValidator as Validator<unknown> },
   { kind: 'event', pathPrefix: 'defs/events/', validator: eventValidator as Validator<unknown> },
   { kind: 'trait', pathPrefix: 'defs/traits/', validator: traitValidator as Validator<unknown> },
+  { kind: 'personality', pathPrefix: 'defs/personalities/', validator: personalityValidator as Validator<unknown> },
 ];

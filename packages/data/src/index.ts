@@ -54,3 +54,4 @@ export {
   type CommandEffect,
 } from './events.js';
 export { traitValidator, SKILL_NAMES, type TraitDef, type SkillName } from './traits.js';
+export { personalityValidator, PERSONALITY_AXES, type AIPersonalityDef, type PersonalityAxis } from './personalities.js';
