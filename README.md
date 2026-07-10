@@ -41,7 +41,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M30 — AI at war (military manager, war plans, tactical policy, castle-building AI) | ✅ |
 | M31 — War diplomacy (casus belli, peace deals, war exhaustion) | ✅ — **Phase 4 complete: war** |
 | M32 — Research (tech tree data, scholars, era gates, diffusion) | ✅ — **Phase 5 begins: depth** |
-| M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ this commit |
+| M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ |
+| M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ this commit |
 
 ## Layout (TDD §3)
 
@@ -110,6 +111,32 @@ Reference result (CI-class hardware): a Position+Velocity integration pass over 
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
 
+### Characters (M34)
+
+The realm's advisors are notables now, not just skill rolls (`content/base/defs/traits/core.json5`,
+`packages/sim/src/game/characters.ts`, GDD §15): this module deepens the SAME six characters
+kingdom.ts's genesis already spawns — it never runs its own pool — attaching **traits** (2 per
+notable, 12 base, each a small skill-delta bundle applied once, directly onto `Character`'s
+stored skill fields) alongside **gender** and **loyalty**. That's the **advisor bonus math** T
+objective: kingdom.ts's existing Steward/Marshal/Chancellor/Scholar formulas need zero changes to
+read the trait-adjusted values — proven by running the identical seed with and without this
+module registered and diffing the two. The one real coupling problem this surfaced: kingdom.ts's
+yearly death check despawns characters, and the ECS access guard requires every attached
+component declared up front — including ones a LATER module attaches, which kingdom.ts can't
+import (the dependency only runs one way). `KingdomGameplay.registerCharacterExtension` is the
+fix, a small mutable-array escape hatch kingdom.ts exposes so characters.ts can declare its own
+sibling components after the fact. `character.marry` (kingdom-agnostic — using marriage as a
+diplomatic alliance clause is M35's job) rejects self-marriage, remarriage, and any parent/child
+or sibling pairing via a plain `CharacterRelations` class (mirrors `DiplomacyState`). The second T
+objective, **lifecycle tests**: married, fertile-age couples roll a birth chance yearly, and a
+child — skills blended from both parents ± jitter, one inherited trait plus one fresh one — starts
+too young for `kingdom.appoint` (a new `MIN_OFFICE_AGE` gate) until it ages in, growing the
+appointable pool past the fixed genesis six; widowing applies a one-time grief penalty to loyalty,
+and a seated officeholder whose loyalty drifts below a floor may resign the seat outright — the
+same lapse/desertion shape M16/M25 already established, now for court politics. `role` and `alive`
+stay unmodelled (derivable from existing state); `Army.commanderId` (doc 06 §3) and `ransom` (doc
+06 §10) remain out of scope, waiting on a captivity concept this milestone doesn't add.
+
 ### Events engine (M33)
 
 The realm now has a voice (`packages/data/src/events.ts`, `packages/sim/src/game/events.ts`,
@@ -129,7 +156,8 @@ fire count settles inside the target band, not silent and not spammy. `registerA
 closes the loop: an AI kingdom scores every pending choice as `Σ aiScoreHints[axis] ×
 personalityWeight[axis]` and answers unprompted — proven in the harness with zero player/test
 code ever calling `event.choose` directly. `spawn`/`startEvent` effects and tag-query/count
-predicates stay out of scope (Characters, M34, and no content needs them yet, respectively).
+predicates stay out of scope — Characters (M34) landed without adding an event-authored spawn
+effect (heirs arrive via a yearly system, not events), and no content needs the rest yet.
 
 ### Research (M32) — Phase 5 begins: depth
 

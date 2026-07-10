@@ -15,6 +15,7 @@ import { edictValidator, type EdictDef } from './edicts.js';
 import { unitValidator, type UnitDef } from './units.js';
 import { techValidator, ERA_ORDER, type TechDef } from './techs.js';
 import { eventValidator, type EventDef, type EffectExpr, type PredicateExpr } from './events.js';
+import { traitValidator, type TraitDef } from './traits.js';
 
 export interface TerrainDef {
   readonly id: string;
@@ -61,6 +62,7 @@ export class DefinitionDatabase {
     readonly units: ReadonlyMap<string, UnitDef>,
     readonly techs: ReadonlyMap<string, TechDef>,
     readonly events: ReadonlyMap<string, EventDef>,
+    readonly traits: ReadonlyMap<string, TraitDef>,
   ) {}
 
   /** Load a single-mod content set (convenience; delegates to the mod loader). */
@@ -82,7 +84,8 @@ export class DefinitionDatabase {
     const units = [...(defs.get('unit') as Map<string, unknown>).values()] as UnitDef[];
     const techs = [...(defs.get('tech') as Map<string, unknown>).values()] as TechDef[];
     const events = [...(defs.get('event') as Map<string, unknown>).values()] as EventDef[];
-    return { db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts, units, techs, events), report };
+    const traits = [...(defs.get('trait') as Map<string, unknown>).values()] as TraitDef[];
+    return { db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts, units, techs, events, traits), report };
   }
 
   /** Integrity gate over already-validated defs (unique ids, exact coverage). */
@@ -95,6 +98,7 @@ export class DefinitionDatabase {
     units: readonly UnitDef[] = [],
     techs: readonly TechDef[] = [],
     events: readonly EventDef[] = [],
+    traits: readonly TraitDef[] = [],
   ): DefinitionDatabase {
     // referential integrity: unique ids, exact biome coverage, overlay kinds
     const byId = new Map<string, TerrainDef>();
@@ -257,7 +261,18 @@ export class DefinitionDatabase {
     }
     const eventMap = new Map(events.map((e) => [e.id, e]));
 
-    return new DefinitionDatabase(byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap);
+    // M34: traits are self-contained skill-delta bundles — only a unique-id check applies.
+    const traitSeen = new Set<string>();
+    for (const t of traits) {
+      if (traitSeen.has(t.id)) integrity.push(`duplicate trait id '${t.id}'`);
+      traitSeen.add(t.id);
+    }
+    if (integrity.length > 0) {
+      throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
+    }
+    const traitMap = new Map(traits.map((t) => [t.id, t]));
+
+    return new DefinitionDatabase(byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap, traitMap);
   }
 }
 
@@ -271,4 +286,5 @@ export const TERRAIN_KINDS: readonly DefKindSpec<unknown>[] = [
   { kind: 'unit', pathPrefix: 'defs/units/', validator: unitValidator as Validator<unknown> },
   { kind: 'tech', pathPrefix: 'defs/techs/', validator: techValidator as Validator<unknown> },
   { kind: 'event', pathPrefix: 'defs/events/', validator: eventValidator as Validator<unknown> },
+  { kind: 'trait', pathPrefix: 'defs/traits/', validator: traitValidator as Validator<unknown> },
 ];

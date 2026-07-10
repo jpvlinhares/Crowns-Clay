@@ -171,7 +171,9 @@ changes behaviour.
 
 **M31 scoping note:** ships **casus belli**, **peace deals**, and **war exhaustion**
 (`kingdom.declareWar`, `kingdom.proposePeace`, `evaluatePeaceDeal`) — **ransom** (doc 06 §10's
-`Clause.ransom{characterId,amount}`) stays Character-scoped and out of scope until M34; `tribute`
+`Clause.ransom{characterId,amount}`) needs a captivity concept (a commander taken prisoner) that
+M34's notable/heir system (game/characters.ts) doesn't add either — it stays out of scope until
+whichever milestone wires captured-in-battle commanders; `tribute`
 (a flat one-time gold transfer, part of `kingdom.proposePeace`'s payload) is this milestone's
 stand-in. `atWar`/`warExhaustion` join the SAME `DiplomaticRelation` record opinion/pacts already
 live on, not a separate object. `evaluatePeaceDeal(exhaustion, tribute, weights)` is pure — same

@@ -24,10 +24,21 @@
  * multiplies research point accrual by scholarship skill (game/research.ts,
  * M32). Advisors draw a daily salary, age, and die — death vacates the
  * office by event.
+ *
+ * M34 hooks for the notable/heir system (game/characters.ts), which deepens
+ * these SAME character entities rather than spawning its own: (1)
+ * `kingdom.appoint` rejects characters below `MIN_OFFICE_AGE`, so a freshly
+ * born heir can't take a seat immediately; (2) `registerCharacterExtension`
+ * lets that module declare its sibling components (traits/gender/loyalty) to
+ * `character-aging`'s yearly despawn, which must declare every component it
+ * detaches (the access guard's declared-access enforcement, M4) — kingdom.ts
+ * can't import characters.ts to do this itself (the dependency only runs one
+ * way). Trait skill deltas are applied directly onto `Character`'s stored
+ * skill fields, so the office-bonus math above needed no changes at all.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase, EdictDef } from '@crowns/data';
-import { ObjectComponent, SoAComponent, World } from '../ecs.js';
+import { ObjectComponent, SoAComponent, World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY, TICKS_PER_YEAR } from '../time.js';
 import type { VillageGameplay } from './villages.js';
@@ -40,6 +51,7 @@ export const STARTING_TREASURY = 100;
 export const EDICT_CAP = 3;
 export const ADVISOR_SALARY = 2; // gold per day per seated advisor
 export const ADVISOR_POOL = 6; // candidates at kingdom genesis
+export const MIN_OFFICE_AGE = 16; // M34: a freshly born heir (game/characters.ts) can't hold office yet
 
 /** Tax rates (GDD §2): fraction of prosperity taken; daily happiness drift. */
 export const TAX_RATES = [
@@ -145,6 +157,13 @@ export interface KingdomGameplay {
   treasury(): number;
   /** Re-bind the kingdom entities and rebuild the modifier board after save hydration (M17). */
   refreshAfterLoad(): void;
+  /**
+   * M34 extension point: declare a component a LATER module attaches to `Character` entities
+   * (game/characters.ts's traits/gender/loyalty), so `character-aging`'s yearly despawn — which
+   * must declare every component it detaches — stays valid without kingdom.ts importing that
+   * module (the dependency only runs one way).
+   */
+  registerCharacterExtension(comp: Component): void;
 }
 
 export interface KingdomGameplayOptions {
@@ -332,6 +351,8 @@ export function registerKingdomGameplay(
     if (!world.isAlive(character) || !world.has(character, Character)) {
       return reject(ctx, 'kingdom.appoint', 'no such character');
     }
+    const age = world.read(Character).age[index(character)] as number;
+    if (age < MIN_OFFICE_AGE) return reject(ctx, 'kingdom.appoint', `too young for office (age ${age} < ${MIN_OFFICE_AGE})`);
     const k = world.write(Kingdom);
     const ki = index(kingdomId as number);
     // one office per person: vacate any seat they already hold
@@ -458,12 +479,18 @@ export function registerKingdomGameplay(
   };
 
   // ---------------- yearly: advisors age; the old may die ----------------
+  // `agingWrites` is mutable so a later module that attaches its OWN sibling components to
+  // these same Character entities (game/characters.ts, M34: traits/gender/loyalty) can extend
+  // it via `registerCharacterExtension` — despawn() detaches every attached component and the
+  // access guard requires all of them declared, but kingdom.ts can't import a module that
+  // depends on it (wrong direction), so the extension point runs the other way.
+  const agingWrites: Component[] = [Kingdom, Character, CharacterName];
   const aging: SimSystem = {
     name: 'character-aging',
     period: TICKS_PER_YEAR,
     phase: 7,
     // despawn detaches the name too; the modifier rebuild reads active edicts
-    access: { writes: [Kingdom, Character, CharacterName], reads: [ActiveEdicts] },
+    access: { writes: agingWrites, reads: [ActiveEdicts] },
     update(ctx: TickContext): void {
       const c = world.write(Character);
       const names = world.readObj(CharacterName);
@@ -523,6 +550,9 @@ export function registerKingdomGameplay(
       kingdomIds.length = 0;
       world.query([Kingdom]).forEach((_i, entity) => kingdomIds.push(entity));
       rebuildModifiers();
+    },
+    registerCharacterExtension(comp: Component): void {
+      agingWrites.push(comp);
     },
   };
 }

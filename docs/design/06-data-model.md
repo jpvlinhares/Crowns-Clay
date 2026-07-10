@@ -232,6 +232,29 @@ Character { id, kingdomId, name, age, gender, alive: bool,
             loyalty: 0..100, version }
 ```
 
+// M34 delta (game/characters.ts): deepens the SAME character entities kingdom.ts's genesis
+// already creates, rather than spawning its own pool — `gender`/`loyalty` and up to
+// `TRAITS_PER_CHARACTER` (2) trait codes land as sibling ECS components (`CharacterGender`,
+// `CharacterLoyalty`, `CharacterTraits`), declared to kingdom.ts's yearly despawn via a new
+// `registerCharacterExtension` hook (the access guard requires every attached component
+// declared, and kingdom.ts can't import a module that depends on it). A trait's
+// `skillModifiers` apply ONCE, directly onto `Character`'s own stored skill fields — so
+// kingdom.ts's existing Steward/Marshal/Chancellor/Scholar bonus math deepens for free.
+// `relationships` is a plain relational class (`CharacterRelations`, mirrors
+// `DiplomacyState`) covering exactly `spouse` (via `character.marry`, kingdom-agnostic — using
+// it as a diplomatic alliance clause is M35's job) and `parent` (recorded at birth); `rival` is
+// unmodelled (no content generates it yet). Heirs: once a year, every married, fertile-age
+// couple rolls `HEIR_BIRTH_CHANCE`; a birth blends the parents' current (post-trait) skills ±
+// jitter, inherits one parent trait plus one fresh one, and starts too young for
+// `kingdom.appoint` (`MIN_OFFICE_AGE`, kingdom.ts) until it ages in — the notable pool now
+// grows past the fixed genesis six. Widowing (spouse death) applies a one-time loyalty
+// penalty; seated officeholders' loyalty also drifts yearly and, below a floor, may resign the
+// seat outright — the same lapse/desertion shape M16/M25 already established, now for court
+// politics. `role`/`alive` stay unmodelled: office/commander roles are already derivable
+// (`Kingdom.<office>` / `Army.commanderId`), a living character's aliveness is `world.isAlive`,
+// and `commander(armyId)` itself is still inert (doc 06 §3's M26 delta) — Army.commanderId
+// stays unwired past this milestone too.
+
 ## §7. AIPersonalityDef
 
 ```

@@ -53,3 +53,4 @@ export {
   type OpinionChangeEffect,
   type CommandEffect,
 } from './events.js';
+export { traitValidator, SKILL_NAMES, type TraitDef, type SkillName } from './traits.js';
