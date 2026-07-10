@@ -43,12 +43,59 @@
  * RANSOM (GDD §10's `ransom{characterId,amount}` clause) is Character-scoped
  * (M34) and stays out of scope; `tribute` (a flat one-time gold transfer as
  * part of a peace deal) is this milestone's stand-in for "paying to end it".
+ *
+ * DIPLOMACY V2 (M35; GDD §10; doc 07 §7):
+ *
+ * ALLIANCE is a third pact bit (`PACT_ALLIANCE`), evaluated by the SAME
+ * `evaluateDeal` every pact type already uses — no new evaluator, just a
+ * third `pactValue` branch. JOINT WARS ("teeth, not paper"): the moment
+ * `kingdom.declareWar` executes, every kingdom allied with EITHER belligerent
+ * is cascaded into the war on that belligerent's side automatically — no
+ * proposal, no opt-out, one level deep (an ally-of-an-ally is NOT dragged in
+ * transitively, a deliberate v1 bound against single-command world wars).
+ * Honoring the cascade nets the joining kingdom a reputation gain and a
+ * positive memory entry.
+ *
+ * VASSALAGE is asymmetric, so it doesn't fit the symmetric pact bitmask —
+ * `vassalOf: Map<vassal, lord>`, at most one lord per vassal (no chains
+ * modelled). `kingdom.proposeVassalage` runs either direction (submit, or
+ * impose) through `evaluateVassalageDeal`: a would-be LORD nearly always
+ * accepts (a free tribute stream); a would-be VASSAL only accepts when it's
+ * losing a war against the proposer (war exhaustion IS the motivation,
+ * same "ending it has value" shape `evaluatePeaceDeal` already uses) — the
+ * OQ-9 "AI offers/accepts vassalage when hopeless" capitulation path. Once
+ * established: the vassal cannot `kingdom.declareWar` independently, pays a
+ * seasonal tribute automatically, and is cascaded into the lord's wars by
+ * the SAME joint-war mechanic alliances use.
+ *
+ * REPUTATION is GLOBAL per kingdom (0..100, default neutral), unlike
+ * pairwise opinion — it moves on public acts (breaking a pact, an
+ * unprovoked war) and factors into every deal's threshold via
+ * `reputationFactor`, exactly the way GDD §10 describes ("oathbreaking
+ * taints all future negotiations"). `reputationFactor(DEFAULT_REPUTATION)`
+ * is EXACTLY 1 and every M23/M31 call site keeps its 3-argument form — this
+ * is additive, no behaviour change to a single existing test.
+ *
+ * MEMORY/GRUDGES: a bounded (`MEMORY_CAP`), per-kingdom-pair list of
+ * `MemoryEntry` recorded on significant acts (pact broken, war declared,
+ * alliance honored) — NOT on gifts/insults, which already have their own
+ * cooldown-gated opinion channel. Entries are stored raw (event, valence,
+ * weight, tick); `effectiveMemoryWeight` is a PURE, personality-scaled
+ * (`grudgeRetention`) exponential decay computed on read, so the stored
+ * data itself never mutates from the passage of time — which is exactly
+ * what makes it trivial to serialize. `diplomacySection` is the T
+ * objective: a `SaveSection` (persistence.ts, M17) proving grudges (and
+ * every other pairwise/global fact this module owns) round-trip a
+ * save/load cycle byte-for-byte — the first save section any relational
+ * (non-ECS) game/ state has ever gotten, since M23/M31/M32/M34's
+ * DiplomacyState/ResearchState/CharacterRelations never needed one.
  */
 import { clamp, type EntityId } from '@crowns/core';
 import type { World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
-import { TICKS_PER_DAY } from '../time.js';
+import { TICKS_PER_DAY, TICKS_PER_SEASON } from '../time.js';
 import type { KingdomGameplay } from './kingdom.js';
+import type { SaveSection } from '../persistence.js';
 
 const index = (id: number): number => id & 0x3fffff;
 
@@ -64,8 +111,9 @@ export const ACCEPT_THRESHOLD = 15;
 
 export const PACT_NAP = 1;
 export const PACT_TRADE = 2;
-export type PactType = 'nonAggression' | 'trade';
-const pactBit = (type: PactType): number => (type === 'nonAggression' ? PACT_NAP : PACT_TRADE);
+export const PACT_ALLIANCE = 4; // M35: mutual defense — triggers the joint-war cascade
+export type PactType = 'nonAggression' | 'trade' | 'alliance';
+const pactBit = (type: PactType): number => (type === 'nonAggression' ? PACT_NAP : type === 'trade' ? PACT_TRADE : PACT_ALLIANCE);
 
 export const WAR_DECLARED_OPINION_PENALTY = -15; // with a claimed casus belli
 export const WAR_DECLARED_NO_CAUSE_PENALTY = -35; // unprovoked (GDD §10)
@@ -73,6 +121,73 @@ export const WAR_EXHAUSTION_PER_DAY = 100 / 90; // reaches the cap in one season
 export const FORCED_PEACE_EXHAUSTION = 100; // the "no forever-wars" guarantee — imposed, not proposed
 export const PEACE_BASE_VALUE = 20; // nominal value of "the fighting stops", scaled by exhaustion
 export const TRIBUTE_GOLD_TO_VALUE = 0.1; // 100 gold of tribute ~ 10 value
+
+// ---------------------------------------------------------------- M35: reputation
+
+export const DEFAULT_REPUTATION = 70; // neutral-good starting point (0..100)
+export const REPUTATION_MIN = 0;
+export const REPUTATION_MAX = 100;
+export const UNPROVOKED_WAR_REPUTATION_PENALTY = -20;
+export const CASUS_BELLI_WAR_REPUTATION_PENALTY = -8;
+export const BREAK_NAP_REPUTATION_PENALTY = -10;
+export const BREAK_ALLIANCE_REPUTATION_PENALTY = -18; // breaking an alliance is worse oathbreaking
+export const HONOR_ALLIANCE_REPUTATION_GAIN = 5;
+
+/** Low reputation raises every deal's threshold (GDD §10: "oathbreaking taints all future
+ * negotiations"); neutral at `DEFAULT_REPUTATION`, so every pre-M35 call site is unaffected. */
+export function reputationFactor(reputation: number): number {
+  return clamp(1 + (DEFAULT_REPUTATION - reputation) / 100, 0.8, 1.4);
+}
+
+// ---------------------------------------------------------------- M35: vassalage
+
+export const VASSALAGE_LORD_VALUE = 25; // a free tribute stream — a would-be lord nearly always accepts
+export const VASSALAGE_SUBMIT_BASE_VALUE = 3; // reluctance to submit outside of a losing war
+export const VASSALAGE_SUBMIT_FULL_VALUE = 30; // value of submission at maximum war exhaustion
+export const VASSAL_TRIBUTE_FRACTION = 0.1; // fraction of the vassal's treasury, per season
+export const BREAK_VASSALAGE_OPINION_PENALTY = -25; // rebellion, when the VASSAL breaks free
+
+/** A would-be LORD nearly always accepts (free tribute + military support); a would-be VASSAL
+ * only accepts in proportion to how badly it's losing a war against the proposer — the
+ * "capitulation when hopeless" path (OQ-9). Pure function of (perspective, exhaustion, weights). */
+export function evaluateVassalageDeal(
+  perspective: 'lord' | 'vassal',
+  warExhaustionAgainstProposer: number,
+  weights: DiplomacyPersonality,
+): DealEvaluation {
+  const value =
+    perspective === 'lord'
+      ? VASSALAGE_LORD_VALUE
+      : VASSALAGE_SUBMIT_BASE_VALUE +
+        (clamp(warExhaustionAgainstProposer, 0, 100) / 100) * (VASSALAGE_SUBMIT_FULL_VALUE - VASSALAGE_SUBMIT_BASE_VALUE);
+  const threshold = ACCEPT_THRESHOLD * personalityMargin(weights);
+  return { value, threshold, accept: value >= threshold };
+}
+
+// ---------------------------------------------------------------- M35: memory & grudges
+
+export const MEMORY_CAP = 5; // bounded top-K by weight, per kingdom-pair
+
+export interface MemoryEntry {
+  readonly event: string; // short tag: 'pactBroken' | 'unprovokedWar' | 'warWithCause' | 'honoredAlliance' | ...
+  readonly valence: number; // -1..1
+  readonly weight: number; // importance; decays on READ, never mutated in storage
+  readonly tick: number;
+}
+
+/** Personality-scaled (`grudgeRetention` 0..1) exponential decay — pure, computed on read so the
+ * STORED entry never changes (trivial to serialize exactly as recorded). */
+export function effectiveMemoryWeight(entry: MemoryEntry, currentTick: number, grudgeRetention: number): number {
+  const days = Math.max(0, (currentTick - entry.tick) / TICKS_PER_DAY);
+  const halfLifeDays = 10 + clamp(grudgeRetention, 0, 1) * 90; // 10 (forgetful) .. 100 (grudge-holder) days
+  return entry.weight * Math.pow(0.5, days / halfLifeDays);
+}
+
+function pushMemory(memories: readonly MemoryEntry[], entry: MemoryEntry): readonly MemoryEntry[] {
+  const next = [...memories, entry];
+  if (next.length <= MEMORY_CAP) return next;
+  return [...next].sort((a, b) => b.weight - a.weight || b.tick - a.tick || b.event.localeCompare(a.event)).slice(0, MEMORY_CAP);
+}
 
 // ---------------------------------------------------------------- deal evaluator
 
@@ -99,8 +214,16 @@ export function napValue(opinion: number): number {
 
 export const TRADE_VALUE = 15; // flat nominal value — no real trade-route economy yet (v1)
 
+/** Alliance is a bigger ask than NAP/trade (mutual defense, joint-war exposure) — needs decent,
+ * not just non-hostile, relations to be worth it. */
+export function allianceValue(opinion: number): number {
+  return clamp(10 + opinion / 4, 10, 40);
+}
+
 export function pactValue(opinion: number, type: PactType): number {
-  return type === 'nonAggression' ? napValue(opinion) : TRADE_VALUE;
+  if (type === 'nonAggression') return napValue(opinion);
+  if (type === 'trade') return TRADE_VALUE;
+  return allianceValue(opinion);
 }
 
 export interface DealEvaluation {
@@ -111,21 +234,33 @@ export interface DealEvaluation {
 
 /**
  * Doc 07 §4: accept if value received >= value given x trustFactor x personality margin.
- * Pure function of (opinion, type, weights) only — never of which kingdom is proposing,
- * so it can't be gamed by asking from "the other side" (the symmetry test objective).
+ * Pure function of (opinion, type, weights[, reputation]) only — never of which kingdom is
+ * proposing, so it can't be gamed by asking from "the other side" (the symmetry test
+ * objective). `reputation` (M35) defaults to `DEFAULT_REPUTATION`, whose `reputationFactor`
+ * is exactly 1 — every pre-M35 call site is untouched.
  */
-export function evaluateDeal(opinion: number, type: PactType, weights: DiplomacyPersonality): DealEvaluation {
+export function evaluateDeal(
+  opinion: number,
+  type: PactType,
+  weights: DiplomacyPersonality,
+  reputation: number = DEFAULT_REPUTATION,
+): DealEvaluation {
   const value = pactValue(opinion, type);
-  const threshold = ACCEPT_THRESHOLD * trustFactor(opinion) * personalityMargin(weights);
+  const threshold = ACCEPT_THRESHOLD * trustFactor(opinion) * personalityMargin(weights) * reputationFactor(reputation);
   return { value, threshold, accept: value >= threshold };
 }
 
 /** Nominal value of a peace offer: worse a war has gone (`exhaustion`) plus any `tribute` gold
  * sweetening it, against the SAME threshold shape `evaluateDeal` uses — pure function of
- * (exhaustion, tribute, weights) only, same "not who's asking" guarantee. */
-export function evaluatePeaceDeal(exhaustion: number, tribute: number, weights: DiplomacyPersonality): DealEvaluation {
+ * (exhaustion, tribute, weights[, reputation]) only, same "not who's asking" guarantee. */
+export function evaluatePeaceDeal(
+  exhaustion: number,
+  tribute: number,
+  weights: DiplomacyPersonality,
+  reputation: number = DEFAULT_REPUTATION,
+): DealEvaluation {
   const value = (clamp(exhaustion, 0, 100) / 100) * PEACE_BASE_VALUE + Math.max(0, tribute) * TRIBUTE_GOLD_TO_VALUE;
-  const threshold = ACCEPT_THRESHOLD * personalityMargin(weights);
+  const threshold = ACCEPT_THRESHOLD * personalityMargin(weights) * reputationFactor(reputation);
   return { value, threshold, accept: value >= threshold };
 }
 
@@ -133,16 +268,19 @@ export function evaluatePeaceDeal(exhaustion: number, tribute: number, weights: 
 
 export interface DiplomaticRelation {
   readonly opinion: number; // -100..100
-  readonly pacts: number; // bitmask: PACT_NAP | PACT_TRADE
+  readonly pacts: number; // bitmask: PACT_NAP | PACT_TRADE | PACT_ALLIANCE
   readonly lastGiftTick: number;
   readonly lastInsultTick: number;
   readonly atWar: boolean; // M31
   readonly warExhaustion: number; // 0..100, M31
+  readonly memories: readonly MemoryEntry[]; // M35, bounded to MEMORY_CAP
 }
 
 const NEVER = -1; // sentinel: no gift/insult has ever been sent this pair
+const EMPTY_MEMORIES: readonly MemoryEntry[] = [];
 const EMPTY_RELATION: DiplomaticRelation = {
   opinion: 0, pacts: 0, lastGiftTick: NEVER, lastInsultTick: NEVER, atWar: false, warExhaustion: 0,
+  memories: EMPTY_MEMORIES,
 };
 
 function pairKey(a: number, b: number): string {
@@ -152,6 +290,8 @@ function pairKey(a: number, b: number): string {
 /** Pairwise opinion/pact state (doc 06 §10), keyed by raw kingdom EntityId, both orderings equal. */
 export class DiplomacyState {
   private readonly relations = new Map<string, DiplomaticRelation>();
+  private readonly reputation = new Map<number, number>();
+  private readonly vassalOf = new Map<number, number>();
 
   private relationOf(a: number, b: number): DiplomaticRelation {
     return this.relations.get(pairKey(a, b)) ?? EMPTY_RELATION;
@@ -206,10 +346,11 @@ export class DiplomacyState {
     return this.relationOf(a, b).warExhaustion;
   }
 
-  /** Auto-breaks any active NAP between the pair — holding one while declaring war is the betrayal. */
+  /** Auto-breaks any active NAP/alliance between the pair — holding one while declaring war on
+   * the SAME kingdom is the betrayal. */
   declareWar(a: number, b: number): void {
     const rel = this.relationOf(a, b);
-    this.relations.set(pairKey(a, b), { ...rel, atWar: true, warExhaustion: 0, pacts: rel.pacts & ~PACT_NAP });
+    this.relations.set(pairKey(a, b), { ...rel, atWar: true, warExhaustion: 0, pacts: rel.pacts & ~(PACT_NAP | PACT_ALLIANCE) });
   }
 
   /** Ends the war (proposed peace accepted, or exhaustion forced it) — exhaustion resets for next time. */
@@ -238,6 +379,57 @@ export class DiplomacyState {
     return out;
   }
 
+  // ---------------- M35: memory & grudges ----------------
+
+  /** Records a significant act (pact broken, war declared, alliance honored, ...); bounded to
+   * MEMORY_CAP by weight (see `pushMemory`). */
+  recordMemory(a: number, b: number, event: string, valence: number, weight: number, tick: number): void {
+    const rel = this.relationOf(a, b);
+    this.relations.set(pairKey(a, b), { ...rel, memories: pushMemory(rel.memories, { event, valence, weight, tick }) });
+  }
+
+  memoriesOf(a: number, b: number): readonly MemoryEntry[] {
+    return this.relationOf(a, b).memories;
+  }
+
+  // ---------------- M35: reputation (global per kingdom, not pairwise) ----------------
+
+  reputationOf(kingdomId: number): number {
+    return this.reputation.get(kingdomId) ?? DEFAULT_REPUTATION;
+  }
+
+  adjustReputation(kingdomId: number, delta: number): number {
+    const next = clamp(this.reputationOf(kingdomId) + delta, REPUTATION_MIN, REPUTATION_MAX);
+    this.reputation.set(kingdomId, next);
+    return next;
+  }
+
+  // ---------------- M35: vassalage (asymmetric — not part of the symmetric pact bitmask) ----------------
+
+  lordOf(vassal: number): number | undefined {
+    return this.vassalOf.get(vassal);
+  }
+
+  isVassal(kingdomId: number): boolean {
+    return this.vassalOf.has(kingdomId);
+  }
+
+  /** Every vassal currently sworn to `lord`, ascending id order (deterministic). */
+  vassalsOf(lord: number): number[] {
+    return [...this.vassalOf.entries()].filter(([, l]) => l === lord).map(([v]) => v).sort((x, y) => x - y);
+  }
+
+  establishVassalage(vassal: number, lord: number): void {
+    this.vassalOf.set(vassal, lord);
+  }
+
+  /** Either party may dissolve it; returns the (former) lord, or undefined if none existed. */
+  breakVassalage(vassal: number): number | undefined {
+    const lord = this.vassalOf.get(vassal);
+    this.vassalOf.delete(vassal);
+    return lord;
+  }
+
   /** Sorted-key fold — deterministic regardless of mutation order (stateHash requirement). */
   fold(fold: (v: number) => void): void {
     for (const key of [...this.relations.keys()].sort()) {
@@ -251,7 +443,46 @@ export class DiplomacyState {
       fold(rel.lastInsultTick);
       fold(rel.atWar ? 1 : 0);
       fold(Math.round(rel.warExhaustion * 1000));
+      for (const m of rel.memories) {
+        fold(Math.round(m.valence * 1000));
+        fold(Math.round(m.weight * 1000));
+        fold(m.tick);
+        for (let i = 0; i < m.event.length; i++) fold(m.event.charCodeAt(i));
+      }
     }
+    for (const kingdomId of [...this.reputation.keys()].sort((a, b) => a - b)) {
+      fold(kingdomId);
+      fold(Math.round((this.reputation.get(kingdomId) as number) * 1000));
+    }
+    for (const vassal of [...this.vassalOf.keys()].sort((a, b) => a - b)) {
+      fold(vassal);
+      fold(this.vassalOf.get(vassal) as number);
+    }
+  }
+
+  // ---------------- M35: save/load (persistence.ts, T objective: grudge persistence) ----------------
+
+  /** Plain JSON-safe snapshot — every relation (incl. memories), all reputations, all vassalage. */
+  saveState(): unknown {
+    return {
+      relations: [...this.relations.entries()].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)),
+      reputation: [...this.reputation.entries()].sort((x, y) => x[0] - y[0]),
+      vassalOf: [...this.vassalOf.entries()].sort((x, y) => x[0] - y[0]),
+    };
+  }
+
+  loadState(data: unknown): void {
+    const { relations, reputation, vassalOf } = data as {
+      relations: [string, DiplomaticRelation][];
+      reputation: [number, number][];
+      vassalOf: [number, number][];
+    };
+    this.relations.clear();
+    for (const [key, rel] of relations) this.relations.set(key, rel);
+    this.reputation.clear();
+    for (const [kingdomId, rep] of reputation) this.reputation.set(kingdomId, rep);
+    this.vassalOf.clear();
+    for (const [vassal, lord] of vassalOf) this.vassalOf.set(vassal, lord);
   }
 }
 
@@ -335,12 +566,12 @@ export function registerDiplomacyGameplay(
     if (!options.hasDiscovered(proposerIndex, targetId) || !options.hasDiscovered(targetIndex, proposerId)) {
       return reject(ctx, 'kingdom.proposePact', 'kingdoms have not made contact');
     }
-    const pactType: PactType = p.pactType === 'trade' ? 'trade' : 'nonAggression';
+    const pactType: PactType = p.pactType === 'trade' ? 'trade' : p.pactType === 'alliance' ? 'alliance' : 'nonAggression';
     if (state.hasPact(proposerId as number, targetId as number, pactType)) {
       return reject(ctx, 'kingdom.proposePact', 'pact already active');
     }
     const opinion = state.opinionOf(proposerId as number, targetId as number);
-    const evaluation = evaluateDeal(opinion, pactType, options.personalityOf(targetId));
+    const evaluation = evaluateDeal(opinion, pactType, options.personalityOf(targetId), state.reputationOf(proposerId as number));
     if (evaluation.accept) state.addPact(proposerId as number, targetId as number, pactType);
     ctx.events.publish({
       type: 'diplomacy.pactProposed',
@@ -361,12 +592,17 @@ export function registerDiplomacyGameplay(
     const senderId = kingdomAt(senderIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
     if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.breakPact', 'no such kingdom');
-    const pactType: PactType = p.pactType === 'trade' ? 'trade' : 'nonAggression';
+    const pactType: PactType = p.pactType === 'trade' ? 'trade' : p.pactType === 'alliance' ? 'alliance' : 'nonAggression';
     if (!state.hasPact(senderId as number, targetId as number, pactType)) {
       return reject(ctx, 'kingdom.breakPact', 'no such pact');
     }
     state.removePact(senderId as number, targetId as number, pactType);
     state.applyOpinionDelta(senderId as number, targetId as number, BREAK_PACT_OPINION_PENALTY);
+    // M35: breaking an alliance is worse oathbreaking than dropping a NAP/trade pact — a bigger,
+    // GLOBAL reputation hit (not just pairwise opinion) plus a grudge memory for the betrayed side.
+    const reputationPenalty = pactType === 'alliance' ? BREAK_ALLIANCE_REPUTATION_PENALTY : BREAK_NAP_REPUTATION_PENALTY;
+    state.adjustReputation(senderId as number, reputationPenalty);
+    state.recordMemory(senderId as number, targetId as number, 'pactBroken', -0.7, pactType === 'alliance' ? 8 : 5, ctx.tick);
     ctx.events.publish({
       type: 'diplomacy.pactBroken',
       tick: ctx.tick,
@@ -376,6 +612,29 @@ export function registerDiplomacyGameplay(
 
   // ---------------- war (M31) ----------------
 
+  /** M35: the moment a war starts, every kingdom allied with (or vassal to) EITHER belligerent
+   * is cascaded in on that belligerent's side — automatic, unconditional, one level deep (an
+   * ally-of-an-ally is not dragged in transitively — "teeth, not paper" without single-command
+   * world wars). Honoring the call nets a small reputation gain and a positive memory. */
+  const cascadeJointWar = (ctx: TickContext, a: number, b: number): void => {
+    const kingdoms = kingdomGame.kingdomEntities().map((e) => e as number);
+    for (const [belligerent, opponent] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      const reinforcements = kingdoms
+        .filter((k) => k !== a && k !== b && (state.hasPact(k, belligerent, 'alliance') || state.lordOf(k) === belligerent))
+        .sort((x, y) => x - y);
+      for (const ally of reinforcements) {
+        if (state.isAtWar(ally, opponent)) continue;
+        state.declareWar(ally, opponent);
+        state.adjustReputation(ally, HONOR_ALLIANCE_REPUTATION_GAIN);
+        state.recordMemory(ally, belligerent, 'honoredAlliance', 0.4, 6, ctx.tick);
+        ctx.events.publish({ type: 'diplomacy.joinedWar', tick: ctx.tick, data: { kingdom: ally, side: belligerent, against: opponent } });
+      }
+    }
+  };
+
   kernel.registerCommand<{ targetKingdom: number; casusBelli?: boolean }>('kingdom.declareWar', (ctx, p, command) => {
     const declarerIndex = indexForIssuer(command.issuer);
     const declarerId = kingdomAt(declarerIndex);
@@ -384,12 +643,22 @@ export function registerDiplomacyGameplay(
     if (declarerId === targetId) return reject(ctx, 'kingdom.declareWar', 'cannot declare war on yourself');
     if (!options.hasDiscovered(declarerIndex, targetId)) return reject(ctx, 'kingdom.declareWar', 'kingdom not yet discovered');
     if (state.isAtWar(declarerId as number, targetId as number)) return reject(ctx, 'kingdom.declareWar', 'already at war');
+    if (state.lordOf(declarerId as number) !== undefined) {
+      return reject(ctx, 'kingdom.declareWar', 'a vassal cannot declare war independently');
+    }
     const casusBelli = p.casusBelli === true;
     state.declareWar(declarerId as number, targetId as number);
     state.applyOpinionDelta(
       declarerId as number, targetId as number,
       casusBelli ? WAR_DECLARED_OPINION_PENALTY : WAR_DECLARED_NO_CAUSE_PENALTY,
     );
+    state.adjustReputation(declarerId as number, casusBelli ? CASUS_BELLI_WAR_REPUTATION_PENALTY : UNPROVOKED_WAR_REPUTATION_PENALTY);
+    state.recordMemory(
+      declarerId as number, targetId as number,
+      casusBelli ? 'warWithCause' : 'unprovokedWar',
+      -1, casusBelli ? 6 : 10, ctx.tick,
+    );
+    cascadeJointWar(ctx, declarerId as number, targetId as number);
     ctx.events.publish({
       type: 'diplomacy.warDeclared',
       tick: ctx.tick,
@@ -410,7 +679,7 @@ export function registerDiplomacyGameplay(
       return reject(ctx, 'kingdom.proposePeace', `insufficient gold for tribute (${(k.treasury[ki] as number).toFixed(0)}/${tribute})`);
     }
     const exhaustion = state.warExhaustionOf(proposerId as number, targetId as number);
-    const evaluation = evaluatePeaceDeal(exhaustion, tribute, options.personalityOf(targetId));
+    const evaluation = evaluatePeaceDeal(exhaustion, tribute, options.personalityOf(targetId), state.reputationOf(proposerId as number));
     if (evaluation.accept) {
       if (tribute > 0) {
         k.treasury[ki] = (k.treasury[ki] as number) - tribute;
@@ -444,5 +713,93 @@ export function registerDiplomacyGameplay(
   };
   kernel.registerSystem(warExhaustionSystem);
 
+  // ---------------- vassalage (M35) ----------------
+
+  kernel.registerCommand<{ counterpart: number; asVassal: boolean }>('kingdom.proposeVassalage', (ctx, p, command) => {
+    const proposerIndex = indexForIssuer(command.issuer);
+    const proposerId = kingdomAt(proposerIndex);
+    const counterpartIndex = p.counterpart | 0;
+    const counterpartId = kingdomAt(counterpartIndex);
+    if (proposerId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.proposeVassalage', 'no such kingdom');
+    if (proposerId === counterpartId) return reject(ctx, 'kingdom.proposeVassalage', 'cannot vassalize yourself');
+    if (!options.hasDiscovered(proposerIndex, counterpartId) || !options.hasDiscovered(counterpartIndex, proposerId)) {
+      return reject(ctx, 'kingdom.proposeVassalage', 'kingdoms have not made contact');
+    }
+    const vassal = p.asVassal ? (proposerId as number) : (counterpartId as number);
+    const lord = p.asVassal ? (counterpartId as number) : (proposerId as number);
+    if (state.isVassal(vassal)) return reject(ctx, 'kingdom.proposeVassalage', 'already a vassal');
+    if (state.isVassal(lord)) return reject(ctx, 'kingdom.proposeVassalage', 'a vassal cannot itself hold vassals');
+    const perspective = p.asVassal ? 'lord' : 'vassal'; // the COUNTERPART evaluates the offer
+    const evaluation = evaluateVassalageDeal(
+      perspective,
+      state.warExhaustionOf(vassal, lord),
+      options.personalityOf(counterpartId),
+    );
+    if (evaluation.accept) {
+      state.establishVassalage(vassal, lord);
+      if (state.isAtWar(vassal, lord)) state.makePeace(vassal, lord);
+    }
+    ctx.events.publish({
+      type: 'diplomacy.vassalageProposed',
+      tick: ctx.tick,
+      data: {
+        from: proposerId as number, to: counterpartId as number, vassal, lord,
+        value: evaluation.value, threshold: evaluation.threshold, accepted: evaluation.accept,
+      },
+    });
+  });
+
+  kernel.registerCommand<{ counterpart: number }>('kingdom.breakVassalage', (ctx, p, command) => {
+    const senderIndex = indexForIssuer(command.issuer);
+    const senderId = kingdomAt(senderIndex);
+    const counterpartId = kingdomAt(p.counterpart | 0);
+    if (senderId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.breakVassalage', 'no such kingdom');
+    const senderIsVassal = state.lordOf(senderId as number) === (counterpartId as number);
+    const senderIsLord = state.lordOf(counterpartId as number) === (senderId as number);
+    if (!senderIsVassal && !senderIsLord) return reject(ctx, 'kingdom.breakVassalage', 'no such vassalage');
+    const vassal = senderIsVassal ? (senderId as number) : (counterpartId as number);
+    state.breakVassalage(vassal);
+    if (senderIsVassal) state.applyOpinionDelta(senderId as number, counterpartId as number, BREAK_VASSALAGE_OPINION_PENALTY); // rebellion
+    ctx.events.publish({
+      type: 'diplomacy.vassalageBroken',
+      tick: ctx.tick,
+      data: { vassal, lord: senderIsVassal ? (counterpartId as number) : (senderId as number), byRebellion: senderIsVassal },
+    });
+  });
+
+  // seasonal: every vassal pays its lord a fraction of its treasury
+  const vassalTributeSystem: SimSystem = {
+    name: 'diplomacy-vassal-tribute',
+    period: TICKS_PER_SEASON,
+    access: { writes: [kingdomGame.Kingdom] },
+    update(ctx: TickContext): void {
+      const k = world.write(kingdomGame.Kingdom);
+      for (const kingdomId of kingdomGame.kingdomEntities().map((e) => e as number)) {
+        const lord = state.lordOf(kingdomId);
+        if (lord === undefined) continue;
+        const vi = index(kingdomId);
+        const li = index(lord);
+        const tribute = (k.treasury[vi] as number) * VASSAL_TRIBUTE_FRACTION;
+        if (tribute <= 0) continue;
+        k.treasury[vi] = (k.treasury[vi] as number) - tribute;
+        k.treasury[li] = (k.treasury[li] as number) + tribute;
+        ctx.events.publish({ type: 'diplomacy.vassalTribute', tick: ctx.tick, data: { vassal: kingdomId, lord, tribute } });
+      }
+    },
+  };
+  kernel.registerSystem(vassalTributeSystem);
+
   return { state };
+}
+
+/** M35 T objective: a `SaveSection` (persistence.ts, M17) proving every fact this module owns —
+ * opinion, pacts, war, reputation, vassalage, and (the milestone's headline) grudge memory —
+ * round-trips a save/load cycle exactly. */
+export function diplomacySection(state: DiplomacyState): SaveSection {
+  return {
+    key: 'diplomacy',
+    version: 1,
+    save: () => state.saveState(),
+    load: (data) => state.loadState(data),
+  };
 }

@@ -351,6 +351,31 @@ Clause = peace|nonAggression|trade{route}|tribute{amount,interval}|gift{...}
 // of scope. Note: declaring war does NOT itself gate `combat.ts`/`siege.ts` engagement —
 // those already treat any two kingdoms without an active NAP as hostile (M27/M30); `atWar`
 // is the negotiable, exhaustion-tracked diplomatic layer on top, not a new combat trigger.
+//
+// M35 delta (game/diplomacy.ts): `alliance` is a third pact bit (`PACT_ALLIANCE`), evaluated
+// by the SAME `evaluateDeal` every pact type already used — no new evaluator. `jointWar` isn't
+// a proposed clause but an automatic, unconditional CASCADE: the instant a war starts, every
+// kingdom allied with (or vassal to) either belligerent joins on that side, one level deep only
+// (no transitive ally-of-ally chains) — "teeth, not paper" (GDD §10). `vassalage{lord,vassal}`
+// is asymmetric so it's NOT part of the symmetric pact bitmask — a separate `vassalOf` map, at
+// most one lord per vassal, formed via `evaluateVassalageDeal` (a would-be lord nearly always
+// accepts; a would-be vassal only as war exhaustion against the proposer rises — the OQ-9
+// capitulation path). A vassal cannot `kingdom.declareWar` independently and pays a seasonal
+// tribute automatically. **Reputation** (doc 07 §7) is GLOBAL per kingdom (0..100, default 70),
+// unlike pairwise `opinion` — it moves on oathbreaking/unprovoked wars and multiplies every
+// deal's threshold via `reputationFactor` (neutral, exactly 1, at the default — every M23/M31
+// call site is unaffected). **Memory/grudges**: a bounded (`MEMORY_CAP` 5), per-pair list of
+// `MemoryEntry{event, valence, weight, tick}`, recorded on significant acts only (not
+// gifts/insults, which already have their own channel); `effectiveMemoryWeight` is a pure,
+// `grudgeRetention`-scaled exponential decay computed on READ, so stored entries never mutate —
+// which is exactly what makes them trivial to serialize. `diplomacySection` (persistence.ts) is
+// the T objective: the FIRST save section any relational (non-ECS) game/ state has ever gotten
+// (M23/M31/M32/M34's DiplomacyState/ResearchState/CharacterRelations never needed one) — proves
+// grudges, opinion, pacts, war, reputation, and vassalage all round-trip a save/load cycle
+// exactly. `marriage{charA,charB}` as a treaty clause and AI consumption of reputation/grudges
+// (a memory-driven PunitiveRaid-style plan archetype, doc 07 §7/§8) stay out of scope — the
+// former belongs to Characters (M34) which already models marriage at the character level, not
+// as a diplomatic tool; the latter is deferred, "data now, active later" (M25's own precedent).
 
 ## §11. EventDef & scheduled EventInstance
 

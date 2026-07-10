@@ -309,6 +309,17 @@ this milestone's multi-kingdom composition is standalone
 - Memory is bounded (top-K by weight per relationship) and fully serialised — grudges survive
   save/load, which is the point.
 
+**M35 delta (`game/diplomacy.ts`):** `MemoryEntry`, bounded `MEMORY_CAP` (5) per pair, and global
+per-kingdom `reputation` are real at the sim layer, recorded on pact-breaks and war declarations
+(not gifts/insults, which already have their own opinion channel) and multiplying every deal's
+threshold via `reputationFactor`. `effectiveMemoryWeight(entry, tick, grudgeRetention)` is the
+personality-scaled decay this section describes — pure, computed on read, never mutating stored
+data — and `diplomacySection` (persistence.ts) proves it survives save/load exactly, the T
+objective. What's still missing: the AI CONSUMPTION side — no plan archetype reads memory or
+reputation yet (a PunitiveRaid-style archetype scoring off `MemoryEntry.valence`, and `ForgeAlliance`
+factoring in a target's reputation, are both natural extensions of existing hooks) — deliberately
+deferred, "data now, active later" (M25's own precedent for `BuildingDef.military.garrisonCap`).
+
 ## §8. Long-Term Planning & Victory Pursuit
 
 - Victory tracker feeds appraisal: each AI scores its own best victory path (personality

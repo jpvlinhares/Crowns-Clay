@@ -42,7 +42,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M31 — War diplomacy (casus belli, peace deals, war exhaustion) | ✅ — **Phase 4 complete: war** |
 | M32 — Research (tech tree data, scholars, era gates, diffusion) | ✅ — **Phase 5 begins: depth** |
 | M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ |
-| M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ this commit |
+| M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ |
+| M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ this commit |
 
 ## Layout (TDD §3)
 
@@ -110,6 +111,32 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Diplomacy v2 (M35)
+
+Kingdoms can now truly entangle each other (`packages/sim/src/game/diplomacy.ts`, GDD §10, doc
+07 §7): **alliances** are a third pact type (`PACT_ALLIANCE`), evaluated by the exact same
+`evaluateDeal` NAP/trade already use — needing better relations to form, since a mutual-defense
+commitment is a bigger ask. **Joint wars** are the payoff: the instant a war starts, every
+kingdom allied with (or vassal to) either belligerent is cascaded onto that side automatically —
+no proposal, no opt-out, one level deep so a single declaration can't chain into a world war —
+"teeth, not paper" (GDD §10). **Vassalage** is asymmetric (a `vassalOf` map, not the symmetric
+pact bitmask): `evaluateVassalageDeal` has a would-be LORD accept almost unconditionally (a free
+tribute stream) while a would-be VASSAL only submits in proportion to how badly it's losing a war
+against the proposer — the OQ-9 "AI capitulates when hopeless" path, ending the underlying war
+outright. A vassal can't `kingdom.declareWar` independently and pays a seasonal tribute
+automatically. **Reputation** is GLOBAL per kingdom (unlike pairwise opinion) — it drops on
+oathbreaking (breaking an alliance costs more than dropping a NAP) and unprovoked wars, then
+multiplies every deal's threshold via `reputationFactor`, which is exactly 1 at the default value
+— every M23/M31 call site is untouched by this. **Memory/grudges**: a bounded (5), per-kingdom-pair
+list of significant acts (pact breaks, war declarations, honored alliances — not gifts/insults,
+which already have their own channel), with `effectiveMemoryWeight` a pure, personality-scaled
+(`grudgeRetention`) exponential decay computed on read, never mutating stored data. That's what
+makes the T objective — **grudge persistence across save/load** — simple: `diplomacySection`
+(persistence.ts) is the first save section any relational (non-ECS) game/ state has ever needed
+(M23/M31/M32/M34's equivalents never did), proving every fact this module owns — including
+grudges — round-trips a save/load cycle exactly. AI consumption of reputation/grudges (a
+memory-driven plan archetype) stays deliberately out of scope this milestone.
 
 ### Characters (M34)
 

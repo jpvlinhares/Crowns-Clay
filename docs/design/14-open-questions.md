@@ -86,6 +86,11 @@ must learn and edge cases (heirless by RNG).
 **Recommendation:** last-village as the base rule, plus *capitulation mechanics* (AI offers/accepts
 vassalage when hopeless) so mop-up rarely occurs in practice; revisit dynastic defeat as an optional
 rule post-M34.
+**M35 delta:** the capitulation mechanic is real now (`game/diplomacy.ts`'s `kingdom.proposeVassalage`,
+`evaluateVassalageDeal`) — a kingdom losing badly enough (high war exhaustion against the proposer)
+values submission over continued fighting, ending the underlying war outright. Deliberately NOT
+wired to any defeat/victory condition yet (that's M37); this only proves the mechanism a
+"mop-up rarely occurs" endgame needs.
 
 ### OQ-10 — Float determinism vs. fixed-point migration trigger (Due: M26)
 Sim math is f64 under a strict policy (TDD §5). Define now the objective trigger for migrating hot
