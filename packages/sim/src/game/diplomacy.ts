@@ -54,7 +54,10 @@
  * proposal, no opt-out, one level deep (an ally-of-an-ally is NOT dragged in
  * transitively, a deliberate v1 bound against single-command world wars).
  * Honoring the cascade nets the joining kingdom a reputation gain and a
- * positive memory entry.
+ * positive memory entry. `jointWarCoordination` (M38, doc 07 §10) narrows
+ * this per difficulty: 'on' (default) is the M35 behaviour above; 'limited'
+ * drops voluntary allies from the cascade (only obligated vassals still
+ * join); 'off' cascades nobody.
  *
  * VASSALAGE is asymmetric, so it doesn't fit the symmetric pact bitmask —
  * `vassalOf: Map<vassal, lord>`, at most one lord per vassal (no chains
@@ -493,6 +496,10 @@ export interface DiplomacyOptions {
   hasDiscovered(observerIndex: number, target: EntityId): boolean;
   /** The target kingdom's own weights, for evaluating a proposal against it. */
   personalityOf(kingdom: EntityId): DiplomacyPersonality;
+  /** M38 difficulty lever (doc 07 §10 "coordination"): 'on' (default, M35's original behaviour)
+   * cascades both allies AND vassals into a new war; 'limited' cascades only vassals (an
+   * obligation, not a choice); 'off' cascades neither — allies/vassals never auto-join. */
+  readonly jointWarCoordination?: 'off' | 'limited' | 'on';
 }
 
 export interface DiplomacyGameplay {
@@ -617,13 +624,20 @@ export function registerDiplomacyGameplay(
    * ally-of-an-ally is not dragged in transitively — "teeth, not paper" without single-command
    * world wars). Honoring the call nets a small reputation gain and a positive memory. */
   const cascadeJointWar = (ctx: TickContext, a: number, b: number): void => {
+    const coordination = options.jointWarCoordination ?? 'on';
+    if (coordination === 'off') return;
     const kingdoms = kingdomGame.kingdomEntities().map((e) => e as number);
     for (const [belligerent, opponent] of [
       [a, b],
       [b, a],
     ] as const) {
       const reinforcements = kingdoms
-        .filter((k) => k !== a && k !== b && (state.hasPact(k, belligerent, 'alliance') || state.lordOf(k) === belligerent))
+        .filter(
+          (k) =>
+            k !== a &&
+            k !== b &&
+            (state.lordOf(k) === belligerent || (coordination === 'on' && state.hasPact(k, belligerent, 'alliance'))),
+        )
         .sort((x, y) => x - y);
       for (const ally of reinforcements) {
         if (state.isAtWar(ally, opponent)) continue;

@@ -45,7 +45,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ |
 | M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ |
 | M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ |
-| M37 — Victory & defeat (all 5 victory tracks, contestability broadcasts, defeat flow) | ✅ this commit |
+| M37 — Victory & defeat (all 5 victory tracks, contestability broadcasts, defeat flow) | ✅ |
+| M38 — Difficulty system (capability tiers, labelled modifiers, presets) | ✅ this commit — **Phase 5 complete: depth** |
 
 ## Layout (TDD §3)
 
@@ -113,6 +114,30 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Difficulty system (M38) — Phase 5 complete: depth
+
+AI capability and challenge are finally tunable (`packages/sim/src/ai/difficulty.ts`, GDD §14,
+doc 07 §10): four presets — **Story, Fair, Hard, Brutal** — bundle doc 07 §10's table into
+concrete values, mapped into EXISTING (mostly already-composable) options rather than new
+subsystems. `appraisalNoise`/`periodMultiplier` are new, deterministic `ai/planner.ts` options
+(jitter and re-eval-cadence multiplier, both neutral by default); knowledge decay reuses
+`ai/brain.ts`'s `confidenceHalfLifeTicks` option, configurable since M19; scouting diligence is a
+new `revealRadius` override; coordination is a new `jointWarCoordination` option on M35's
+joint-war cascade (`off`/`limited` — vassals only, not voluntary allies — `on`); labelled
+modifiers are a new per-kingdom `difficultyYieldOf` hook on the kingdom roll-up — deliberately a
+KINGDOM-LEVEL tax/prosperity yield, not a raw `economy.ts` production one, since the shared,
+single `StatModifiers` board (bound to kingdom 0 only since M22) can't express a per-kingdom
+bonus. **Fair is the design-integrity benchmark**: both the AI's and the player's labelled yield
+bonus are exactly 0 — genuinely cheat-free. "Manager quality tier" is the one doc 07 §10 row left
+undocumented-into-code: `ai/needs.ts` only ever shipped 2 evaluators total (M20's own v1 slice),
+so there's no smaller "basic" subset to switch a Story-tier AI to yet. The T objective —
+**Fair-difficulty AI beats naive scripted baseline** — runs a Fair-preset AI kingdom (zero
+bonus, full manager stack, aggression zeroed to isolate the economy comparison from an unrelated
+self-destructive-war dynamic discovered while writing this test) against a kingdom governed by a
+fixed, need-blind house-building script, over identical starting conditions: the AI kingdom
+reliably outgrows it, robust across seeds — proving competence, not a numeric cheat, is the
+actual advantage.
 
 ### Victory & defeat (M37)
 

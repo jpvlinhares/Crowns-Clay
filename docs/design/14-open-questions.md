@@ -78,6 +78,10 @@ achievement/chronicle integrity and lets players ratchet around designed tension
 integrity but abandons struggling players.
 **Recommendation:** adjustable downward-only outside ironman, recorded in the chronicle ("difficulty
 lowered, year 34"); ironman locks everything.
+**M38 delta:** the presets themselves are real now (`ai/difficulty.ts`'s `DIFFICULTY_PRESETS`) —
+Story/Fair/Hard/Brutal, chosen at composition time. Mid-campaign adjustment (the downward-only
+rule, chronicle logging, ironman locking) stays a UI/save-flow concern this milestone doesn't
+touch — presets are pure, static config here, not yet wired to a live "change difficulty" command.
 
 ### OQ-9 — Defeat definition: last village vs. capital-and-heir (Due: M32)
 **Trade-offs:** last-village is unambiguous but produces tedious mop-up endgames; capital+heir

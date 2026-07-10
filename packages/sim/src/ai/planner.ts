@@ -24,6 +24,13 @@
  * Standalone and single-village-bound, like M20: a village steering itself
  * needs no fog, so this doesn't touch M19's brain.ts/AiKingdom/Knowledge,
  * and it isn't wired into terra.ts/scenarios.ts (golden-fixture safety).
+ *
+ * M38 delta: two difficulty levers (doc 07 §10) live here directly —
+ * `appraisalNoise` (deterministic per-evaluation jitter on utility scores,
+ * `ctx.rng`-driven so it stays reproducible) and `periodMultiplier` (scales
+ * the weekly re-eval cadence itself — "reaction latency"). Both default to
+ * their M21-M36 values (0 noise, ×1 period), so no prior behaviour changes
+ * unless a caller opts in via ai/difficulty.ts's presets.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase } from '@crowns/data';
@@ -291,6 +298,13 @@ export interface AiStrategicPlannerOptions {
   readonly research?: AiResearchContext;
   /** Extra components a custom `military`/`diplomacy` context reads (e.g. game/military.ts's `Unit`). */
   readonly extraReads?: readonly Component[];
+  /** M38 difficulty lever (doc 07 §10 "appraisal noise"): 0..1 amplitude of deterministic,
+   * per-evaluation jitter added to every archetype's utility score — default 0 (no prior
+   * behaviour changes). Represents imperfect AI judgement, not a yield cheat. */
+  readonly appraisalNoise?: number;
+  /** M38 difficulty lever (doc 07 §10 "plan re-eval latency"): multiplies the weekly re-eval
+   * period — >1 reacts slower, <1 faster. Default 1 (today's exact weekly cadence). */
+  readonly periodMultiplier?: number;
 }
 
 export interface AiStrategicPlanner {
@@ -319,6 +333,8 @@ export function registerAiStrategicPlanner(
   const weights = options.weights ?? DEFAULT_PERSONALITY_WEIGHTS;
   const archetypes = options.archetypes ?? DEFAULT_PLAN_ARCHETYPES;
   const searchRadius = options.searchRadius ?? DEFAULT_SETTLE_SEARCH_RADIUS;
+  const appraisalNoise = options.appraisalNoise ?? 0;
+  const periodMultiplier = options.periodMultiplier ?? 1;
 
   const currentPlan = (): string => {
     if (!world.isAlive(options.villageId) || !world.has(options.villageId, AiPlanState)) {
@@ -331,7 +347,7 @@ export function registerAiStrategicPlanner(
 
   const system: SimSystem = {
     name: options.id !== undefined ? `ai-strategic-planner-${options.id}` : 'ai-strategic-planner',
-    period: TICKS_PER_DAY * 7,
+    period: Math.max(1, Math.round(TICKS_PER_DAY * 7 * periodMultiplier)),
     phase: 0,
     access: {
       reads: [game.comps.VillageCore, game.comps.BuildingCore, popGame.Population, game.comps.Stockpile, ...(options.extraReads ?? [])],
@@ -354,7 +370,8 @@ export function registerAiStrategicPlanner(
       let bestIndex = previousIndex;
       let bestScore = -Infinity;
       archetypes.forEach((archetype, i) => {
-        const raw = archetype.utility(considerations, weights) * (weights.planBiases?.[archetype.id] ?? 1);
+        const noise = appraisalNoise > 0 ? (ctx.rng.nextFloat() * 2 - 1) * appraisalNoise : 0;
+        const raw = archetype.utility(considerations, weights) * (weights.planBiases?.[archetype.id] ?? 1) + noise;
         scores[archetype.id] = raw;
         const effective = raw + (i === previousIndex ? HYSTERESIS_BONUS : 0);
         if (effective > bestScore) {

@@ -35,6 +35,15 @@
  * can't import characters.ts to do this itself (the dependency only runs one
  * way). Trait skill deltas are applied directly onto `Character`'s stored
  * skill fields, so the office-bonus math above needed no changes at all.
+ *
+ * M38 hook: `KingdomGameplayOptions.difficultyYieldOf` is an optional
+ * per-kingdom multiplier on daily tax/prosperity yield (GDD §14's "labelled
+ * modifiers") — defaults to a flat 1 (today's exact formula, no prior
+ * behaviour changes). Deliberately a KINGDOM-LEVEL yield, not a raw
+ * resource-production one (economy.ts is untouched) — the shared, single
+ * `StatModifiers` board this module already has (bound to kingdom 0 only,
+ * per the M22 note above) can't express a per-kingdom bonus, so this rides
+ * alongside it instead of through it.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase, EdictDef } from '@crowns/data';
@@ -175,6 +184,14 @@ export interface KingdomGameplayOptions {
    * per-kingdom tax/office scoping only activate when this is `> 1`.
    */
   readonly kingdomCount?: number;
+  /** M38 difficulty lever (GDD §14 "labelled modifiers"): an optional per-kingdom multiplier on
+   * daily tax/prosperity yield — e.g. 1.15 for a visible +15% AI bonus at Hard, 1.3 at Brutal, or
+   * a player-side bonus at Story. Omit (or return 1) for zero-modifier "Fair" behaviour — the
+   * exact pre-M38 formula. This is a KINGDOM-LEVEL (treasury/prosperity) yield, not a raw
+   * resource-production one (game/economy.ts's production system is untouched) — a deliberate,
+   * bounded reading of "yields" that needed no changes to the shared, single `StatModifiers`
+   * board (M22's own scoping note: that board is bound to kingdom 0 only). */
+  readonly difficultyYieldOf?: (kingdomId: EntityId) => number;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -193,6 +210,7 @@ export function registerKingdomGameplay(
   const { Population } = popGame;
   const index = (id: number): number => id & 0x3fffff;
   const kingdomCount = options.kingdomCount ?? 1;
+  const difficultyYieldOf = options.difficultyYieldOf ?? (() => 1);
   const VillageOwner: SoAComponent<{ kingdom: 'eid' }> | undefined =
     kingdomCount > 1 ? world.defineSoA('villageOwner', { kingdom: 'eid' }) : undefined;
 
@@ -408,7 +426,7 @@ export function registerKingdomGameplay(
       for (const kingdomId of kingdomIds) {
         const ki = index(kingdomId as number);
         let taxes = 0;
-        const taxYield = mods.mul('kingdom.taxYield');
+        const taxYield = mods.mul('kingdom.taxYield') * difficultyYieldOf(kingdomId);
         world.query([Population, VillageCore]).forEach((vi) => {
           if (ownerOf !== null && (ownerOf.kingdom[vi] as number) !== (kingdomId as number)) return;
           const rate = TAX_RATES[core.taxRate[vi] as number] ?? TAX_RATES[2];

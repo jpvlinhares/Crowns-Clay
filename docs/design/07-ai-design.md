@@ -327,6 +327,7 @@ deferred, "data now, active later" (M25's own precedent for `BuildingDef.militar
   **containment consideration** raises war/alliance utility against any kingdom (player included)
   approaching a win — making every victory contestable (GDD §16).
 - Decade-scale behaviours emerge from plan ladders + memory, not scripts: a humiliated Warmonger
+  fortifies, rebuilds, seeks allies against you, and returns.
 
 **M37 delta (`game/victory.ts`):** the tracker itself is real — all five GDD §16 tracks, the
 last-village defeat rule (OQ-9), and a `victory.approaching` broadcast the instant any enabled
@@ -339,7 +340,6 @@ tracker's own logic (`game/victory.test.ts`, engineered conquest/hegemony/legacy
 chronicle scenarios), the same "test the scoring function, not an emergent economy" lesson M36's
 blind fingerprint test learned — whether the real AI economy ever naturally PURSUES a victory is
 this section's still-open, deliberately deferred question.
-  fortifies, rebuilds, seeks allies against you, and returns.
 
 ## §9. Personality System
 
@@ -377,6 +377,26 @@ the knowledge model stays a future UI's job — no new fact kind was added here.
 | Labelled modifiers (visible, GDD §14) | +player | none | +15% AI | +30% AI |
 
 No hidden information access at any difficulty; "Fair" is the design-integrity benchmark.
+
+**M38 delta (`ai/difficulty.ts`):** every row above is a real, wired lever now, mapped into
+existing (mostly already-composable) options rather than new subsystems: `appraisalNoise`/
+`periodMultiplier` are new `ai/planner.ts` options (deterministic `ctx.rng`-driven jitter and a
+weekly-period multiplier, both defaulting to today's exact M21-M36 behaviour); knowledge decay
+reuses `ai/brain.ts`'s `confidenceHalfLifeTicks` option, already configurable since M19;
+scouting diligence is a new `revealRadius` override on `ai/scouting.ts`; coordination is a new
+`jointWarCoordination` option on `game/diplomacy.ts`'s M35 joint-war cascade ('off' cascades
+nobody, 'limited' only the obligated vassal — not voluntary allies — 'on' is the original M35
+behaviour); labelled modifiers are a new per-kingdom `difficultyYieldOf` hook on
+`game/kingdom.ts`'s daily roll-up (a KINGDOM-LEVEL tax/prosperity yield, not a raw
+economy.ts production one — the shared, single `StatModifiers` board M22 already scoped to
+kingdom 0 only can't express a per-kingdom bonus). "Manager quality tier" is the one row left
+undocumented-into-code: `ai/needs.ts` only ever shipped 2 evaluators total (M20's own v1 slice),
+so there's no smaller "basic" subset to switch a Story-tier AI to yet — the preset field exists
+and is documented, wiring it is deferred. The T objective ("Fair-difficulty AI beats naive
+scripted baseline") is proven directly: a Fair-preset AI kingdom (zero labelled bonus, its
+existing full manager stack) reliably outgrows a kingdom governed by a fixed, need-blind script
+over the same starting conditions (`ai/difficulty.test.ts`) — AI competence, not a numeric
+cheat, is the advantage.
 
 ## §11. Performance & Determinism Envelope
 
