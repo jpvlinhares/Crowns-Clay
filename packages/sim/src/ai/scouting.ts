@@ -31,6 +31,9 @@ export interface ScoutingKingdom {
 export interface ScoutingOptions {
   /** Extra components the `kingdoms[].villages()` callbacks read from `world`. */
   readonly extraReads?: readonly Component[];
+  /** M38 difficulty lever (doc 07 §10 "scouting diligence"): overrides `SCOUT_REVEAL_RADIUS` —
+   * smaller means less diligent (discovers rivals later), larger means more. */
+  readonly revealRadius?: number;
 }
 
 function chebyshev(a: ScoutTarget, b: ScoutTarget): number {
@@ -44,6 +47,7 @@ export function registerScoutingSystem(
   kingdoms: readonly ScoutingKingdom[],
   options: ScoutingOptions = {},
 ): void {
+  const revealRadius = options.revealRadius ?? SCOUT_REVEAL_RADIUS;
   kernel.registerSystem({
     name: 'scouting',
     period: TICKS_PER_DAY,
@@ -58,7 +62,7 @@ export function registerScoutingSystem(
           for (const target of foreign.villages()) {
             let nearest = Infinity;
             for (const own of ownVillages) nearest = Math.min(nearest, chebyshev(own, target));
-            if (nearest <= SCOUT_REVEAL_RADIUS) fog.reveal(observer.kingdomIndex, target.entityIndex);
+            if (nearest <= revealRadius) fog.reveal(observer.kingdomIndex, target.entityIndex);
           }
         }
       }

@@ -20,12 +20,34 @@
  * ADVISORS v1: notable characters (doc 06 §6 slice — named, aged, skilled
  * 0–20) spawned deterministically at kingdom genesis. Appointing a Steward
  * multiplies tax yield by skill; Chancellor discounts edict upkeep; Marshal
- * and Scholar hold their offices for M25/M32. Advisors draw a daily salary,
- * age, and die — death vacates the office by event.
+ * discounts unit upkeep by martial skill (game/military.ts, M25); Scholar
+ * multiplies research point accrual by scholarship skill (game/research.ts,
+ * M32). Advisors draw a daily salary, age, and die — death vacates the
+ * office by event.
+ *
+ * M34 hooks for the notable/heir system (game/characters.ts), which deepens
+ * these SAME character entities rather than spawning its own: (1)
+ * `kingdom.appoint` rejects characters below `MIN_OFFICE_AGE`, so a freshly
+ * born heir can't take a seat immediately; (2) `registerCharacterExtension`
+ * lets that module declare its sibling components (traits/gender/loyalty) to
+ * `character-aging`'s yearly despawn, which must declare every component it
+ * detaches (the access guard's declared-access enforcement, M4) — kingdom.ts
+ * can't import characters.ts to do this itself (the dependency only runs one
+ * way). Trait skill deltas are applied directly onto `Character`'s stored
+ * skill fields, so the office-bonus math above needed no changes at all.
+ *
+ * M38 hook: `KingdomGameplayOptions.difficultyYieldOf` is an optional
+ * per-kingdom multiplier on daily tax/prosperity yield (GDD §14's "labelled
+ * modifiers") — defaults to a flat 1 (today's exact formula, no prior
+ * behaviour changes). Deliberately a KINGDOM-LEVEL yield, not a raw
+ * resource-production one (economy.ts is untouched) — the shared, single
+ * `StatModifiers` board this module already has (bound to kingdom 0 only,
+ * per the M22 note above) can't express a per-kingdom bonus, so this rides
+ * alongside it instead of through it.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase, EdictDef } from '@crowns/data';
-import { ObjectComponent, SoAComponent, World } from '../ecs.js';
+import { ObjectComponent, SoAComponent, World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY, TICKS_PER_YEAR } from '../time.js';
 import type { VillageGameplay } from './villages.js';
@@ -38,6 +60,7 @@ export const STARTING_TREASURY = 100;
 export const EDICT_CAP = 3;
 export const ADVISOR_SALARY = 2; // gold per day per seated advisor
 export const ADVISOR_POOL = 6; // candidates at kingdom genesis
+export const MIN_OFFICE_AGE = 16; // M34: a freshly born heir (game/characters.ts) can't hold office yet
 
 /** Tax rates (GDD §2): fraction of prosperity taken; daily happiness drift. */
 export const TAX_RATES = [
@@ -86,9 +109,9 @@ export class StatModifiers {
 
 export interface LedgerEntry {
   readonly tick: number;
-  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary';
+  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary' | 'unit-recruit' | 'unit-upkeep';
   readonly amount: number; // signed: income positive, expense negative
-  readonly detail: string; // village name, edict id, office…
+  readonly detail: string; // village name, edict id, office, unit def…
 }
 
 /** Every gold movement, in order. The treasury reconciles to its sum. */
@@ -143,6 +166,13 @@ export interface KingdomGameplay {
   treasury(): number;
   /** Re-bind the kingdom entities and rebuild the modifier board after save hydration (M17). */
   refreshAfterLoad(): void;
+  /**
+   * M34 extension point: declare a component a LATER module attaches to `Character` entities
+   * (game/characters.ts's traits/gender/loyalty), so `character-aging`'s yearly despawn — which
+   * must declare every component it detaches — stays valid without kingdom.ts importing that
+   * module (the dependency only runs one way).
+   */
+  registerCharacterExtension(comp: Component): void;
 }
 
 export interface KingdomGameplayOptions {
@@ -154,6 +184,14 @@ export interface KingdomGameplayOptions {
    * per-kingdom tax/office scoping only activate when this is `> 1`.
    */
   readonly kingdomCount?: number;
+  /** M38 difficulty lever (GDD §14 "labelled modifiers"): an optional per-kingdom multiplier on
+   * daily tax/prosperity yield — e.g. 1.15 for a visible +15% AI bonus at Hard, 1.3 at Brutal, or
+   * a player-side bonus at Story. Omit (or return 1) for zero-modifier "Fair" behaviour — the
+   * exact pre-M38 formula. This is a KINGDOM-LEVEL (treasury/prosperity) yield, not a raw
+   * resource-production one (game/economy.ts's production system is untouched) — a deliberate,
+   * bounded reading of "yields" that needed no changes to the shared, single `StatModifiers`
+   * board (M22's own scoping note: that board is bound to kingdom 0 only). */
+  readonly difficultyYieldOf?: (kingdomId: EntityId) => number;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -172,6 +210,7 @@ export function registerKingdomGameplay(
   const { Population } = popGame;
   const index = (id: number): number => id & 0x3fffff;
   const kingdomCount = options.kingdomCount ?? 1;
+  const difficultyYieldOf = options.difficultyYieldOf ?? (() => 1);
   const VillageOwner: SoAComponent<{ kingdom: 'eid' }> | undefined =
     kingdomCount > 1 ? world.defineSoA('villageOwner', { kingdom: 'eid' }) : undefined;
 
@@ -231,6 +270,16 @@ export function registerKingdomGameplay(
     if (steward !== 0 && world.isAlive(steward as EntityId)) {
       // Steward: tax yield ×(1 + stewardship/100) — up to +20% at skill 20
       sources.push({ target: 'kingdom.taxYield', op: 'mul', value: 1 + (c.stewardship[index(steward)] as number) / 100 });
+    }
+    const marshal = k.marshal[ki] as number;
+    if (marshal !== 0 && world.isAlive(marshal as EntityId)) {
+      // Marshal (M25): unit upkeep ×(1 − martial/100) — up to −20% at skill 20
+      sources.push({ target: 'military.upkeepDiscount', op: 'mul', value: 1 - (c.martial[index(marshal)] as number) / 100 });
+    }
+    const scholar = k.scholar[ki] as number;
+    if (scholar !== 0 && world.isAlive(scholar as EntityId)) {
+      // Scholar (M32): research point accrual ×(1 + scholarship/100) — up to +20% at skill 20
+      sources.push({ target: 'kingdom.researchYield', op: 'mul', value: 1 + (c.scholarship[index(scholar)] as number) / 100 });
     }
     mods.rebuild(sources);
   };
@@ -320,6 +369,8 @@ export function registerKingdomGameplay(
     if (!world.isAlive(character) || !world.has(character, Character)) {
       return reject(ctx, 'kingdom.appoint', 'no such character');
     }
+    const age = world.read(Character).age[index(character)] as number;
+    if (age < MIN_OFFICE_AGE) return reject(ctx, 'kingdom.appoint', `too young for office (age ${age} < ${MIN_OFFICE_AGE})`);
     const k = world.write(Kingdom);
     const ki = index(kingdomId as number);
     // one office per person: vacate any seat they already hold
@@ -375,7 +426,7 @@ export function registerKingdomGameplay(
       for (const kingdomId of kingdomIds) {
         const ki = index(kingdomId as number);
         let taxes = 0;
-        const taxYield = mods.mul('kingdom.taxYield');
+        const taxYield = mods.mul('kingdom.taxYield') * difficultyYieldOf(kingdomId);
         world.query([Population, VillageCore]).forEach((vi) => {
           if (ownerOf !== null && (ownerOf.kingdom[vi] as number) !== (kingdomId as number)) return;
           const rate = TAX_RATES[core.taxRate[vi] as number] ?? TAX_RATES[2];
@@ -446,12 +497,18 @@ export function registerKingdomGameplay(
   };
 
   // ---------------- yearly: advisors age; the old may die ----------------
+  // `agingWrites` is mutable so a later module that attaches its OWN sibling components to
+  // these same Character entities (game/characters.ts, M34: traits/gender/loyalty) can extend
+  // it via `registerCharacterExtension` — despawn() detaches every attached component and the
+  // access guard requires all of them declared, but kingdom.ts can't import a module that
+  // depends on it (wrong direction), so the extension point runs the other way.
+  const agingWrites: Component[] = [Kingdom, Character, CharacterName];
   const aging: SimSystem = {
     name: 'character-aging',
     period: TICKS_PER_YEAR,
     phase: 7,
     // despawn detaches the name too; the modifier rebuild reads active edicts
-    access: { writes: [Kingdom, Character, CharacterName], reads: [ActiveEdicts] },
+    access: { writes: agingWrites, reads: [ActiveEdicts] },
     update(ctx: TickContext): void {
       const c = world.write(Character);
       const names = world.readObj(CharacterName);
@@ -511,6 +568,9 @@ export function registerKingdomGameplay(
       kingdomIds.length = 0;
       world.query([Kingdom]).forEach((_i, entity) => kingdomIds.push(entity));
       rebuildModifiers();
+    },
+    registerCharacterExtension(comp: Component): void {
+      agingWrites.push(comp);
     },
   };
 }

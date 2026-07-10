@@ -14,6 +14,7 @@ export const MODIFIER_TARGETS = [
   'village.productionEfficiency', // mul: workforce efficiency multiplier
   'village.spoilage', // mul: decay-rate multiplier
   'kingdom.taxYield', // mul: tax income multiplier
+  'kingdom.researchYield', // mul: research point accrual multiplier (M32, Scholar office)
 ] as const;
 
 export type ModifierTarget = (typeof MODIFIER_TARGETS)[number];

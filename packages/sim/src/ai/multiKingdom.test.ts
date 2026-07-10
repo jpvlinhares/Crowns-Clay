@@ -25,10 +25,12 @@ const YEARS = 50;
 const AI_TICK_BUDGET_SHARE = 0.3;
 
 /** Stands in for a "Warmonger"-like archetype (M36 hasn't shipped named archetypes yet):
- * expansion-leaning, low trust in diplomacy. */
-const EXPANSIONIST: PersonalityWeights = { expansion: 0.9, economy: 0.2, riskTolerance: 0.7, diplomacyTrust: 0.3 };
+ * expansion-leaning, low trust in diplomacy. Low `aggression` (M30) keeps this test's
+ * fingerprint about PEACEFUL expansion vs. economy focus — MilitaryBuildup/ConquestWar get
+ * their own dedicated fingerprint test (multiKingdomWar.test.ts). */
+const EXPANSIONIST: PersonalityWeights = { expansion: 0.9, economy: 0.2, riskTolerance: 0.7, diplomacyTrust: 0.3, aggression: 0.1 };
 /** Stands in for a "Builder"-like archetype: economy-leaning, high trust in diplomacy. */
-const BUILDER: PersonalityWeights = { expansion: 0.1, economy: 0.9, riskTolerance: 0.3, diplomacyTrust: 0.7 };
+const BUILDER: PersonalityWeights = { expansion: 0.1, economy: 0.9, riskTolerance: 0.3, diplomacyTrust: 0.7, aggression: 0.1 };
 
 test('M24 harness: 8 AI kingdoms survive 50 years without crashing', () => {
   const composed = composeMultiKingdom({

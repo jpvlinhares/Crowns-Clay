@@ -69,6 +69,33 @@ component) — per-evaluation scores are ephemeral, published each week via a `G
 (`ai.planChosen`) as the decision log, not stored. Standalone and single-village-bound like M20 (not
 routed through `brain.ts`'s shadow-kingdom/fog machinery, not wired into `terra.ts`/`scenarios.ts`).
 
+**M30 scoping note:** `MilitaryBuildup` and `ConquestWar` land (`packages/sim/src/ai/military.ts`
+executes them; `PunitiveRaid`/`FortifyBorder` stay deferred — two archetypes prove the ladder
+without doubling the surface area). `PersonalityWeights` gains `aggression` (default 0.5, like
+`diplomacyTrust`); `Considerations` gains `militaryStrength` (own committed troops, normalised
+against `MILITARY_STRENGTH_NORM = 40`) and `relativeAdvantage` (own vs. the strongest known rival's
+strength). Both are computed from PLAIN committed-troop counts, not "believed" strength through
+`brain.ts`'s Knowledge Model — same standalone simplification as M21/M23. Inert defaults matter
+here: no `military` context wired in ⇒ `militaryStrength = 1` ("nothing to build") and
+`relativeAdvantage = 0` ("no case for war"), so both archetypes score exactly 0 wherever the war
+stack isn't composed — verified against a real regression (adding them un-gated initially crowded
+out `ExpandSettle` in M24's own fingerprint test). The ladder itself is emergent from utility scoring
+(`MilitaryBuildup` wins while weak, `ConquestWar` overtakes it once strong AND advantaged) rather
+than doc 07 §2's authored milestone ladder (secure ally → stockpile → raise army → declare →
+siege) — deferred, same spirit as M21 shipping hysteresis instead of ladders for its 3 archetypes.
+
+**M32 scoping note:** `TechRace` lands (`packages/sim/src/ai/research.ts` executes it;
+`PrepareVictory` stays deferred to Victory, M37). `PersonalityWeights` gains `tech` (default
+0.5); `Considerations` gains `researchOpportunity` — fraction of the tech tree still unknown
+(`1 - coverage`), read from `game/research.ts`'s `ResearchState` via the same
+plain-committed-count convention M30 used (not "believed" through the Knowledge Model). Inert
+default: no `research` context wired in ⇒ `researchOpportunity = 0` ("nothing to race toward"),
+so the archetype scores exactly 0 wherever the research stack isn't composed (M20/M21/M23/M30's
+existing tests, unchanged). `TechRace`'s utility rewards a strong economy AND real headroom left
+in the tree together — a kingdom that already knows everything has nothing left to race for, the
+same "fades as its own precondition is satisfied" shape `DevelopHeartland` already has via
+`growthHeadroom`.
+
 ## §3. Tactical AI (battles & manoeuvre)
 
 - **Operational layer** (map): army movement scored by objective value × path risk (believed enemy
@@ -80,6 +107,32 @@ routed through `brain.ts`'s shadow-kingdom/fog machinery, not wired into `terra.
   personality *is* the auto-resolver — guaranteeing GDD §8 parity.
 - **Siege conduct:** choose bombard vs. starve vs. assault by expected-cost model (time value from
   strategic plan urgency vs. casualty estimate from defence graph state).
+
+**M30 scoping note:** `packages/sim/src/ai/military.ts`'s tactical policy is a straight-line v1 —
+nearest known war target, `army.moveTo` (M26 HPA*), `siege.begin`/`siege.setTarget`/`siege.assault`
+the moment a breach opens (castle targets), or nothing extra at all for a non-castle village
+(combat.ts's own proximity detection, M27, engages automatically once armies are adjacent — no
+separate "attack" order exists). No expected-cost model, no path-risk scoring, no relief-army logic,
+and no retreat threshold: those all need levers this milestone doesn't add — the "battle layer"
+order vocabulary beyond `withdraw` (advance/hold/flank/target) isn't a resolvable choice in
+combat.ts yet (M27's own deferral), so there is nothing for a policy to score between. One action
+per day, in priority order (mirrors M20's build-one-per-day anti-spam pattern): barracks → recruit →
+assemble/garrison → fortify → march/siege.
+
+**M31 delta:** `AiMilitaryOptions` gains an optional `diplomacy` hook (`AiWarDiplomacy`) tying
+tactics to `game/diplomacy.ts`'s new war state. Marching on a target the kingdom isn't already
+formally at war with issues `kingdom.declareWar` (`casusBelli: true` — this v1 has no real casus-
+belli tracking of its own, so a deliberate `ConquestWar` commitment is treated as "claimed just
+cause", same trust-the-input shape as every other AI-issued command) the moment that target is
+picked, ahead of the march/siege order. The reverse lever — de-escalation — fires when the
+strategic planner drops out of `MilitaryBuildup`/`ConquestWar` entirely (economy won out, or the
+war looks lost): the manager sues for a tribute-free `kingdom.proposePeace` with every kingdom it's
+still at war with. It's a weak offer (`evaluatePeaceDeal` needs meaningful exhaustion or tribute to
+clear threshold) and may well be rejected, but that's fine by design — `diplomacy.ts`'s exhaustion-
+driven FORCED peace is the actual "no forever-wars" guarantee (doc 06 §10, doc 08 §8), not this
+AI's cooperation. Combat/siege engagement itself is unchanged by any of this (still the pre-
+existing "no active NAP ⇒ hostile" gate, M27/M30) — `atWar` layers negotiable, tracked diplomatic
+state on top, it isn't a new prerequisite for the fighting to start.
 
 ## §4. Economic & Event-Response AI
 
@@ -116,6 +169,42 @@ previously deferred pending this milestone) is now real, scored by a new `allian
 consideration that's inert (always 0) without a wired `diplomacy` context — additive, no M21 test
 changes behaviour.
 
+**M31 scoping note:** ships **casus belli**, **peace deals**, and **war exhaustion**
+(`kingdom.declareWar`, `kingdom.proposePeace`, `evaluatePeaceDeal`) — **ransom** (doc 06 §10's
+`Clause.ransom{characterId,amount}`) needs a captivity concept (a commander taken prisoner) that
+M34's notable/heir system (game/characters.ts) doesn't add either — it stays out of scope until
+whichever milestone wires captured-in-battle commanders; `tribute`
+(a flat one-time gold transfer, part of `kingdom.proposePeace`'s payload) is this milestone's
+stand-in. `atWar`/`warExhaustion` join the SAME `DiplomaticRelation` record opinion/pacts already
+live on, not a separate object. `evaluatePeaceDeal(exhaustion, tribute, weights)` is pure — same
+"never who's asking" symmetry guarantee as `evaluateDeal` — and war exhaustion accrues on a fixed
+daily cadence (doc 08 §2 row 16's first real cadence system) regardless of whether either side ever
+proposes anything: at `FORCED_PEACE_EXHAUSTION` peace lands unconditionally. That unconditional
+cap — not any AI accepting a deal — is what makes "no forever-wars" a guarantee rather than a
+tendency; verified in the harness with two kingdoms that never voluntarily de-escalate (both
+`aggression: 0.95`) and still see their war forced to peace.
+
+**M32 scoping note:** `packages/sim/src/ai/research.ts`'s manager is a straight-line v1 like
+M30's tactical policy — one action per day, only while `TechRace` is the active plan: raise a
+scribe's hut if the village has none, else start the CHEAPEST currently-available tech
+(`ResearchGameplay.availableTechs`, already era/prerequisite-gated) if nothing is active. No
+"best tech" value scoring beyond cost — a real value function (branch fit, unlock relevance to
+the current plan) is deferred, same spirit as M25's cheapest-fallback recruit order. Diffusion
+(`knownByNeighbor`, game/research.ts) is wired fog-gated in the harness: a tech already known by
+any DISCOVERED rival costs less, the same catch-up mechanic GDD §9 calls for, using M22's
+existing `FogRegistry` rather than a new discovery channel.
+
+**M33 scoping note:** ships exactly the bullet above — `registerAiEventAnswering`
+(`packages/sim/src/ai/events.ts`) scores every pending event's choices as
+`Σ aiScoreHints[axis] * weights[axis]` over shared axis names (an unscored axis defaults to
+neutral 0.5, same "no opinion" default `PersonalityWeights`'s own optional axes already use) and
+submits `event.choose` for the top scorer — no effect-simulation step (doc 07's "apply effects
+virtually, score resulting state" is a fuller model than one milestone's scope; scoring the
+content-authored hints directly is the v1 slice, same "data now, active later" spirit as M25's
+`garrisonCap`). A choice whose requirements aren't met is simply rejected and retried unchanged
+next day — an acceptable v1 gap (documented, not silently swallowed): a mis-scored choice can sit
+rejected indefinitely rather than falling back to a second-best option.
+
 ## §5. Construction AI
 
 - Shares the player's placement validator (one code path, no cheating placements). Pipeline:
@@ -145,7 +234,16 @@ Site scoring is nearest-valid-tile via spiral search (`findBuildSite`, extracted
 genesis pattern) — richer scoring (adjacency, road distance, aura coverage) is deferred; the manager
 runs decoupled from M19's `AiKingdom`/`Knowledge`/fog machinery (a village managing itself needs no
 fog) and is not wired into `terra.ts`/`scenarios.ts`, for the same golden-fixture-safety reason M19
-stayed decoupled. Castle planning (M28) and settler dispatch (M22 multi-kingdom) remain out of scope.
+stayed decoupled. Settler dispatch (M22 multi-kingdom) remains out of scope.
+
+**M30 scoping note (castle planning):** `packages/sim/src/ai/military.ts`'s `planCastleRing` is a
+FIXED small ring around the village centre — not doc 07 §5's terrain-adapted archetype templates
+(motte/concentric/ridge-line); a v1 simplification, same spirit as M20 shipping only 2 of the
+listed need types. It queues via the ordinary `village.build` command (one wall segment per day,
+same anti-churn discipline as the food/housing evaluators), not through `chooseBuildTarget`'s
+capacity-ratio model — a wall isn't a "need" with a satisfiable ratio, it's a fixed set of
+positions to fill in. Only runs while `MilitaryBuildup`/`ConquestWar` is the active plan, after the
+barracks and one recruit/army-assembly action for the day are already handled.
 
 ## §6. Knowledge Model (fog of information)
 
@@ -211,6 +309,17 @@ this milestone's multi-kingdom composition is standalone
 - Memory is bounded (top-K by weight per relationship) and fully serialised — grudges survive
   save/load, which is the point.
 
+**M35 delta (`game/diplomacy.ts`):** `MemoryEntry`, bounded `MEMORY_CAP` (5) per pair, and global
+per-kingdom `reputation` are real at the sim layer, recorded on pact-breaks and war declarations
+(not gifts/insults, which already have their own opinion channel) and multiplying every deal's
+threshold via `reputationFactor`. `effectiveMemoryWeight(entry, tick, grudgeRetention)` is the
+personality-scaled decay this section describes — pure, computed on read, never mutating stored
+data — and `diplomacySection` (persistence.ts) proves it survives save/load exactly, the T
+objective. What's still missing: the AI CONSUMPTION side — no plan archetype reads memory or
+reputation yet (a PunitiveRaid-style archetype scoring off `MemoryEntry.valence`, and `ForgeAlliance`
+factoring in a target's reputation, are both natural extensions of existing hooks) — deliberately
+deferred, "data now, active later" (M25's own precedent for `BuildingDef.military.garrisonCap`).
+
 ## §8. Long-Term Planning & Victory Pursuit
 
 - Victory tracker feeds appraisal: each AI scores its own best victory path (personality
@@ -220,6 +329,18 @@ this milestone's multi-kingdom composition is standalone
 - Decade-scale behaviours emerge from plan ladders + memory, not scripts: a humiliated Warmonger
   fortifies, rebuilds, seeks allies against you, and returns.
 
+**M37 delta (`game/victory.ts`):** the tracker itself is real — all five GDD §16 tracks, the
+last-village defeat rule (OQ-9), and a `victory.approaching` broadcast the instant any enabled
+track crosses 80% of its threshold (the contestability signal this section's containment
+consideration would read). What's still missing, same shape as M35/M36's own deferrals: no plan
+archetype actually SCORES `favoredVictory` alignment or reacts to `victory.approaching` yet — no
+`PrepareVictory` archetype, no containment consideration wired into `ai/planner.ts`'s utility
+scoring. The T objective ("each victory achievable ≤ year cap") is proven directly against the
+tracker's own logic (`game/victory.test.ts`, engineered conquest/hegemony/legacy/prosperity/
+chronicle scenarios), the same "test the scoring function, not an emergent economy" lesson M36's
+blind fingerprint test learned — whether the real AI economy ever naturally PURSUES a victory is
+this section's still-open, deliberately deferred question.
+
 ## §9. Personality System
 
 - `AIPersonalityDef` (doc 06 §7) weights every utility axis; shipped archetypes (data, hence
@@ -228,6 +349,22 @@ this milestone's multi-kingdom composition is standalone
 - Personality must be *legible*: it biases weights, taunt/voice sets, deal thresholds, and event
   choices; the diplomacy screen surfaces observed traits ("Known for: holding grudges") once the
   player has evidence (knowledge model), directly serving Vision success criterion 6.
+
+**M36 delta:** all 7 archetypes are real content now (`content/base/defs/personalities/core.json5`),
+each with a distinct `weights`/`planBiases` profile — `ai/personality.ts`'s `perturbWeights` is the
+seeded jitter, `toPlannerWeights` carries `planBiases` into `ai/planner.ts`'s scoring loop (a new
+optional multiplier, default 1, so no prior planner behaviour changed). The T objective — **blind
+fingerprint test** — treats each archetype's `PlanArchetype.utility` score vector under a fixed,
+generous "every opportunity available" scenario as its fingerprint (planner.test.ts's own "unit-
+test the scoring function against synthetic `Considerations`" pattern, not an emergent multi-year
+economy — whether the real simulation's economy ever REACHES that generous scenario is a separate,
+much harder balance question, M46's job): several perturbed instances per archetype are classified,
+blind, against all 7 canonical fingerprints by correlation, and every one lands on its own
+archetype — proof the 7 profiles are behaviourally distinct, not just differently worded flavour
+text. A companion smoke test runs all 7 through a real, short AI-vs-AI campaign
+(`composeMultiKingdom`) to confirm nothing crashes and real divergence shows up in practice.
+`describePersonality` (the "Known for..." legibility piece) is pure and confidence-gating it behind
+the knowledge model stays a future UI's job — no new fact kind was added here.
 
 ## §10. Difficulty Scaling (capability-first)
 
@@ -240,6 +377,26 @@ this milestone's multi-kingdom composition is standalone
 | Labelled modifiers (visible, GDD §14) | +player | none | +15% AI | +30% AI |
 
 No hidden information access at any difficulty; "Fair" is the design-integrity benchmark.
+
+**M38 delta (`ai/difficulty.ts`):** every row above is a real, wired lever now, mapped into
+existing (mostly already-composable) options rather than new subsystems: `appraisalNoise`/
+`periodMultiplier` are new `ai/planner.ts` options (deterministic `ctx.rng`-driven jitter and a
+weekly-period multiplier, both defaulting to today's exact M21-M36 behaviour); knowledge decay
+reuses `ai/brain.ts`'s `confidenceHalfLifeTicks` option, already configurable since M19;
+scouting diligence is a new `revealRadius` override on `ai/scouting.ts`; coordination is a new
+`jointWarCoordination` option on `game/diplomacy.ts`'s M35 joint-war cascade ('off' cascades
+nobody, 'limited' only the obligated vassal — not voluntary allies — 'on' is the original M35
+behaviour); labelled modifiers are a new per-kingdom `difficultyYieldOf` hook on
+`game/kingdom.ts`'s daily roll-up (a KINGDOM-LEVEL tax/prosperity yield, not a raw
+economy.ts production one — the shared, single `StatModifiers` board M22 already scoped to
+kingdom 0 only can't express a per-kingdom bonus). "Manager quality tier" is the one row left
+undocumented-into-code: `ai/needs.ts` only ever shipped 2 evaluators total (M20's own v1 slice),
+so there's no smaller "basic" subset to switch a Story-tier AI to yet — the preset field exists
+and is documented, wiring it is deferred. The T objective ("Fair-difficulty AI beats naive
+scripted baseline") is proven directly: a Fair-preset AI kingdom (zero labelled bonus, its
+existing full manager stack) reliably outgrows a kingdom governed by a fixed, need-blind script
+over the same starting conditions (`ai/difficulty.test.ts`) — AI competence, not a numeric
+cheat, is the advantage.
 
 ## §11. Performance & Determinism Envelope
 

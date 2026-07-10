@@ -37,7 +37,10 @@ export const CENTER_DEF_ID = 'base:building.village-center';
 // ---------------------------------------------------------------- components
 
 export interface VillageComponents {
-  readonly VillageCore: SoAComponent<{ centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8'; taxRate: 'u8' }>;
+  readonly VillageCore: SoAComponent<{
+    centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8'; taxRate: 'u8';
+    isCastle: 'bool'; // M28: true once the village's defence graph actually encloses tiles (game/castles.ts)
+  }>;
   readonly VillageName: ObjectComponent<string>;
   readonly Stockpile: ObjectComponent<Map<number, number>>; // interned resource → amount
   readonly BuildingCore: SoAComponent<{
@@ -55,7 +58,9 @@ export interface VillageComponents {
 
 export function defineVillageComponents(world: World): VillageComponents {
   return {
-    VillageCore: world.defineSoA('villageCore', { centerX: 'i32', centerY: 'i32', radius: 'u16', tier: 'u8', taxRate: 'u8' }),
+    VillageCore: world.defineSoA('villageCore', {
+      centerX: 'i32', centerY: 'i32', radius: 'u16', tier: 'u8', taxRate: 'u8', isCastle: 'bool',
+    }),
     VillageName: world.defineObject<string>('villageName', (name, fold) => {
       for (let i = 0; i < name.length; i++) fold(name.charCodeAt(i));
     }),
@@ -257,6 +262,7 @@ export class VillageOps {
     this.world.attach(village, this.comps.VillageCore, {
       centerX: x, centerY: y, radius: VILLAGE_RADIUS_T1, tier: 1,
       taxRate: 2, // 'normal' (M16 TAX_RATES; adjust via village.setTaxRate)
+      isCastle: false, // M28: flips true once the defence graph actually encloses tiles
     });
     this.world.attach(village, this.comps.VillageName, name);
     this.world.attach(village, this.comps.Stockpile, stock);
@@ -314,13 +320,14 @@ export class VillageOps {
     if (def.tags.includes('center')) return 'cannot demolish a village center';
     const x = core.x[index] as number;
     const y = core.y[index] as number;
+    const villageId = core.village[index] as number;
     for (let dy = 0; dy < def.footprint.h; dy++) {
       for (let dx = 0; dx < def.footprint.w; dx++) {
         this.occupancy.delete(this.tileIndex(x + dx, y + dy));
       }
     }
     this.world.despawn(building);
-    ctx.events.publish({ type: 'building.demolished', tick: ctx.tick, data: { building: buildingId } });
+    ctx.events.publish({ type: 'building.demolished', tick: ctx.tick, data: { building: buildingId, def: def.id, village: villageId } });
     return true;
   }
 }
@@ -359,7 +366,7 @@ export function constructionSystem(
           b.complete[i] = 1;
           ctx.events.publish({
             type: 'building.completed', tick: ctx.tick,
-            data: { building: entity as number, def: def.id },
+            data: { building: entity as number, def: def.id, village: b.village[i] as number },
           });
         }
       });

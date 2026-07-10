@@ -1,0 +1,91 @@
+// Unrest pool (M33; GDD App. A; §12's happiness -> unrest link). Fires when
+// happiness runs low — a real cost to ignoring discontent, not just flavour.
+[
+  {
+    "id": "base:event.unrest.grumbling",
+    "name": "Grumbling in the Streets",
+    "pool": "unrest",
+    "scope": "village",
+    "trigger": { "stat": "village.happiness", "lt": 40 },
+    "weight": 3,
+    "cooldownDays": 30,
+    "text": {
+      "title": "Grumbling in the Streets",
+      "body": "Discontent is spreading. Something needs to give.",
+    },
+    "choices": [
+      {
+        "id": "address",
+        "text": "Address grievances publicly",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 6 } }],
+        "aiScoreHints": { "diplomacyTrust": 0.5 },
+      },
+      {
+        "id": "crackdown",
+        "text": "Crack down on troublemakers",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -4 } }],
+        "aiScoreHints": { "aggression": 0.4 },
+      },
+    ],
+    "tags": ["unrest"],
+  },
+  {
+    "id": "base:event.unrest.strike",
+    "name": "Workers' Strike",
+    "pool": "unrest",
+    "scope": "village",
+    "trigger": { "stat": "village.happiness", "lt": 25 },
+    "weight": 2,
+    "cooldownDays": 45,
+    "text": {
+      "title": "Workers' Strike",
+      "body": "Laborers refuse to work until conditions improve.",
+    },
+    "choices": [
+      {
+        "id": "concede",
+        "text": "Concede to their demands",
+        "effects": [
+          { "removeResource": { "resource": "base:resource.food", "amount": 10 } },
+          { "modifier": { "stat": "village.happiness", "op": "add", "value": 10 } },
+        ],
+        "aiScoreHints": { "economy": 0.3 },
+      },
+      {
+        "id": "wait-out",
+        "text": "Wait it out",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -5 } }],
+        "aiScoreHints": { "riskTolerance": 0.5 },
+      },
+    ],
+    "tags": ["unrest", "labor"],
+  },
+  {
+    "id": "base:event.unrest.rumor-mongering",
+    "name": "Rumor Mongering",
+    "pool": "unrest",
+    "scope": "village",
+    "trigger": { "all": [{ "stat": "village.happiness", "lt": 50 }, { "chance": 0.3 }] },
+    "weight": 1,
+    "cooldownDays": 45,
+    "text": {
+      "title": "Rumor Mongering",
+      "body": "Wild rumors about the kingdom's leadership circulate among the discontented.",
+    },
+    "choices": [
+      {
+        "id": "counter",
+        "text": "Counter the rumors openly",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 3 } }],
+        "aiScoreHints": { "diplomacyTrust": 0.4 },
+      },
+      {
+        "id": "ignore",
+        "text": "Ignore it — it'll pass",
+        "effects": [],
+        "aiScoreHints": { "riskTolerance": 0.6 },
+      },
+    ],
+    "tags": ["unrest"],
+  },
+]

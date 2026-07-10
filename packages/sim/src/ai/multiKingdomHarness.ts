@@ -24,6 +24,13 @@ import { registerLogisticsGameplay } from '../game/logistics.js';
 import { registerSettlerGameplay } from '../game/settlers.js';
 import { registerKingdomGameplay, StatModifiers } from '../game/kingdom.js';
 import { registerDiplomacyGameplay, type DiplomacyPersonality } from '../game/diplomacy.js';
+import { registerMilitaryGameplay } from '../game/military.js';
+import { registerArmyGameplay } from '../game/armies.js';
+import { registerCombatGameplay } from '../game/combat.js';
+import { registerCastleGameplay } from '../game/castles.js';
+import { registerSiegeGameplay } from '../game/siege.js';
+import { registerResearchGameplay } from '../game/research.js';
+import { registerEventGameplay } from '../game/events.js';
 import { scoreKingdomSites, type FairPlacementResult } from '../worldgen/fairPlacement.js';
 import { registerAiConstructionManager, type AiConstructionOptions } from './manager.js';
 import {
@@ -31,9 +38,14 @@ import {
   registerAiStrategicPlanner,
   DEFAULT_PERSONALITY_WEIGHTS,
   type AiDiplomacyContext,
+  type AiMilitaryContext,
+  type AiResearchContext,
   type AiStrategicPlannerOptions,
   type PersonalityWeights,
 } from './planner.js';
+import { registerAiMilitaryManager, type AiWarTarget } from './military.js';
+import { registerAiResearchManager } from './research.js';
+import { registerAiEventAnswering } from './events.js';
 import { FogRegistry } from './fogQuery.js';
 import { registerScoutingSystem, type ScoutingKingdom } from './scouting.js';
 
@@ -47,7 +59,14 @@ export const flatTerrain = (width: number, height: number): TerrainAccessor => (
   movementCostAt: () => 1,
 });
 
-const KINGDOM_STARTING_STOCK = { 'base:resource.wood': 2000, 'base:resource.stone': 500, 'base:resource.food': 300 };
+// 'base:resource.tools' (M30): the construction AI (manager.ts) only ever queues food/housing
+// buildings (its own documented scoping note) — no toolmaking chain gets built, so without a
+// starting allowance recruitment would be permanently stuck at "insufficient tools" for every
+// AI kingdom, forever. A one-time stockpile is enough to raise and sustain a real war party
+// (recruitment cost is one-time; only gold/food upkeep recurs, M25) without needing production.
+const KINGDOM_STARTING_STOCK = {
+  'base:resource.wood': 2000, 'base:resource.stone': 500, 'base:resource.food': 300, 'base:resource.tools': 300,
+};
 
 export interface MultiKingdomComposition {
   readonly kernel: Kernel;
@@ -57,6 +76,13 @@ export interface MultiKingdomComposition {
   readonly popGame: ReturnType<typeof registerPopulationGameplay>;
   readonly kingdomGame: ReturnType<typeof registerKingdomGameplay>;
   readonly diplomacyGame: ReturnType<typeof registerDiplomacyGameplay>;
+  readonly militaryGame: ReturnType<typeof registerMilitaryGameplay>;
+  readonly armiesGame: ReturnType<typeof registerArmyGameplay>;
+  readonly combatGame: ReturnType<typeof registerCombatGameplay>;
+  readonly castleGame: ReturnType<typeof registerCastleGameplay>;
+  readonly siegeGame: ReturnType<typeof registerSiegeGameplay>;
+  readonly researchGame: ReturnType<typeof registerResearchGameplay>;
+  readonly eventGame: ReturnType<typeof registerEventGameplay>;
   readonly fog: FogRegistry;
   readonly placement: FairPlacementResult;
   villageOf(kingdomIndex: number): number | null;
@@ -74,6 +100,10 @@ export interface MultiKingdomOptions {
   /** Observational clock for perf telemetry (M24) — omitted means zero measurement overhead,
    * matching the kernel's own "no clock, no cost" contract. */
   readonly clock?: () => number;
+  /** Starting cohorts (default `{children:6, adults:15, elders:2}`, M22/M24's original). A
+   * campaign that recruits (M30) needs enough spare adults that a single unit's `popCost` (10,
+   * base content) doesn't gut the farm workforce it depends on to ever recruit a second one. */
+  readonly startingPopulation?: { readonly children: number; readonly adults: number; readonly elders: number };
 }
 
 /** Kingdom placements far enough apart that fairness naturally holds; scouting range (M22
@@ -87,7 +117,7 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
 
   const game = registerVillageGameplay(kernel, world, db, terrain, KINGDOM_STARTING_STOCK);
-  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 6, adults: 15, elders: 2 });
+  const popGame = registerPopulationGameplay(kernel, world, db, game, options.startingPopulation ?? { children: 6, adults: 15, elders: 2 });
   const econGame = registerEconomyGameplay(kernel, world, db, game);
   const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
   const logiGame = registerLogisticsGameplay(kernel, world, db, game, popGame, econGame, Position);
@@ -96,6 +126,13 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
   const kingdomGame = registerKingdomGameplay(kernel, world, db, game, popGame, econGame, statMods, {
     kingdomCount: options.kingdomCount,
   });
+
+  // War stack (M25-M29), reused as-is for AI-vs-AI campaigns (M30).
+  const militaryGame = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdomGame);
+  const armiesGame = registerArmyGameplay(kernel, world, game, militaryGame, kingdomGame);
+  const combatGame = registerCombatGameplay(kernel, world, militaryGame, armiesGame, kingdomGame);
+  const castleGame = registerCastleGameplay(kernel, world, db, game);
+  const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, castleGame, combatGame, kingdomGame);
 
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
@@ -189,6 +226,102 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     },
   });
 
+  // Military (M30): fog-gated believed strength for the planner's MilitaryBuildup/ConquestWar
+  // considerations, and concrete war targets for the tactical manager — same shape convention as
+  // diplomacyContextFor above.
+  const committedStrengthOf = (kingdomId: number): number => {
+    const u = world.read(militaryGame.Unit);
+    let total = 0;
+    world.query([militaryGame.Unit]).forEach((ui) => {
+      if ((u.kingdomId[ui] as number) === kingdomId && (u.complete[ui] as number) === 1) total += u.count[ui] as number;
+    });
+    return total;
+  };
+  const militaryContextFor = (kingdomIndex: number): AiMilitaryContext => ({
+    ownStrength(): number {
+      const myId = kingdomGame.kingdomEntities()[kingdomIndex];
+      return myId === undefined ? 0 : committedStrengthOf(myId as number);
+    },
+    knownRivalStrengths(): number[] {
+      const out: number[] = [];
+      for (let other = 0; other < options.kingdomCount; other++) {
+        if (other === kingdomIndex) continue;
+        const otherVi = villageIndexByKingdom.get(other);
+        const otherId = kingdomGame.kingdomEntities()[other];
+        if (otherVi !== undefined && otherId !== undefined && fog.isKnown(kingdomIndex, otherVi)) {
+          out.push(committedStrengthOf(otherId as number));
+        }
+      }
+      return out;
+    },
+  });
+  const warTargetsFor = (kingdomIndex: number): readonly AiWarTarget[] => {
+    const out: AiWarTarget[] = [];
+    const core = world.read(game.comps.VillageCore);
+    for (let other = 0; other < options.kingdomCount; other++) {
+      if (other === kingdomIndex) continue;
+      const otherVi = villageIndexByKingdom.get(other);
+      const otherId = kingdomGame.kingdomEntities()[other];
+      if (otherVi === undefined || otherId === undefined || !fog.isKnown(kingdomIndex, otherVi)) continue;
+      if (!world.isAlive(otherVi as never)) continue;
+      out.push({
+        kingdomId: otherId as number,
+        villageId: otherVi,
+        x: core.centerX[otherVi] as number,
+        y: core.centerY[otherVi] as number,
+        isCastle: castleGame.isCastle(otherVi),
+      });
+    }
+    return out;
+  };
+
+  // Research (M32): diffusion discount if a DISCOVERED neighbour already knows the tech —
+  // `researchGameRef` breaks the construction-order cycle (the hook needs `.isKnown`, which
+  // doesn't exist until `registerResearchGameplay` returns); a boxed property (not a `let`
+  // rebinding) keeps this a single, never-reassigned `const` for lint's `prefer-const`.
+  const researchGameRef: { current?: ReturnType<typeof registerResearchGameplay> } = {};
+  const researchGame = registerResearchGameplay(kernel, world, db, game, kingdomGame, {
+    knownByNeighbor(kingdomId: EntityId, techId: string): boolean {
+      const myIndex = kingdomGame.kingdomEntities().indexOf(kingdomId);
+      if (myIndex < 0 || researchGameRef.current === undefined) return false;
+      for (let other = 0; other < options.kingdomCount; other++) {
+        if (other === myIndex) continue;
+        const otherVi = villageIndexByKingdom.get(other);
+        const otherId = kingdomGame.kingdomEntities()[other];
+        if (otherVi === undefined || otherId === undefined || !fog.isKnown(myIndex, otherVi)) continue;
+        if (researchGameRef.current.isKnown(otherId, techId)) return true;
+      }
+      return false;
+    },
+  });
+  researchGameRef.current = researchGame;
+
+  const researchContextFor = (kingdomIndex: number): AiResearchContext => ({
+    coverage(): number {
+      const myId = kingdomGame.kingdomEntities()[kingdomIndex];
+      return myId === undefined ? 0 : researchGame.coverageOf(myId);
+    },
+  });
+
+  // Events (M33): opinionChange reuses the same diplomacy state every other module writes to;
+  // hasTech reuses the just-registered research state.
+  const eventGame = registerEventGameplay(kernel, world, db, game, popGame, kingdomGame, {
+    diplomacy: {
+      applyOpinionDelta(kingdomId: EntityId, delta: number): void {
+        const myIndex = kingdomGame.kingdomEntities().indexOf(kingdomId);
+        if (myIndex < 0) return;
+        for (let other = 0; other < options.kingdomCount; other++) {
+          if (other === myIndex) continue;
+          const otherVi = villageIndexByKingdom.get(other);
+          const otherId = kingdomGame.kingdomEntities()[other];
+          if (otherVi === undefined || otherId === undefined || !fog.isKnown(myIndex, otherVi)) continue;
+          diplomacyGame.state.applyOpinionDelta(kingdomId as number, otherId as number, delta);
+        }
+      },
+    },
+    research: { isKnown: (kingdomId, techId) => researchGame.isKnown(kingdomId, techId) },
+  });
+
   // AI wiring: every kingdom but the player's (index 0, issuer 1) gets a manager + planner.
   // Genesis (registered above) hasn't run yet, so each AI kingdom's village EntityId isn't
   // known at registration time. It's still safe to bind now: this composition spawns nothing
@@ -214,11 +347,63 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
       sharedPlanState,
       weights: weightsOf(k),
       diplomacy: diplomacyContextFor(k),
+      military: militaryContextFor(k),
+      research: researchContextFor(k),
+      extraReads: [militaryGame.Unit],
       get villageId(): EntityId {
         return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
       },
     };
-    registerAiStrategicPlanner(kernel, world, db, game, popGame, plannerOptions);
+    const planner = registerAiStrategicPlanner(kernel, world, db, game, popGame, plannerOptions);
+    registerAiResearchManager(kernel, world, db, game, researchGame, {
+      issuer: k + 1,
+      id: String(k),
+      getPlan: () => planner.currentPlan(),
+      extraReads: [planner.AiPlanState],
+      get villageId(): EntityId {
+        return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
+      },
+      get kingdomId(): EntityId {
+        return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
+      },
+    });
+    registerAiEventAnswering(kernel, eventGame, {
+      issuer: k + 1,
+      id: String(k),
+      weights: weightsOf(k) as unknown as Readonly<Record<string, number | undefined>>,
+      get kingdomId(): EntityId {
+        return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
+      },
+    });
+    registerAiMilitaryManager(kernel, world, db, game, militaryGame, armiesGame, castleGame, siegeGame, {
+      issuer: k + 1,
+      id: String(k),
+      getPlan: () => planner.currentPlan(),
+      warTargets: () => warTargetsFor(k),
+      diplomacy: {
+        isAtWar(target: EntityId): boolean {
+          const myId = kingdomGame.kingdomEntities()[k];
+          return myId !== undefined && diplomacyGame.state.isAtWar(myId as number, target as number);
+        },
+        declareWar(target: EntityId): void {
+          const targetIndex = kingdomGame.kingdomEntities().indexOf(target);
+          if (targetIndex < 0) return;
+          kernel.submit({ type: 'kingdom.declareWar', issuer: k + 1, payload: { targetKingdom: targetIndex, casusBelli: true } });
+        },
+        proposePeace(target: EntityId, tribute: number): void {
+          const targetIndex = kingdomGame.kingdomEntities().indexOf(target);
+          if (targetIndex < 0) return;
+          kernel.submit({ type: 'kingdom.proposePeace', issuer: k + 1, payload: { targetKingdom: targetIndex, tribute } });
+        },
+      },
+      extraReads: [planner.AiPlanState],
+      get villageId(): EntityId {
+        return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
+      },
+      get kingdomId(): EntityId {
+        return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
+      },
+    });
   }
 
   return {
@@ -229,6 +414,13 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     popGame,
     kingdomGame,
     diplomacyGame,
+    militaryGame,
+    armiesGame,
+    combatGame,
+    castleGame,
+    siegeGame,
+    researchGame,
+    eventGame,
     fog,
     placement,
     villageOf: (kingdomIndex: number) => villageIndexByKingdom.get(kingdomIndex) ?? null,

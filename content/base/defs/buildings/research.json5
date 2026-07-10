@@ -1,0 +1,42 @@
+// Scholar buildings (M32; GDD §9): "scribe's hut → library → university" generate
+// research points daily (`research.pointsPerDay`, game/research.ts), no workforce
+// gating yet (flat rate, v1). Library/university are tier-2 (doc 06 Requirement) —
+// villageTier only goes to 2 through M32 (M15), so they're differentiated by
+// cost/output rather than a further tier, a deliberate v1 simplification.
+[
+  {
+    "id": "base:building.scribes-hut",
+    "name": "Scribe's Hut",
+    "category": "service",
+    "footprint": { "w": 1, "h": 1 },
+    "cost": { "base:resource.wood": 20 },
+    "buildTicks": 48,
+    "terrainTags": ["open"],
+    "research": { "pointsPerDay": 2 },
+    "tags": [],
+  },
+  {
+    "id": "base:building.library",
+    "name": "Library",
+    "category": "service",
+    "footprint": { "w": 2, "h": 1 },
+    "cost": { "base:resource.wood": 25, "base:resource.planks": 15 },
+    "buildTicks": 96,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "research": { "pointsPerDay": 5 },
+    "tags": [],
+  },
+  {
+    "id": "base:building.university",
+    "name": "University",
+    "category": "service",
+    "footprint": { "w": 2, "h": 2 },
+    "cost": { "base:resource.stone": 30, "base:resource.planks": 25, "base:resource.tools": 10 },
+    "buildTicks": 160,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "research": { "pointsPerDay": 10 },
+    "tags": [],
+  },
+]

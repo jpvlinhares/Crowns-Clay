@@ -1,0 +1,89 @@
+// Base traits (M34; GDD §15). Each is a small, fixed skill-delta bundle
+// applied once when a notable is assigned the trait (game/characters.ts) —
+// clamped into the same 0..20 skill range office bonuses already read.
+[
+  {
+    "id": "base:trait.shrewd",
+    "name": "Shrewd",
+    "desc": "A sharp head for figures and levies.",
+    "skillModifiers": { "stewardship": 3 },
+    "tags": ["economy"],
+  },
+  {
+    "id": "base:trait.greedy",
+    "name": "Greedy",
+    "desc": "Squeezes every coin from the treasury, and every ally's patience.",
+    "skillModifiers": { "stewardship": 2, "diplomacy": -2 },
+    "tags": ["economy", "flaw"],
+  },
+  {
+    "id": "base:trait.brave",
+    "name": "Brave",
+    "desc": "Leads from the front without a second thought.",
+    "skillModifiers": { "martial": 3 },
+    "tags": ["martial"],
+  },
+  {
+    "id": "base:trait.craven",
+    "name": "Craven",
+    "desc": "Finds any excuse to stay behind the lines.",
+    "skillModifiers": { "martial": -3 },
+    "tags": ["martial", "flaw"],
+  },
+  {
+    "id": "base:trait.pious",
+    "name": "Pious",
+    "desc": "Devout, and trusted for it.",
+    "skillModifiers": { "diplomacy": 2 },
+    "tags": ["diplomacy"],
+  },
+  {
+    "id": "base:trait.silver-tongued",
+    "name": "Silver-Tongued",
+    "desc": "Could talk a wolf out of its own dinner.",
+    "skillModifiers": { "diplomacy": 3 },
+    "tags": ["diplomacy"],
+  },
+  {
+    "id": "base:trait.cruel",
+    "name": "Cruel",
+    "desc": "Rules by fear; feared in turn.",
+    "skillModifiers": { "martial": 1, "diplomacy": -2 },
+    "tags": ["martial", "flaw"],
+  },
+  {
+    "id": "base:trait.studious",
+    "name": "Studious",
+    "desc": "Never without a book or a theory.",
+    "skillModifiers": { "scholarship": 3 },
+    "tags": ["scholarship"],
+  },
+  {
+    "id": "base:trait.dull",
+    "name": "Dull",
+    "desc": "Slow to learn, slower to change their mind.",
+    "skillModifiers": { "scholarship": -2 },
+    "tags": ["scholarship", "flaw"],
+  },
+  {
+    "id": "base:trait.hale",
+    "name": "Hale",
+    "desc": "Hardy stock; rarely first to tire.",
+    "skillModifiers": { "martial": 1 },
+    "tags": ["martial"],
+  },
+  {
+    "id": "base:trait.frail",
+    "name": "Frail",
+    "desc": "A lifetime of poor health.",
+    "skillModifiers": { "martial": -1, "scholarship": 1 },
+    "tags": ["flaw"],
+  },
+  {
+    "id": "base:trait.ambitious",
+    "name": "Ambitious",
+    "desc": "Sees every office as a rung on a longer ladder.",
+    "skillModifiers": { "martial": 1, "diplomacy": 1, "scholarship": -1 },
+    "tags": ["diplomacy"],
+  },
+]

@@ -1,0 +1,17 @@
+// Military buildings (M25: barracks, GDD §6). Archery range/stables/siege
+// workshop (class-specific training) arrive with their unit classes.
+[
+  {
+    "id": "base:building.barracks",
+    "name": "Barracks",
+    "category": "military",
+    "footprint": { "w": 2, "h": 2 },
+    "cost": { "base:resource.wood": 30, "base:resource.stone": 20 },
+    "buildTicks": 96,
+    "terrainTags": ["open"],
+    "military": {
+      "recruits": ["base:unit.militia", "base:unit.spearman", "base:unit.archer", "base:unit.cavalry", "base:unit.catapult"],
+    },
+    "tags": [],
+  },
+]

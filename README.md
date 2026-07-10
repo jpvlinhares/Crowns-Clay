@@ -32,7 +32,21 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M21 — AI strategic planner v1 (plan archetypes, utility scoring, hysteresis) | ✅ |
 | M22 — Multiple kingdoms & borders (kingdom placement fairness, territory, scouting) | ✅ |
 | M23 — Diplomacy v1 (opinion, gifts/insults, NAP & trade pacts, deal evaluator) | ✅ |
-| M24 — AI harness & nightly (8-kingdom AI-vs-AI campaign, behavioural fingerprints, perf telemetry) | ✅ this commit — **Phase 3 complete: rivals awaken** |
+| M24 — AI harness & nightly (8-kingdom AI-vs-AI campaign, behavioural fingerprints, perf telemetry) | ✅ — **Phase 3 complete: rivals awaken** |
+| M25 — Military basics (barracks-gated recruitment, training, armies, seasonal upkeep) | ✅ — **Phase 4 begins: war** |
+| M26 — Movement & supply (hierarchical HPA* army pathing, stances, supply/forage/attrition, seasons) | ✅ |
+| M27 — Field combat (resolver, morale/rout, auto-resolve policy, battle "UI" via the command injector) | ✅ |
+| M28 — Castles v1 (wall/gate/tower/keep, defence graph, enclosure algorithm) | ✅ — resolves [OQ-3] |
+| M29 — Sieges (phases, bombardment vs. graph, starvation, sorties, assault) | ✅ |
+| M30 — AI at war (military manager, war plans, tactical policy, castle-building AI) | ✅ |
+| M31 — War diplomacy (casus belli, peace deals, war exhaustion) | ✅ — **Phase 4 complete: war** |
+| M32 — Research (tech tree data, scholars, era gates, diffusion) | ✅ — **Phase 5 begins: depth** |
+| M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ |
+| M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ |
+| M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ |
+| M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ |
+| M37 — Victory & defeat (all 5 victory tracks, contestability broadcasts, defeat flow) | ✅ |
+| M38 — Difficulty system (capability tiers, labelled modifiers, presets) | ✅ this commit — **Phase 5 complete: depth** |
 
 ## Layout (TDD §3)
 
@@ -100,6 +114,291 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Difficulty system (M38) — Phase 5 complete: depth
+
+AI capability and challenge are finally tunable (`packages/sim/src/ai/difficulty.ts`, GDD §14,
+doc 07 §10): four presets — **Story, Fair, Hard, Brutal** — bundle doc 07 §10's table into
+concrete values, mapped into EXISTING (mostly already-composable) options rather than new
+subsystems. `appraisalNoise`/`periodMultiplier` are new, deterministic `ai/planner.ts` options
+(jitter and re-eval-cadence multiplier, both neutral by default); knowledge decay reuses
+`ai/brain.ts`'s `confidenceHalfLifeTicks` option, configurable since M19; scouting diligence is a
+new `revealRadius` override; coordination is a new `jointWarCoordination` option on M35's
+joint-war cascade (`off`/`limited` — vassals only, not voluntary allies — `on`); labelled
+modifiers are a new per-kingdom `difficultyYieldOf` hook on the kingdom roll-up — deliberately a
+KINGDOM-LEVEL tax/prosperity yield, not a raw `economy.ts` production one, since the shared,
+single `StatModifiers` board (bound to kingdom 0 only since M22) can't express a per-kingdom
+bonus. **Fair is the design-integrity benchmark**: both the AI's and the player's labelled yield
+bonus are exactly 0 — genuinely cheat-free. "Manager quality tier" is the one doc 07 §10 row left
+undocumented-into-code: `ai/needs.ts` only ever shipped 2 evaluators total (M20's own v1 slice),
+so there's no smaller "basic" subset to switch a Story-tier AI to yet. The T objective —
+**Fair-difficulty AI beats naive scripted baseline** — runs a Fair-preset AI kingdom (zero
+bonus, full manager stack, aggression zeroed to isolate the economy comparison from an unrelated
+self-destructive-war dynamic discovered while writing this test) against a kingdom governed by a
+fixed, need-blind house-building script, over identical starting conditions: the AI kingdom
+reliably outgrows it, robust across seeds — proving competence, not a numeric cheat, is the
+actual advantage.
+
+### Victory & defeat (M37)
+
+Campaigns can now actually end (`packages/sim/src/game/victory.ts`, GDD §16, doc 08 §2 row 20): a
+single daily `victory-tracker` system evaluates all five tracks — **Conquest** (control a village
+share, or eliminate every rival), **Hegemony** (every surviving rival allied or vassal, sustained a
+consecutive number of years — a broken pact resets the streak, no shortcut through a lapse),
+**Legacy** (complete 3 distinct `wonder`-tagged monuments, `content/base/defs/buildings/
+wonders.json5` — completable in any order, not a strict sequence despite GDD calling it a "chain",
+a v1 simplification), **Prosperity** (sustained realm-wide happiness, same consecutive-streak
+shape as Hegemony), and **Chronicle** (highest prestige — population + buildings + wonders + known
+techs, nominal weights — among survivors at the year cap, doc 08 §1's 40-120 year target campaign
+length). **Defeat** is the last-village rule (OQ-9): a kingdom that founded at least one village
+and now owns none is out, and drops from every other kingdom's Hegemony/Conquest bookkeeping.
+Crossing 80% of any enabled track's threshold broadcasts `victory.approaching` once — the
+contestability signal GDD §16 asks for, though no AI archetype reacts to it yet (deliberately
+deferred, "data/event now, AI consumption later," M35/M36's own precedent). `enabled:
+VictoryType[]` and a separate `defeatEnabled` toggle are GDD §17's sandbox-mode knobs. The T
+objective — **each victory achievable ≤ year cap** — is proven by engineering each condition
+directly (reassigning village ownership, calling `DiplomacyState` directly, force-completing
+wonders, forcing happiness) rather than waiting on an emergent AI economy to reach it: the same
+"test the scoring function, not a chaotic multi-year simulation" lesson M36's blind fingerprint
+test already learned. Building this surfaced a real, separate bug: three new wonder building ids
+shifted every LATER building's alphabetically-sorted def code, silently corrupting the pinned
+`terra-demo`/`terra-tick500-v1` fixtures — both intentionally re-recorded (`replay:record`,
+`save-corpus record`) once the cause was confirmed, per TDD §13's own "re-recording must be
+intentional, call it out" rule.
+
+### Personalities (M36)
+
+AI kingdoms have real, tuned identities now (`content/base/defs/personalities/core.json5`,
+`packages/sim/src/ai/personality.ts`, GDD §11, doc 07 §9): the 7 archetypes doc 07 §9 always
+promised — **Warmonger, Builder, Merchant, Schemer, Zealot, Steward, Opportunist** — each a full
+8-axis weight profile plus `planBiases` (per-`PlanArchetype` utility multipliers). `ai/
+personality.ts` is the ONLY place this content touches AI behaviour, since `@crowns/data` never
+depends on `sim/`: `perturbWeights` adds small seeded jitter so two kingdoms sharing an archetype
+still diverge ("two Warmongers differ"); `toPlannerWeights`/`toDiplomacyPersonality` map the full
+weights onto the narrow structural subsets `ai/planner.ts`/`game/diplomacy.ts` already consume —
+`planBiases` rides along as a new, optional `PersonalityWeights` field the planner's scoring loop
+multiplies in, defaulting to 1 so no milestone before this one changed behaviour. The T objective
+— **blind fingerprint test** — takes each archetype's `PlanArchetype.utility` score vector under a
+fixed, generous "every opportunity available" scenario as its fingerprint (the same "unit-test the
+scoring function against synthetic `Considerations`" pattern M21's own tests already use, not an
+emergent multi-year economy — whether the real simulation ever reaches that generous scenario is a
+separate, much harder balance question for M46, not this one): several perturbed instances per
+archetype are classified — without the classifier ever being told which archetype produced them —
+against all 7 canonical fingerprints by correlation, and every one lands correctly, proving the
+profiles are behaviourally distinct, not just differently worded flavour text. A companion smoke
+test drives all 7 through a real, short AI-vs-AI campaign to confirm nothing crashes and real
+divergence shows up in practice. `describePersonality` is the pure "Known for..." legibility
+piece — confidence-gating it behind the knowledge model (M19) for a real diplomacy screen is left
+to a future UI.
+
+### Diplomacy v2 (M35)
+
+Kingdoms can now truly entangle each other (`packages/sim/src/game/diplomacy.ts`, GDD §10, doc
+07 §7): **alliances** are a third pact type (`PACT_ALLIANCE`), evaluated by the exact same
+`evaluateDeal` NAP/trade already use — needing better relations to form, since a mutual-defense
+commitment is a bigger ask. **Joint wars** are the payoff: the instant a war starts, every
+kingdom allied with (or vassal to) either belligerent is cascaded onto that side automatically —
+no proposal, no opt-out, one level deep so a single declaration can't chain into a world war —
+"teeth, not paper" (GDD §10). **Vassalage** is asymmetric (a `vassalOf` map, not the symmetric
+pact bitmask): `evaluateVassalageDeal` has a would-be LORD accept almost unconditionally (a free
+tribute stream) while a would-be VASSAL only submits in proportion to how badly it's losing a war
+against the proposer — the OQ-9 "AI capitulates when hopeless" path, ending the underlying war
+outright. A vassal can't `kingdom.declareWar` independently and pays a seasonal tribute
+automatically. **Reputation** is GLOBAL per kingdom (unlike pairwise opinion) — it drops on
+oathbreaking (breaking an alliance costs more than dropping a NAP) and unprovoked wars, then
+multiplies every deal's threshold via `reputationFactor`, which is exactly 1 at the default value
+— every M23/M31 call site is untouched by this. **Memory/grudges**: a bounded (5), per-kingdom-pair
+list of significant acts (pact breaks, war declarations, honored alliances — not gifts/insults,
+which already have their own channel), with `effectiveMemoryWeight` a pure, personality-scaled
+(`grudgeRetention`) exponential decay computed on read, never mutating stored data. That's what
+makes the T objective — **grudge persistence across save/load** — simple: `diplomacySection`
+(persistence.ts) is the first save section any relational (non-ECS) game/ state has ever needed
+(M23/M31/M32/M34's equivalents never did), proving every fact this module owns — including
+grudges — round-trips a save/load cycle exactly. AI consumption of reputation/grudges (a
+memory-driven plan archetype) stays deliberately out of scope this milestone.
+
+### Characters (M34)
+
+The realm's advisors are notables now, not just skill rolls (`content/base/defs/traits/core.json5`,
+`packages/sim/src/game/characters.ts`, GDD §15): this module deepens the SAME six characters
+kingdom.ts's genesis already spawns — it never runs its own pool — attaching **traits** (2 per
+notable, 12 base, each a small skill-delta bundle applied once, directly onto `Character`'s
+stored skill fields) alongside **gender** and **loyalty**. That's the **advisor bonus math** T
+objective: kingdom.ts's existing Steward/Marshal/Chancellor/Scholar formulas need zero changes to
+read the trait-adjusted values — proven by running the identical seed with and without this
+module registered and diffing the two. The one real coupling problem this surfaced: kingdom.ts's
+yearly death check despawns characters, and the ECS access guard requires every attached
+component declared up front — including ones a LATER module attaches, which kingdom.ts can't
+import (the dependency only runs one way). `KingdomGameplay.registerCharacterExtension` is the
+fix, a small mutable-array escape hatch kingdom.ts exposes so characters.ts can declare its own
+sibling components after the fact. `character.marry` (kingdom-agnostic — using marriage as a
+diplomatic alliance clause is M35's job) rejects self-marriage, remarriage, and any parent/child
+or sibling pairing via a plain `CharacterRelations` class (mirrors `DiplomacyState`). The second T
+objective, **lifecycle tests**: married, fertile-age couples roll a birth chance yearly, and a
+child — skills blended from both parents ± jitter, one inherited trait plus one fresh one — starts
+too young for `kingdom.appoint` (a new `MIN_OFFICE_AGE` gate) until it ages in, growing the
+appointable pool past the fixed genesis six; widowing applies a one-time grief penalty to loyalty,
+and a seated officeholder whose loyalty drifts below a floor may resign the seat outright — the
+same lapse/desertion shape M16/M25 already established, now for court politics. `role` and `alive`
+stay unmodelled (derivable from existing state); `Army.commanderId` (doc 06 §3) and `ransom` (doc
+06 §10) remain out of scope, waiting on a captivity concept this milestone doesn't add.
+
+### Events engine (M33)
+
+The realm now has a voice (`packages/data/src/events.ts`, `packages/sim/src/game/events.ts`,
+GDD Appendix A): 18 base events across all 6 pools (disaster, opportunity, character,
+diplomatic, unrest, era), each a small **trigger DSL** predicate tree (`all`/`any`/`not`,
+`season`, `hasEdict`, `hasTech` — a direct tie into M32's tech tree — `chance`, and `stat`
+comparators over a closed set of paths) plus a choice menu whose effects flow through the same
+grant/remove/nudge/opinion/command channels every other system already uses — "events nudge,
+never puppeteer" (GDD App. A). `evaluatePredicate`/`applyEffect` are pure and fail **closed** on
+anything malformed rather than throwing, verified directly by the **DSL fuzzing** T objective
+(500+ random and hand-picked garbage trees, never a crash). `opportunity`/`character`/
+`diplomatic`/`unrest`/`era` pools evaluate daily; `disaster` alone weekly (doc 08 §10). The
+second T objective, the **pacing governor**, is a pure function of one kingdom's fires-this-
+season count — boosting pool weights when a kingdom's gone quiet, dampening them once it's had
+plenty — proven by running the real content for 20 seasons and checking the actual per-season
+fire count settles inside the target band, not silent and not spammy. `registerAiEventAnswering`
+closes the loop: an AI kingdom scores every pending choice as `Σ aiScoreHints[axis] ×
+personalityWeight[axis]` and answers unprompted — proven in the harness with zero player/test
+code ever calling `event.choose` directly. `spawn`/`startEvent` effects and tag-query/count
+predicates stay out of scope — Characters (M34) landed without adding an event-authored spawn
+effect (heirs arrive via a yearly system, not events), and no content needs the rest yet.
+
+### Research (M32) — Phase 5 begins: depth
+
+Kingdoms can now advance through a real tech tree (`packages/data/src/techs.ts`,
+`packages/sim/src/game/research.ts`, GDD §9): 72 base `TechDef`s (60-80 target), 18 per branch
+across **Agriculture & Craft**, **Construction**, **Warfare**, and **Statecraft**, tiers 1-5
+mapped to the early/high/late medieval eras. The T objective — **DAG validation** — runs at
+content load: prerequisites must reference real techs, tier/era must never decrease along a
+prerequisite edge, unlocks must reference real building/unit/edict ids, and the whole graph must
+be acyclic (Kahn's algorithm) — any violation fails exactly like a duplicate terrain id, before
+the game ever starts. **Scholar buildings** (scribe's hut → library → university) generate
+research points daily, funding one active research at a time (`kingdom.setActiveResearch`) —
+switching targets abandons progress, a deliberate v1 simplification. **Era gates** (GDD §9:
+"require breadth, discouraging pure beelines") check the content's actual per-era tech count: 60%
+of an era must be known before starting the next, proven — the second T objective, **era pacing
+sim** — with a bounded research budget that reaches real, non-trivial tree coverage while never
+once completing a later-era tech ahead of its gate. **Diffusion** (the GDD's catch-up mechanic)
+discounts a tech's cost once a discovered rival already knows it. The long-deferred `TechRace`
+plan archetype (doc 07 §2) is real now too: a tech-weighted AI kingdom raises a scribe's hut and
+researches unprompted, purely from utility scoring, the same "wire the archetype real once its
+system lands" pattern M23/M30/M31 each proved for diplomacy, military, and war. `unlocks` are
+validated referentially but not yet enforced against `village.build`/`army.recruitUnit` — the
+same "data now, active later" precedent M25 set for `garrisonCap`.
+
+### War diplomacy (M31) — Phase 4 complete: war
+
+Wars can now be declared, negotiated, and — critically — forced to end
+(`packages/sim/src/game/diplomacy.ts`, GDD §10): `kingdom.declareWar` sets a formal `atWar` flag on
+the same pairwise relation record opinion/pacts already live on, auto-breaking any active
+non-aggression pact (holding one while declaring war *is* the betrayal) and costing less opinion
+with a claimed **casus belli** than an unprovoked declaration. **War exhaustion** climbs a fixed
+amount every day a war continues; at its cap, peace is **imposed unconditionally** — the roadmap's
+"no forever-wars" guarantee, proven in the harness with two AI kingdoms that never voluntarily
+de-escalate (`aggression: 0.95` on both sides) and still see their war forced to peace. Short of
+that cap, `kingdom.proposePeace` evaluates through `evaluatePeaceDeal` — the identical
+value-vs-threshold shape as M23's `evaluateDeal`, so a peace offer is exactly as ungameable as a NAP
+proposal — with an optional flat **tribute** (gold) sweetening it; **ransom** stays out of scope
+until Characters (M34). The AI wiring is intentionally light: the tactical manager declares war the
+moment it marches on a target, and sues for a (likely-too-weak) tribute-free peace the moment its
+strategic plan drops out of `MilitaryBuildup`/`ConquestWar` — the actual guarantee is the
+unconditional exhaustion cap, not AI cooperation. Combat and siege hostility are unchanged: they
+still run on M27/M30's pre-existing "no active NAP ⇒ hostile" gate, so `atWar` is a negotiable,
+tracked diplomatic layer on top of the fighting, not a new prerequisite for it to start.
+
+### AI at war (M30)
+
+AI kingdoms fight now (`packages/sim/src/ai/military.ts`, doc 07 §2/§3/§5): the strategic planner
+(M21) gains two real archetypes — **MilitaryBuildup** and **ConquestWar** — that emerge as a
+weak→strong ladder purely from utility scoring (build up while under-strength, go to war once
+strong AND advantaged) rather than an authored milestone sequence. Both stay at exactly 0 utility
+wherever no military context is wired in — verified against a real regression caught while building
+this: adding them un-gated briefly crowded `ExpandSettle` out of M24's own 8-kingdom fingerprint
+test. Once `ConquestWar` is active, the **military manager** raises a barracks, recruits, assembles
+an army, queues a basic defensive wall ring (**castle-building AI**, a fixed template — not doc
+07 §5's terrain-adapted motte/concentric/ridge-line skeletons), and marches on the nearest known
+rival — `siege.begin`/`siege.setTarget`/`siege.assault` against a castle, or nothing extra against
+an open village (combat.ts's own proximity detection engages automatically, M27). The harness test
+— "wars start & end; AI wins vs. passive baseline" — runs an aggressive kingdom against a pure-economy
+one and confirms both a real war concludes (not a forever-stalemate) and the attacked kingdom fares
+measurably worse than the identical kingdom left at peace.
+
+### Sieges (M29)
+
+Castles can now fall (`packages/sim/src/game/siege.ts`, GDD §7/§8): `siege.begin` **encircles** a
+hostile castle, flipping the besieging army's stance to `siege` (armies.ts's fifth stance, inert
+since M26 — its payoff). **Bombard** runs daily, not sub-ticked — sieges pace in days/seasons, not
+combat rounds — chipping away at a targeted wall/gate/tower/keep's HP (siege-class units, e.g. the
+new Catapult, count triple) until it's breached and demolished through the exact same code path a
+player's own `village.demolish` uses, so castles.ts's enclosure rebuild fires with zero new
+plumbing. **Assault** and **sortie** don't reimplement combat — they open a real combat.ts
+engagement with `Engagement.casualtyMultiplier` cranked up for assaults, so "storming should be
+bloody" (GDD §8) is one number, not a parallel resolver. **Starve**: an empty granary capitulates
+the castle after `STARVATION_SURRENDER_DAYS` (a season) — the T objective, "siege pacing stats
+within design bands", is this number matched directly against GDD §8's own pacing target. Winning
+an assault or starving a castle out transfers ownership (`VillageOwner`, M22).
+
+### Castles v1 (M28)
+
+A castle isn't a new entity kind — it's what a **Village becomes** the moment its fortifications
+close a loop (`packages/sim/src/game/castles.ts`, GDD §7): wall, gatehouse, tower, and keep are
+ordinary `BuildingDef`s (a new `defense` block: hp, armor, kind) placed through the existing
+`village.build` — no new command. The T objective, the **enclosure algorithm**, is a bounded
+flood-fill: seed from the border of a search box around the village, flow through anything that
+isn't a wall/gate tile, and whatever the flood never reaches is enclosed — gates block it exactly
+like walls, a defended chokepoint, not a hole. `isCastle` and the defence graph are **derived**,
+recomputed only when a defense-kind building completes or is demolished, never per-tick. This also
+resolves **[OQ-3](docs/design/14-open-questions.md)** at its due milestone: 12 base content files
+through M28, zero scripting needed — the DSL-only path holds, pending the real ≥90%-expressiveness
+measurement at M32–M33.
+
+### Field combat (M27)
+
+Armies that meet now fight (`packages/sim/src/game/combat.ts`, GDD §8): any two hostile armies
+(different kingdoms, no active non-aggression pact) within a tile of each other lock into an
+**Engagement** and resolve in **combat sub-ticks** — 4 per tick, capped at 12 ticks, matching the
+GDD's "typically 2–12 ticks". **Morale is the true HP**: each sub-round, aggregate attack (scaled
+by a soft counter — spearmen vs. cavalry — and the attacker's own morale fraction) divides into the
+defender's aggregate defense and comes off morale, spread by count share; a unit under 20 morale may
+**rout** — it survives and leaves the army, "rout, not annihilation" — while a slice of the same
+damage also costs real **casualties** (`Unit.count`, never returned, the same one-way loss as
+M26's starvation attrition). `army.withdraw` lets a side disengage early. The T objective — auto vs.
+manual parity ±10% — holds structurally: `battle.autoResolve` calls the exact same sub-round
+function in a tight loop instead of across real ticks, so a 150-battle statistical comparison is a
+regression guard, not a tuning exercise. "Battle UI v1" is the existing debug-HUD command injector,
+same precedent as every mechanics milestone since M19 — no dedicated panel yet.
+
+### Movement & supply (M26)
+
+Armies can now go somewhere (`packages/sim/src/game/armies.ts`, `packages/sim/src/nav/hpaStar.ts`):
+`army.moveTo` routes them with a **hierarchical HPA\*** pathfinder — a chunk-graph built once per
+session so a cross-map order never re-walks the whole terrain — and marches at
+`terrain × season × fatigue` (spring mud and winter snow slow everyone down, doc 08 §3). Arrival
+auto-garrisons; `army.setStance` sets any of the five GDD stances, though only `garrison` and
+`march` do anything until hostile kingdoms (M31) and castles (M28) give the rest meaning. **Supply**
+draws from an army's carried stock first, then **forages** the nearest friendly village in range —
+a real stockpile cost, not a free depot — and an army that finds neither climbs **fatigue**;
+sustained at max, it triggers **attrition**: soldiers are actually lost, never returned to any
+cohort, the deliberate mirror of M25's population-conservation property. The T objective —
+pathfinding budget ≤20% at 200 armies — is a benchmark test: the hierarchical router resolves 200
+army-scale routes roughly 400× faster than the naive whole-map A* it replaces.
+
+### Military basics (M25) — Phase 4 begins: war
+
+The realm can now raise arms (`packages/sim/src/game/military.ts`, GDD §6): a **Barracks**
+(`base:building.barracks`) trains **militia**, **spearmen**, and **archers** (`defs/units/core.json5`)
+— recruitment is barracks-gated and atomic, checking population (a named cohort), resources
+(equipment), and gold together before deducting any of them, exactly like village placement and
+edicts before it. Population removed at recruitment is conserved: a disbanded unit — trained or
+not — always returns its full popCost, the M25 T objective. **Training** advances hourly like
+construction (`progress → complete`). **Upkeep** (wages + food) settles once a season through the
+kingdom's existing gold ledger and the unit's home village stockpile; an unpayable unit **deserts**,
+returning its population, the same way an unpayable edict lapses — real guns-vs-butter tension.
+**Armies** are a lightweight `Unit.armyId` grouping (create/assign/disband) — no position, path, or
+stance yet; those are Movement (M26). A newly-relevant office: the **Marshal** discounts unit
+upkeep by martial skill, the same shape as the Steward's tax bonus.
 
 ### AI harness & nightly (M24) — Phase 3 complete: rivals awaken
 
@@ -238,8 +537,9 @@ population read (doc 06: "all numbers flow through Modifiers").
 
 **Advisors v1**: a court of six named notables (doc 06 §6 slice — skills 0–20, deterministic from
 the campaign seed). Appoint them (`kingdom.appoint`): a Steward multiplies tax yield by skill, a
-Chancellor discounts edict upkeep; Marshal and Scholar hold their seats for M25/M32. Advisors draw
-2 gold/day, age yearly, and die — vacating the office by event, with the books still balanced.
+Chancellor discounts edict upkeep, a Marshal discounts unit upkeep by martial skill (M25); Scholar
+holds the seat for M32. Advisors draw 2 gold/day, age yearly, and die — vacating the office by
+event, with the books still balanced.
 
 ### Multi-village & founding (M15)
 

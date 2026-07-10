@@ -24,12 +24,19 @@ save cost and dual-bookkeeping bug surface.
 **Recommendation:** hybrid — persistent identity records for notables + event-touched villagers
 (bounded pool ~50/village), pure projection for the rest; cohort math stays authoritative.
 
-### OQ-3 — Mod scripting: sandboxed JS vs. declarative-DSL-only at 1.0 (Due: M28)
+### OQ-3 — Mod scripting: sandboxed JS vs. declarative-DSL-only at 1.0 (Due: M28) — CHECKPOINT PASSED
 **Trade-offs:** scripts unlock total conversions and community creativity but carry sandbox
 security/stability burden (Risk R9), API-freeze obligations, and support load; DSL-only is safe and
 cheap but caps mod ambition, and bolting scripts on later risks API churn.
 **Recommendation:** 1.0 ships DSL-only *if* Mod Zero authoring proves ≥90% expressiveness (measured
 during M32–M33 content work); otherwise adopt QuickJS-in-WASM sandbox at M39. Decide with data.
+**M28 due-date check:** every content kind shipped through M28 (terrain, resources, buildings,
+edicts, units — 12 base `defs/` files, doc 09 §1) has been expressed entirely in the JSON5/DSL
+layer; zero scripting has been needed, including for combat, castles, and army mechanics that
+"feel" script-shaped (soft counters, enclosure-driven `isCastle`). No `scripts/` runtime exists yet.
+The formal ≥90% measurement is still M32–M33's job (content breadth: tech tree, events, characters
+hasn't landed), so the decision stays DSL-first and open only in the sense of "not yet load-bearing
+data" — not reopened.
 
 ### OQ-4 — Save↔mod reconciliation policy (Due: M39)
 When a save's mod set differs from installed mods (missing, changed version, rebalanced defs): block,
@@ -71,6 +78,10 @@ achievement/chronicle integrity and lets players ratchet around designed tension
 integrity but abandons struggling players.
 **Recommendation:** adjustable downward-only outside ironman, recorded in the chronicle ("difficulty
 lowered, year 34"); ironman locks everything.
+**M38 delta:** the presets themselves are real now (`ai/difficulty.ts`'s `DIFFICULTY_PRESETS`) —
+Story/Fair/Hard/Brutal, chosen at composition time. Mid-campaign adjustment (the downward-only
+rule, chronicle logging, ironman locking) stays a UI/save-flow concern this milestone doesn't
+touch — presets are pure, static config here, not yet wired to a live "change difficulty" command.
 
 ### OQ-9 — Defeat definition: last village vs. capital-and-heir (Due: M32)
 **Trade-offs:** last-village is unambiguous but produces tedious mop-up endgames; capital+heir
@@ -79,6 +90,16 @@ must learn and edge cases (heirless by RNG).
 **Recommendation:** last-village as the base rule, plus *capitulation mechanics* (AI offers/accepts
 vassalage when hopeless) so mop-up rarely occurs in practice; revisit dynastic defeat as an optional
 rule post-M34.
+**M35 delta:** the capitulation mechanic is real now (`game/diplomacy.ts`'s `kingdom.proposeVassalage`,
+`evaluateVassalageDeal`) — a kingdom losing badly enough (high war exhaustion against the proposer)
+values submission over continued fighting, ending the underlying war outright. Deliberately NOT
+wired to any defeat/victory condition yet (that's M37); this only proves the mechanism a
+"mop-up rarely occurs" endgame needs.
+**M37 delta — CHECKPOINT PASSED:** defeat is real now (`game/victory.ts`'s `victory-tracker`,
+GDD §16): the last-village rule, exactly as recommended — a kingdom that founded at least one
+village and now owns none is out. Dynastic (capital+heir) defeat stays the deferred OPTIONAL
+rule this recommendation always said it'd be; nothing in M34's Character system or M37's tracker
+forces it. Sandbox mode's independent `defeatEnabled` toggle (GDD §17) ships alongside it.
 
 ### OQ-10 — Float determinism vs. fixed-point migration trigger (Due: M26)
 Sim math is f64 under a strict policy (TDD §5). Define now the objective trigger for migrating hot

@@ -1,0 +1,310 @@
+// Warfare branch techs (M32; GDD §9). Tiers 1-5 map to
+// early/early/high/high/late eras; each tech (tier>1) requires 1-2 techs from the
+// previous tier in this branch (cross-links, not a single chain) — see
+// packages/data/src/terrain.ts's DAG validation for the tier/era monotonicity and
+// acyclic-graph rules this content must satisfy.
+[
+  {
+    "id": "base:tech.warfare-t1-1",
+    "name": "Bronze Tools",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "warfare",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t1-2",
+    "name": "Basic Drill",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "warfare",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t2-1",
+    "name": "Spear Tactics",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "warfare",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.warfare-t1-1"
+    ],
+    "unlocks": {
+      "units": [
+        "base:unit.spearman"
+      ]
+    },
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t2-2",
+    "name": "Composite Bows",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "warfare",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.warfare-t1-2"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t2-3",
+    "name": "Barracks Discipline",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "warfare",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.warfare-t1-1"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t3-1",
+    "name": "Archery Corps",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "warfare",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.warfare-t2-1",
+      "base:tech.warfare-t2-2"
+    ],
+    "unlocks": {
+      "units": [
+        "base:unit.archer"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t3-2",
+    "name": "Wall Building",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "warfare",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.warfare-t2-2",
+      "base:tech.warfare-t2-3"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.wall",
+        "base:building.gatehouse"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t3-3",
+    "name": "Standing Garrisons",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "warfare",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.warfare-t2-3",
+      "base:tech.warfare-t2-1"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.barracks"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t3-4",
+    "name": "Cavalry Tack",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "warfare",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.warfare-t2-1",
+      "base:tech.warfare-t2-2"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t3-5",
+    "name": "Siege Basics",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "warfare",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.warfare-t2-2",
+      "base:tech.warfare-t2-3"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t4-1",
+    "name": "Heavy Cavalry",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "warfare",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.warfare-t3-1",
+      "base:tech.warfare-t3-2"
+    ],
+    "unlocks": {
+      "units": [
+        "base:unit.cavalry"
+      ]
+    },
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t4-2",
+    "name": "Gatehouse Design",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "warfare",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.warfare-t3-2",
+      "base:tech.warfare-t3-3"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.tower"
+      ]
+    },
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t4-3",
+    "name": "Tower Emplacements",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "warfare",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.warfare-t3-3",
+      "base:tech.warfare-t3-4"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t4-4",
+    "name": "Combined Arms",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "warfare",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.warfare-t3-4",
+      "base:tech.warfare-t3-5"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t4-5",
+    "name": "Logistics Trains",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "warfare",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.warfare-t3-5",
+      "base:tech.warfare-t3-1"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t5-1",
+    "name": "Trebuchet Engineering",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "warfare",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.warfare-t4-1",
+      "base:tech.warfare-t4-2"
+    ],
+    "unlocks": {
+      "units": [
+        "base:unit.catapult"
+      ],
+      "wallTier": 3
+    },
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t5-2",
+    "name": "Keep Fortification",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "warfare",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.warfare-t4-2",
+      "base:tech.warfare-t4-3"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.keep"
+      ]
+    },
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.warfare-t5-3",
+    "name": "Grand Strategy",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "warfare",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.warfare-t4-3",
+      "base:tech.warfare-t4-4"
+    ],
+    "diffusionDiscount": 0.3,
+    "tags": []
+  }
+]
