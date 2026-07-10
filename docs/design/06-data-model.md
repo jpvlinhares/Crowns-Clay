@@ -426,7 +426,34 @@ is a plain relational class keyed by kingdom EntityId (same reasoning as `Diplom
 pacing governor's input), and pending (unanswered) event instances — `kingdom.setActiveResearch`-
 style one-command-per-decision (`event.choose`), not an authored `EventInstance` schedule.
 
-## §12. Save File
+## §12. Victory & Defeat
+
+```
+VictoryType = conquest | hegemony | legacy | prosperity | chronicle   // GDD §16
+VictoryResult { kingdomId, type: VictoryType, tick }
+DefeatEvent { kingdomId, tick }                                        // last-village rule, OQ-9
+```
+
+**M37 delta (game/victory.ts):** one daily `victory-tracker` system (doc 08 §2 row 20) evaluates
+all five GDD §16 tracks, plain closures over per-kingdom `Map`/`Set` accumulators (same
+non-ECS-relational-state reasoning as `DiplomacyState`/`ResearchState`) rather than a persisted
+schema — no save section yet (out of scope; the T objective is about the tracker's own logic, not
+persistence). Conquest and Hegemony read `VillageOwner`/`DiplomacyState` (game/diplomacy.ts, M35:
+an active alliance or vassalage counts as "bound"); Legacy counts distinct `wonder`-tagged
+building completions (content/base/defs/buildings/wonders.json5, three monuments — completable in
+any order, NOT a strict build sequence despite GDD calling it a "chain", a v1 simplification);
+Prosperity and Hegemony both use a CONSECUTIVE-day streak that resets to zero the instant the
+condition lapses; Chronicle awards the highest `prestigeOf` (population + buildings + wonders +
+known techs, nominal weights) among survivors at `yearLimit` (doc 08 §1's 40-120 year target
+campaign length). Defeat is the last-village rule (OQ-9): a kingdom that has founded at least one
+village and now owns none is out, and drops from every other kingdom's Hegemony/Conquest
+bookkeeping. Crossing 80% of any enabled track's threshold broadcasts `victory.approaching`
+once — the contestability broadcast GDD §16 asks for — but no AI consumer (doc 07 §8's
+containment consideration) is wired to react to it yet, "data/event now, AI consumption later"
+(M35/M36's own precedent). `enabled: VictoryType[]` (world-creation choice) and a separate
+`defeatEnabled` toggle are GDD §17's sandbox-mode knobs.
+
+## §13. Save File
 
 ```
 SaveFile { header: { magic, saveVersion, gameVersion, timestamp, playtime,
@@ -439,7 +466,7 @@ SaveFile { header: { magic, saveVersion, gameVersion, timestamp, playtime,
            chronicle: ChronicleEntry[] }
 ```
 
-## §13. Entity-Relationship Overview
+## §14. Entity-Relationship Overview
 
 ```
  Kingdom 1──* Village 1──* Building ──uses──► BuildingDef

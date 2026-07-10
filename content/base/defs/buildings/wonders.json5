@@ -1,0 +1,42 @@
+// Grand Wonder chain (M37; GDD §16 Legacy victory: "complete the Grand Wonder
+// chain, a massive multi-era economic project"). Three tagged 'wonder'
+// civic monuments, each individually completable in any order (game/
+// victory.ts counts distinct completions, not a strict build sequence — a
+// v1 simplification, doc 06 §16 delta) — gated at villageTier 2, the
+// highest tier currently reachable (M15/settlers.ts; tiers 3-4 are later
+// milestones), not an aspirational tier this content can't unlock yet.
+[
+  {
+    "id": "base:building.wonder-observatory",
+    "name": "The Great Observatory",
+    "category": "civic",
+    "footprint": { "w": 3, "h": 3 },
+    "cost": { "base:resource.stone": 800, "base:resource.tools": 120, "base:resource.planks": 200 },
+    "buildTicks": 2400,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "tags": ["wonder"],
+  },
+  {
+    "id": "base:building.wonder-cathedral",
+    "name": "The Grand Cathedral",
+    "category": "civic",
+    "footprint": { "w": 3, "h": 3 },
+    "cost": { "base:resource.stone": 1200, "base:resource.tools": 150, "base:resource.planks": 150 },
+    "buildTicks": 3200,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "tags": ["wonder"],
+  },
+  {
+    "id": "base:building.wonder-archive",
+    "name": "The Eternal Archive",
+    "category": "civic",
+    "footprint": { "w": 3, "h": 3 },
+    "cost": { "base:resource.stone": 1000, "base:resource.tools": 200, "base:resource.planks": 180 },
+    "buildTicks": 2800,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "tags": ["wonder"],
+  },
+]

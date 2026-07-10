@@ -58,6 +58,12 @@ office's `kingdom.researchYield` modifier, game/kingdom.ts) into the active tech
 completion swaps it into `known` and clears the active slot. `kingdom.setActiveResearch` itself
 is command-driven (like row 16's gifts/pacts), not cadence-gated — only the accrual is daily.
 
+**M37 delta (game/victory.ts):** row 20 lands exactly as designed too — `victory-tracker` runs
+daily, evaluating all five GDD §16 tracks plus the last-village defeat rule (doc 06 §12). Legacy's
+wonder-completion bookkeeping is the one piece that ISN'T daily-polled: it's event-driven off
+`building.completed`, same "don't scan everything every day when an event already tells you"
+reasoning Legacy's own module doc gives.
+
 **Simulation priority rule:** if the per-frame tick budget is exceeded (TDD §6), time dilates —
 but *within* a tick, systems 1–5 (interaction-critical) are never internally degraded; amortisable
 systems (5, 6, 13, 14, pathfinding) shed load first by narrowing their per-tick slice.

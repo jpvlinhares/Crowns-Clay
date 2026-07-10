@@ -95,7 +95,7 @@ needs them, and the vocabulary is additive (doc 09 §8) so they can land later w
 4. Merge layers in order into the immutable **Definition Database** (Engine §13).
 5. Validate merged result (§3) → transfer to sim worker at campaign start.
 
-Per-save mod sets: the active set is embedded in every save (doc 06 §12) and re-imposed on load.
+Per-save mod sets: the active set is embedded in every save (doc 06 §13) and re-imposed on load.
 
 ## §6. Override & Patch Rules
 

@@ -327,6 +327,18 @@ deferred, "data now, active later" (M25's own precedent for `BuildingDef.militar
   **containment consideration** raises war/alliance utility against any kingdom (player included)
   approaching a win — making every victory contestable (GDD §16).
 - Decade-scale behaviours emerge from plan ladders + memory, not scripts: a humiliated Warmonger
+
+**M37 delta (`game/victory.ts`):** the tracker itself is real — all five GDD §16 tracks, the
+last-village defeat rule (OQ-9), and a `victory.approaching` broadcast the instant any enabled
+track crosses 80% of its threshold (the contestability signal this section's containment
+consideration would read). What's still missing, same shape as M35/M36's own deferrals: no plan
+archetype actually SCORES `favoredVictory` alignment or reacts to `victory.approaching` yet — no
+`PrepareVictory` archetype, no containment consideration wired into `ai/planner.ts`'s utility
+scoring. The T objective ("each victory achievable ≤ year cap") is proven directly against the
+tracker's own logic (`game/victory.test.ts`, engineered conquest/hegemony/legacy/prosperity/
+chronicle scenarios), the same "test the scoring function, not an emergent economy" lesson M36's
+blind fingerprint test learned — whether the real AI economy ever naturally PURSUES a victory is
+this section's still-open, deliberately deferred question.
   fortifies, rebuilds, seeks allies against you, and returns.
 
 ## §9. Personality System

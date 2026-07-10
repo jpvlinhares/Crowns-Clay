@@ -44,7 +44,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M33 — Events engine (trigger DSL, pools, choices, AI event answers) | ✅ |
 | M34 — Characters (notables, traits, offices deep, marriages, heirs) | ✅ |
 | M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ |
-| M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ this commit |
+| M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ |
+| M37 — Victory & defeat (all 5 victory tracks, contestability broadcasts, defeat flow) | ✅ this commit |
 
 ## Layout (TDD §3)
 
@@ -112,6 +113,33 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Victory & defeat (M37)
+
+Campaigns can now actually end (`packages/sim/src/game/victory.ts`, GDD §16, doc 08 §2 row 20): a
+single daily `victory-tracker` system evaluates all five tracks — **Conquest** (control a village
+share, or eliminate every rival), **Hegemony** (every surviving rival allied or vassal, sustained a
+consecutive number of years — a broken pact resets the streak, no shortcut through a lapse),
+**Legacy** (complete 3 distinct `wonder`-tagged monuments, `content/base/defs/buildings/
+wonders.json5` — completable in any order, not a strict sequence despite GDD calling it a "chain",
+a v1 simplification), **Prosperity** (sustained realm-wide happiness, same consecutive-streak
+shape as Hegemony), and **Chronicle** (highest prestige — population + buildings + wonders + known
+techs, nominal weights — among survivors at the year cap, doc 08 §1's 40-120 year target campaign
+length). **Defeat** is the last-village rule (OQ-9): a kingdom that founded at least one village
+and now owns none is out, and drops from every other kingdom's Hegemony/Conquest bookkeeping.
+Crossing 80% of any enabled track's threshold broadcasts `victory.approaching` once — the
+contestability signal GDD §16 asks for, though no AI archetype reacts to it yet (deliberately
+deferred, "data/event now, AI consumption later," M35/M36's own precedent). `enabled:
+VictoryType[]` and a separate `defeatEnabled` toggle are GDD §17's sandbox-mode knobs. The T
+objective — **each victory achievable ≤ year cap** — is proven by engineering each condition
+directly (reassigning village ownership, calling `DiplomacyState` directly, force-completing
+wonders, forcing happiness) rather than waiting on an emergent AI economy to reach it: the same
+"test the scoring function, not a chaotic multi-year simulation" lesson M36's blind fingerprint
+test already learned. Building this surfaced a real, separate bug: three new wonder building ids
+shifted every LATER building's alphabetically-sorted def code, silently corrupting the pinned
+`terra-demo`/`terra-tick500-v1` fixtures — both intentionally re-recorded (`replay:record`,
+`save-corpus record`) once the cause was confirmed, per TDD §13's own "re-recording must be
+intentional, call it out" rule.
 
 ### Personalities (M36)
 

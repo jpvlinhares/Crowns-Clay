@@ -49,7 +49,7 @@ retention caps); per-component versioned codecs + migration chain + permanent sa
 
 Quota ceilings; Safari eviction of "unused" origin data can delete saves.
 **Mitigations:** `navigator.storage.persist()`; quota monitoring with early warnings; autosave ring
-pruning; aggressive, friendly **export-to-file UX** (single-file saves, doc 06 §12) surfaced at
+pruning; aggressive, friendly **export-to-file UX** (single-file saves, doc 06 §13) surfaced at
 season autosaves and ironman; docs set expectation that file export is the durable copy.
 **Tripwire:** quota estimate <2× current footprint triggers in-game advisory.
 

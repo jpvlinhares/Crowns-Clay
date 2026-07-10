@@ -4,12 +4,14 @@
  * edicts.ts states for its own shape. `weights` are the 8 axes doc 06 §7
  * defines; `planBiases` are per-`PlanArchetype` multipliers (ai/planner.ts) —
  * this is the ONLY way this package touches AI behaviour, since data/ never
- * depends on sim/ (TDD §3). `favoredVictory` stays a freeform tag (no
- * `VictoryType` enum exists until M37) and `taunts`/`voiceSet` drop
- * `LocalizedText` for flat strings (no locale system until M44) — both the
- * same "ship the real shape once its dependency lands" pattern M32/M33 used.
+ * depends on sim/ (TDD §3). `favoredVictory` validates against the real
+ * `VictoryType` vocabulary now that M37 shipped it (M36 landed it as a
+ * freeform tag pending this). `taunts`/`voiceSet` still drop `LocalizedText`
+ * for flat strings (no locale system until M44) — the same "ship the real
+ * shape once its dependency lands" pattern M32/M33 used.
  */
 import { v, type Validator } from './validate.js';
+import { VICTORY_TYPES } from './victory.js';
 
 export const PERSONALITY_AXES = [
   'expansion', 'aggression', 'economy', 'tech', 'diplomacyTrust', 'riskTolerance', 'grudgeRetention', 'honor',
@@ -22,7 +24,7 @@ export interface AIPersonalityDef {
   readonly desc: string;
   readonly weights: Readonly<Record<PersonalityAxis, number>>; // 0..1 each
   readonly preferences: {
-    readonly favoredVictory: readonly string[]; // freeform tags (GDD §16 victory names) — M37 unwired
+    readonly favoredVictory: readonly (typeof VICTORY_TYPES)[number][]; // GDD §16 victory names
     readonly favoredUnits: readonly string[]; // unit class/tag preference, flavour + future AI hook
     readonly buildStyle: readonly string[]; // freeform tags
     readonly insultThreshold: number; // -100..100: opinion below which this personality favours insults over talk
@@ -62,7 +64,7 @@ export const personalityValidator: Validator<AIPersonalityDef> = v.object({
   desc: v.string({ minLength: 1 }),
   weights: weightsValidator,
   preferences: v.object({
-    favoredVictory: v.array(v.string({ minLength: 1 })),
+    favoredVictory: v.array(v.literal(...VICTORY_TYPES)),
     favoredUnits: v.array(v.string({ minLength: 1 })),
     buildStyle: v.array(v.string({ minLength: 1 })),
     insultThreshold: v.number({ min: -100, max: 100 }),

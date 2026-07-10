@@ -91,6 +91,11 @@ rule post-M34.
 values submission over continued fighting, ending the underlying war outright. Deliberately NOT
 wired to any defeat/victory condition yet (that's M37); this only proves the mechanism a
 "mop-up rarely occurs" endgame needs.
+**M37 delta — CHECKPOINT PASSED:** defeat is real now (`game/victory.ts`'s `victory-tracker`,
+GDD §16): the last-village rule, exactly as recommended — a kingdom that founded at least one
+village and now owns none is out. Dynastic (capital+heir) defeat stays the deferred OPTIONAL
+rule this recommendation always said it'd be; nothing in M34's Character system or M37's tracker
+forces it. Sandbox mode's independent `defeatEnabled` toggle (GDD §17) ships alongside it.
 
 ### OQ-10 — Float determinism vs. fixed-point migration trigger (Due: M26)
 Sim math is f64 under a strict policy (TDD §5). Define now the objective trigger for migrating hot
