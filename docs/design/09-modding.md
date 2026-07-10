@@ -75,6 +75,17 @@ documented, and versioned. This covers ~90% of desired mod logic without scripts
 layer [OQ-3] exists for the rest and is deliberately capability-limited (read-only queries + command
 emission — the same rights as a player; no engine internals, no DOM, no network).
 
+**M33 delta (packages/data/src/events.ts, game/events.ts):** ships exactly this vocabulary —
+`all`/`any`/`not`, `season`, `hasEdict`, `hasTech`, `chance` (random-weight), and `stat` with five
+comparators (`lt`/`lte`/`gt`/`gte`/`eq`) over a small CLOSED set of stat paths (`STAT_PATHS`) —
+not open-ended reflection over arbitrary game state, so a typo'd path is a load-time validation
+error (doc 09 §3's fatal-def-problem principle), never a silent always-false predicate at
+runtime. `evaluatePredicate`/`applyEffect` (game/events.ts) additionally fail CLOSED on anything
+structurally malformed that slips past validation (predicates false, effects no-op, never throw)
+— fuzz-tested directly (roadmap M33's "DSL fuzzing" T objective) rather than only exercised
+through real content. Tag queries and counts stay unimplemented — no content this milestone
+needs them, and the vocabulary is additive (doc 09 §8) so they can land later without a rewrite.
+
 ## §5. Mod Loading & Dependency Resolution
 
 1. Discover installed mods (imported into IndexedDB library; folder import via File System Access).

@@ -187,6 +187,18 @@ export {
   type AiConstructionOptions,
 } from './ai/manager.js';
 export {
+  registerAiMilitaryManager,
+  planCastleRing,
+  BARRACKS_DEF,
+  RECRUIT_ORDER,
+  WAR_MIN_STRENGTH,
+  WALL_DEF,
+  CASTLE_RING_RADIUS,
+  type AiWarTarget,
+  type AiWarDiplomacy,
+  type AiMilitaryOptions,
+} from './ai/military.js';
+export {
   computeConsiderations,
   planAwareNeeds,
   registerAiStrategicPlanner,
@@ -199,7 +211,69 @@ export {
   type AiStrategicPlanner,
   type AiStrategicPlannerOptions,
   type AiDiplomacyContext,
+  type AiMilitaryContext,
+  type AiResearchContext,
 } from './ai/planner.js';
+export {
+  registerMilitaryGameplay,
+  MilitaryOps,
+  type MilitaryGameplay,
+  type UnitComponent,
+  type ArmyComponent,
+} from './game/military.js';
+export {
+  registerArmyGameplay,
+  STANCES,
+  SEASON_SPEED,
+  SEASON_ATTRITION_MULT,
+  SUPPLY_RANGE,
+  ARMY_RATION_PER_HEAD,
+  FATIGUE_RISE_PER_DAY,
+  FATIGUE_RECOVER_PER_DAY,
+  ATTRITION_RATE_AT_MAX_FATIGUE,
+  type ArmyGameplay,
+  type ArmyMovementComponent,
+  type Stance,
+} from './game/armies.js';
+export {
+  HierarchicalPathService,
+  HPA_CHUNK,
+  type HpaTerrain,
+} from './nav/hpaStar.js';
+export {
+  registerSiegeGameplay,
+  SiegeState,
+  SIEGE_RANGE,
+  BASE_BOMBARD_DAMAGE,
+  SIEGE_BOMBARD_BONUS,
+  ASSAULT_CASUALTY_MULTIPLIER,
+  STARVATION_THRESHOLD,
+  STARVATION_SURRENDER_DAYS,
+  type SiegeGameplay,
+} from './game/siege.js';
+export {
+  registerCastleGameplay,
+  computeEnclosure,
+  CASTLE_SEARCH_PADDING,
+  type CastleGameplay,
+  type DefenseGraph,
+  type DefenseNode,
+  type FortificationComponent,
+} from './game/castles.js';
+export {
+  registerCombatGameplay,
+  CombatState,
+  ENGAGEMENT_RADIUS,
+  SUBROUNDS_PER_TICK,
+  MAX_ENGAGEMENT_TICKS,
+  ROUT_MORALE_THRESHOLD,
+  ROUT_CHANCE_PER_SUBROUND,
+  BASE_MORALE_DAMAGE,
+  CASUALTY_FRACTION_OF_DAMAGE,
+  type CombatGameplay,
+  type CombatOptions,
+  type Engagement,
+} from './game/combat.js';
 export {
   registerDiplomacyGameplay,
   evaluateDeal,
@@ -218,6 +292,13 @@ export {
   BREAK_PACT_OPINION_PENALTY,
   PACT_NAP,
   PACT_TRADE,
+  evaluatePeaceDeal,
+  WAR_DECLARED_OPINION_PENALTY,
+  WAR_DECLARED_NO_CAUSE_PENALTY,
+  WAR_EXHAUSTION_PER_DAY,
+  FORCED_PEACE_EXHAUSTION,
+  PEACE_BASE_VALUE,
+  TRIBUTE_GOLD_TO_VALUE,
   type PactType,
   type DealEvaluation,
   type DiplomaticRelation,
@@ -225,3 +306,29 @@ export {
   type DiplomacyGameplay,
   type DiplomacyPersonality,
 } from './game/diplomacy.js';
+export {
+  registerResearchGameplay,
+  ResearchState,
+  ERA_BREADTH_FRACTION,
+  type ResearchGameplay,
+  type ResearchGameplayOptions,
+} from './game/research.js';
+export { registerAiResearchManager, SCHOLAR_BUILDING_DEF, type AiResearchOptions } from './ai/research.js';
+export {
+  registerEventGameplay,
+  evaluatePredicate,
+  applyEffect,
+  pacingMultiplier,
+  EventState,
+  BASE_DAILY_RATE,
+  BASE_WEEKLY_RATE,
+  PACING_TARGET_MIN,
+  PACING_TARGET_MAX,
+  type EventContext,
+  type EventEffectContext,
+  type EventGameplay,
+  type EventGameplayOptions,
+  type EventDiplomacyHook,
+  type EventResearchHook,
+} from './game/events.js';
+export { registerAiEventAnswering, type AiEventOptions } from './ai/events.js';

@@ -23,10 +23,30 @@
  *
  * Reputation (global, doc 07 §7), alliances, vassalage, and joint wars
  * (doc 06 §10's fuller clause list) are M35 "Diplomacy v2".
+ *
+ * WAR (M31; doc 06 §10 `atWar`): `kingdom.declareWar` sets it, auto-breaking any
+ * active non-aggression pact (declaring war while one holds IS the betrayal —
+ * one opinion penalty, not two competing states). CASUS BELLI: a declaration
+ * with `casusBelli: true` (the declarer's claim of just cause — this v1 has no
+ * way to verify a claim, same trust-the-input shape as every other command)
+ * costs less opinion than one without; a full reputation system (public,
+ * cross-kingdom) is M35, so the only cost modelled is the pairwise opinion hit
+ * — no internal-happiness penalty (that would need diplomacy.ts to depend on
+ * population.ts, which it deliberately doesn't).
+ *
+ * WAR EXHAUSTION climbs daily while `atWar` and is the T objective's
+ * "no forever-wars" GUARANTEE, not just an AI tendency: at `FORCED_PEACE_EXHAUSTION`
+ * peace is imposed unconditionally, no proposal needed. Short of that,
+ * `kingdom.proposePeace` evaluates through `evaluatePeaceDeal` — the same
+ * (value ≥ threshold × trust × personality margin) shape as `evaluateDeal`,
+ * so a peace offer is exactly as symmetric/ungameable as a NAP proposal.
+ * RANSOM (GDD §10's `ransom{characterId,amount}` clause) is Character-scoped
+ * (M34) and stays out of scope; `tribute` (a flat one-time gold transfer as
+ * part of a peace deal) is this milestone's stand-in for "paying to end it".
  */
 import { clamp, type EntityId } from '@crowns/core';
 import type { World } from '../ecs.js';
-import type { Kernel, TickContext } from '../kernel.js';
+import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { KingdomGameplay } from './kingdom.js';
 
@@ -46,6 +66,13 @@ export const PACT_NAP = 1;
 export const PACT_TRADE = 2;
 export type PactType = 'nonAggression' | 'trade';
 const pactBit = (type: PactType): number => (type === 'nonAggression' ? PACT_NAP : PACT_TRADE);
+
+export const WAR_DECLARED_OPINION_PENALTY = -15; // with a claimed casus belli
+export const WAR_DECLARED_NO_CAUSE_PENALTY = -35; // unprovoked (GDD §10)
+export const WAR_EXHAUSTION_PER_DAY = 100 / 90; // reaches the cap in one season, unaided
+export const FORCED_PEACE_EXHAUSTION = 100; // the "no forever-wars" guarantee — imposed, not proposed
+export const PEACE_BASE_VALUE = 20; // nominal value of "the fighting stops", scaled by exhaustion
+export const TRIBUTE_GOLD_TO_VALUE = 0.1; // 100 gold of tribute ~ 10 value
 
 // ---------------------------------------------------------------- deal evaluator
 
@@ -93,6 +120,15 @@ export function evaluateDeal(opinion: number, type: PactType, weights: Diplomacy
   return { value, threshold, accept: value >= threshold };
 }
 
+/** Nominal value of a peace offer: worse a war has gone (`exhaustion`) plus any `tribute` gold
+ * sweetening it, against the SAME threshold shape `evaluateDeal` uses — pure function of
+ * (exhaustion, tribute, weights) only, same "not who's asking" guarantee. */
+export function evaluatePeaceDeal(exhaustion: number, tribute: number, weights: DiplomacyPersonality): DealEvaluation {
+  const value = (clamp(exhaustion, 0, 100) / 100) * PEACE_BASE_VALUE + Math.max(0, tribute) * TRIBUTE_GOLD_TO_VALUE;
+  const threshold = ACCEPT_THRESHOLD * personalityMargin(weights);
+  return { value, threshold, accept: value >= threshold };
+}
+
 // ---------------------------------------------------------------- state
 
 export interface DiplomaticRelation {
@@ -100,10 +136,14 @@ export interface DiplomaticRelation {
   readonly pacts: number; // bitmask: PACT_NAP | PACT_TRADE
   readonly lastGiftTick: number;
   readonly lastInsultTick: number;
+  readonly atWar: boolean; // M31
+  readonly warExhaustion: number; // 0..100, M31
 }
 
 const NEVER = -1; // sentinel: no gift/insult has ever been sent this pair
-const EMPTY_RELATION: DiplomaticRelation = { opinion: 0, pacts: 0, lastGiftTick: NEVER, lastInsultTick: NEVER };
+const EMPTY_RELATION: DiplomaticRelation = {
+  opinion: 0, pacts: 0, lastGiftTick: NEVER, lastInsultTick: NEVER, atWar: false, warExhaustion: 0,
+};
 
 function pairKey(a: number, b: number): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
@@ -158,6 +198,46 @@ export class DiplomacyState {
     this.relations.set(pairKey(a, b), { ...rel, opinion: clamp(rel.opinion + delta, -100, 100) });
   }
 
+  isAtWar(a: number, b: number): boolean {
+    return this.relationOf(a, b).atWar;
+  }
+
+  warExhaustionOf(a: number, b: number): number {
+    return this.relationOf(a, b).warExhaustion;
+  }
+
+  /** Auto-breaks any active NAP between the pair — holding one while declaring war is the betrayal. */
+  declareWar(a: number, b: number): void {
+    const rel = this.relationOf(a, b);
+    this.relations.set(pairKey(a, b), { ...rel, atWar: true, warExhaustion: 0, pacts: rel.pacts & ~PACT_NAP });
+  }
+
+  /** Ends the war (proposed peace accepted, or exhaustion forced it) — exhaustion resets for next time. */
+  makePeace(a: number, b: number): void {
+    const rel = this.relationOf(a, b);
+    this.relations.set(pairKey(a, b), { ...rel, atWar: false, warExhaustion: 0 });
+  }
+
+  /** Daily accrual while at war; returns the new value (callers check it against the forced-peace cap). */
+  advanceWarExhaustion(a: number, b: number, amount: number): number {
+    const rel = this.relationOf(a, b);
+    const warExhaustion = clamp(rel.warExhaustion + amount, 0, 100);
+    this.relations.set(pairKey(a, b), { ...rel, warExhaustion });
+    return warExhaustion;
+  }
+
+  /** Every pair currently at war, ascending key order (deterministic). */
+  activeWars(): { a: number; b: number }[] {
+    const out: { a: number; b: number }[] = [];
+    for (const key of [...this.relations.keys()].sort()) {
+      const rel = this.relations.get(key) as DiplomaticRelation;
+      if (!rel.atWar) continue;
+      const [a, b] = key.split(':');
+      out.push({ a: Number(a), b: Number(b) });
+    }
+    return out;
+  }
+
   /** Sorted-key fold — deterministic regardless of mutation order (stateHash requirement). */
   fold(fold: (v: number) => void): void {
     for (const key of [...this.relations.keys()].sort()) {
@@ -169,6 +249,8 @@ export class DiplomacyState {
       fold(rel.pacts);
       fold(rel.lastGiftTick);
       fold(rel.lastInsultTick);
+      fold(rel.atWar ? 1 : 0);
+      fold(Math.round(rel.warExhaustion * 1000));
     }
   }
 }
@@ -291,6 +373,76 @@ export function registerDiplomacyGameplay(
       data: { from: senderId as number, to: targetId as number, pactType },
     });
   });
+
+  // ---------------- war (M31) ----------------
+
+  kernel.registerCommand<{ targetKingdom: number; casusBelli?: boolean }>('kingdom.declareWar', (ctx, p, command) => {
+    const declarerIndex = indexForIssuer(command.issuer);
+    const declarerId = kingdomAt(declarerIndex);
+    const targetId = kingdomAt(p.targetKingdom | 0);
+    if (declarerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.declareWar', 'no such kingdom');
+    if (declarerId === targetId) return reject(ctx, 'kingdom.declareWar', 'cannot declare war on yourself');
+    if (!options.hasDiscovered(declarerIndex, targetId)) return reject(ctx, 'kingdom.declareWar', 'kingdom not yet discovered');
+    if (state.isAtWar(declarerId as number, targetId as number)) return reject(ctx, 'kingdom.declareWar', 'already at war');
+    const casusBelli = p.casusBelli === true;
+    state.declareWar(declarerId as number, targetId as number);
+    state.applyOpinionDelta(
+      declarerId as number, targetId as number,
+      casusBelli ? WAR_DECLARED_OPINION_PENALTY : WAR_DECLARED_NO_CAUSE_PENALTY,
+    );
+    ctx.events.publish({
+      type: 'diplomacy.warDeclared',
+      tick: ctx.tick,
+      data: { from: declarerId as number, to: targetId as number, casusBelli },
+    });
+  });
+
+  kernel.registerCommand<{ targetKingdom: number; tribute?: number }>('kingdom.proposePeace', (ctx, p, command) => {
+    const proposerIndex = indexForIssuer(command.issuer);
+    const proposerId = kingdomAt(proposerIndex);
+    const targetId = kingdomAt(p.targetKingdom | 0);
+    if (proposerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.proposePeace', 'no such kingdom');
+    if (!state.isAtWar(proposerId as number, targetId as number)) return reject(ctx, 'kingdom.proposePeace', 'not at war');
+    const tribute = Math.max(0, p.tribute ?? 0);
+    const ki = index(proposerId as number);
+    const k = world.write(kingdomGame.Kingdom);
+    if (tribute > 0 && (k.treasury[ki] as number) < tribute) {
+      return reject(ctx, 'kingdom.proposePeace', `insufficient gold for tribute (${(k.treasury[ki] as number).toFixed(0)}/${tribute})`);
+    }
+    const exhaustion = state.warExhaustionOf(proposerId as number, targetId as number);
+    const evaluation = evaluatePeaceDeal(exhaustion, tribute, options.personalityOf(targetId));
+    if (evaluation.accept) {
+      if (tribute > 0) {
+        k.treasury[ki] = (k.treasury[ki] as number) - tribute;
+        k.treasury[index(targetId as number)] = (k.treasury[index(targetId as number)] as number) + tribute;
+      }
+      state.makePeace(proposerId as number, targetId as number);
+    }
+    ctx.events.publish({
+      type: 'diplomacy.peaceProposed',
+      tick: ctx.tick,
+      data: {
+        from: proposerId as number, to: targetId as number, tribute,
+        value: evaluation.value, threshold: evaluation.threshold, accepted: evaluation.accept,
+      },
+    });
+  });
+
+  // daily: war exhaustion climbs; at the cap, peace is FORCED (the "no forever-wars" guarantee)
+  const warExhaustionSystem: SimSystem = {
+    name: 'diplomacy-war-exhaustion',
+    period: TICKS_PER_DAY,
+    update(ctx: TickContext): void {
+      for (const { a, b } of state.activeWars()) {
+        const exhaustion = state.advanceWarExhaustion(a, b, WAR_EXHAUSTION_PER_DAY);
+        if (exhaustion >= FORCED_PEACE_EXHAUSTION) {
+          state.makePeace(a, b);
+          ctx.events.publish({ type: 'diplomacy.peaceForced', tick: ctx.tick, data: { a, b } });
+        }
+      }
+    },
+  };
+  kernel.registerSystem(warExhaustionSystem);
 
   return { state };
 }

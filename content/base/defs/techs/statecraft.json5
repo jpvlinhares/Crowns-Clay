@@ -1,0 +1,298 @@
+// Statecraft branch techs (M32; GDD §9). Tiers 1-5 map to
+// early/early/high/high/late eras; each tech (tier>1) requires 1-2 techs from the
+// previous tier in this branch (cross-links, not a single chain) — see
+// packages/data/src/terrain.ts's DAG validation for the tier/era monotonicity and
+// acyclic-graph rules this content must satisfy.
+[
+  {
+    "id": "base:tech.statecraft-t1-1",
+    "name": "Written Records",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "statecraft",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "unlocks": {
+      "buildings": [
+        "base:building.scribes-hut"
+      ]
+    },
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t1-2",
+    "name": "Village Charters",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "statecraft",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t2-1",
+    "name": "Corvée Labor",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "statecraft",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.statecraft-t1-1"
+    ],
+    "unlocks": {
+      "edicts": [
+        "base:edict.corvee-labor"
+      ]
+    },
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t2-2",
+    "name": "Coin Minting",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "statecraft",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.statecraft-t1-2"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t2-3",
+    "name": "Census Taking",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "statecraft",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.statecraft-t1-1"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t3-1",
+    "name": "Grain Reserves",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "statecraft",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.statecraft-t2-1",
+      "base:tech.statecraft-t2-2"
+    ],
+    "unlocks": {
+      "edicts": [
+        "base:edict.grain-reserves"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t3-2",
+    "name": "Scribal Schools",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "statecraft",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.statecraft-t2-2",
+      "base:tech.statecraft-t2-3"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.library"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t3-3",
+    "name": "Common Law",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "statecraft",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.statecraft-t2-3",
+      "base:tech.statecraft-t2-1"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t3-4",
+    "name": "Trade Charters",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "statecraft",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.statecraft-t2-1",
+      "base:tech.statecraft-t2-2"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t3-5",
+    "name": "Guild Rights",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "statecraft",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.statecraft-t2-2",
+      "base:tech.statecraft-t2-3"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t4-1",
+    "name": "Library Sciences",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "statecraft",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.statecraft-t3-1",
+      "base:tech.statecraft-t3-2"
+    ],
+    "unlocks": {
+      "edicts": [
+        "base:edict.harvest-festival"
+      ]
+    },
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t4-2",
+    "name": "Provincial Assemblies",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "statecraft",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.statecraft-t3-2",
+      "base:tech.statecraft-t3-3"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t4-3",
+    "name": "Diplomatic Protocol",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "statecraft",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.statecraft-t3-3",
+      "base:tech.statecraft-t3-4"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t4-4",
+    "name": "Tax Codes",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "statecraft",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.statecraft-t3-4",
+      "base:tech.statecraft-t3-5"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t4-5",
+    "name": "Royal Courts",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "statecraft",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.statecraft-t3-5",
+      "base:tech.statecraft-t3-1"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t5-1",
+    "name": "University Charters",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "statecraft",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.statecraft-t4-1",
+      "base:tech.statecraft-t4-2"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.university"
+      ]
+    },
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t5-2",
+    "name": "Statute of the Realm",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "statecraft",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.statecraft-t4-2",
+      "base:tech.statecraft-t4-3"
+    ],
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.statecraft-t5-3",
+    "name": "Absolute Sovereignty",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "statecraft",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.statecraft-t4-3",
+      "base:tech.statecraft-t4-4"
+    ],
+    "diffusionDiscount": 0.3,
+    "tags": []
+  }
+]

@@ -191,7 +191,10 @@ Principles (targets in doc 11):
   component stores (Struct-of-Arrays ECS, doc 05 §13); GC pressure minimised via object pools for
   per-tick scratch and message buffers (transferables across the worker boundary).
 - **Hierarchical pathfinding:** chunk-graph HPA* for long routes + local A*; flow-field caching for
-  common village routes (Risk R4).
+  common village routes (Risk R4). **M26 delta:** implemented for army movement (`sim/src/nav/
+  hpaStar.ts`) — portal graph built once per session, ~400× faster than whole-map A* at the
+  200-army stress scale. Haulers keep the flat A* from M14 (village-radius searches don't need the
+  hierarchy); flow-field caching stays deferred until a concrete hot path needs it.
 - **Memory ceilings:** texture atlas budget, snapshot ring size, and event-log retention all capped
   with LRU eviction; per-subsystem memory reported on the debug HUD.
 

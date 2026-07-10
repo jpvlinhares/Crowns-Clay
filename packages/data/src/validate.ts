@@ -135,6 +135,13 @@ export const v = {
     };
   },
 
+  boolean(): Validator<boolean> {
+    return (value, path, errors, file) => {
+      if (typeof value !== 'boolean') return fail(errors, file, path, `expected boolean, got ${typeof value}`) as never;
+      return value;
+    };
+  },
+
   /** Namespaced content id: `namespace:kind.name` (doc 09 §1). */
   id(): Validator<string> {
     return (value, path, errors, file) => {

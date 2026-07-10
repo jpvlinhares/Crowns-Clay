@@ -1,0 +1,53 @@
+// Castles v1 (M28: castle grid, GDD §7). A single wall tier for v1 (stone);
+// wood/reinforced progression deferred. Gates count as wall segments for the
+// enclosure algorithm (game/castles.ts) — a real chokepoint, not a hole.
+[
+  {
+    "id": "base:building.wall",
+    "name": "Wall",
+    "category": "castle",
+    "footprint": { "w": 1, "h": 1 },
+    "cost": { "base:resource.stone": 8 },
+    "buildTicks": 24,
+    "terrainTags": ["open"],
+    "defense": { "hp": 200, "armor": 5, "kind": "wall" },
+    "tags": [],
+  },
+  {
+    "id": "base:building.gatehouse",
+    "name": "Gatehouse",
+    "category": "castle",
+    "footprint": { "w": 1, "h": 1 },
+    "cost": { "base:resource.wood": 15, "base:resource.stone": 10 },
+    "buildTicks": 36,
+    "terrainTags": ["open"],
+    "defense": { "hp": 150, "armor": 3, "kind": "gate" },
+    "tags": [],
+  },
+  {
+    "id": "base:building.tower",
+    "name": "Tower",
+    "category": "castle",
+    "footprint": { "w": 1, "h": 1 },
+    "cost": { "base:resource.stone": 25 },
+    "buildTicks": 60,
+    "terrainTags": ["open"],
+    "defense": { "hp": 250, "armor": 6, "kind": "tower", "rangedArc": { "range": 6, "damage": 8 } },
+    "military": { "garrisonCap": 10 },
+    "tags": [],
+  },
+  {
+    "id": "base:building.keep",
+    "name": "Keep",
+    "category": "castle",
+    "footprint": { "w": 2, "h": 2 },
+    "cost": { "base:resource.wood": 20, "base:resource.stone": 60 },
+    "buildTicks": 144,
+    "terrainTags": ["open"],
+    "requires": { "villageTier": 2 },
+    "defense": { "hp": 400, "armor": 8, "kind": "keep" },
+    "military": { "garrisonCap": 40 },
+    "storage": { "capacity": 200 },
+    "tags": [],
+  },
+]

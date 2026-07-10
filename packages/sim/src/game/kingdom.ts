@@ -20,8 +20,10 @@
  * ADVISORS v1: notable characters (doc 06 §6 slice — named, aged, skilled
  * 0–20) spawned deterministically at kingdom genesis. Appointing a Steward
  * multiplies tax yield by skill; Chancellor discounts edict upkeep; Marshal
- * and Scholar hold their offices for M25/M32. Advisors draw a daily salary,
- * age, and die — death vacates the office by event.
+ * discounts unit upkeep by martial skill (game/military.ts, M25); Scholar
+ * multiplies research point accrual by scholarship skill (game/research.ts,
+ * M32). Advisors draw a daily salary, age, and die — death vacates the
+ * office by event.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase, EdictDef } from '@crowns/data';
@@ -86,9 +88,9 @@ export class StatModifiers {
 
 export interface LedgerEntry {
   readonly tick: number;
-  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary';
+  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary' | 'unit-recruit' | 'unit-upkeep';
   readonly amount: number; // signed: income positive, expense negative
-  readonly detail: string; // village name, edict id, office…
+  readonly detail: string; // village name, edict id, office, unit def…
 }
 
 /** Every gold movement, in order. The treasury reconciles to its sum. */
@@ -231,6 +233,16 @@ export function registerKingdomGameplay(
     if (steward !== 0 && world.isAlive(steward as EntityId)) {
       // Steward: tax yield ×(1 + stewardship/100) — up to +20% at skill 20
       sources.push({ target: 'kingdom.taxYield', op: 'mul', value: 1 + (c.stewardship[index(steward)] as number) / 100 });
+    }
+    const marshal = k.marshal[ki] as number;
+    if (marshal !== 0 && world.isAlive(marshal as EntityId)) {
+      // Marshal (M25): unit upkeep ×(1 − martial/100) — up to −20% at skill 20
+      sources.push({ target: 'military.upkeepDiscount', op: 'mul', value: 1 - (c.martial[index(marshal)] as number) / 100 });
+    }
+    const scholar = k.scholar[ki] as number;
+    if (scholar !== 0 && world.isAlive(scholar as EntityId)) {
+      // Scholar (M32): research point accrual ×(1 + scholarship/100) — up to +20% at skill 20
+      sources.push({ target: 'kingdom.researchYield', op: 'mul', value: 1 + (c.scholarship[index(scholar)] as number) / 100 });
     }
     mods.rebuild(sources);
   };

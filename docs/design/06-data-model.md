@@ -53,8 +53,15 @@ BuildingDef { id, name, desc, category: housing|production|service|military|cast
               serviceAura?: { need: NeedType, strength: number, radius: number },
               housing?: { capacity: number, comfort: number },
               military?: { recruits: Id<UnitDef>[], drillRate: number, garrisonCap: number },
+              // M25 delta: `military.recruits` implemented (barracks gates recruitment
+              // by def id). M28 delta: `garrisonCap` implemented as content (keep/tower)
+              // but not yet enforced against actual garrisons (Sieges, M29);
+              // `drillRate` (training-quality) stays deferred.
               defense?: { hp: number, armor: number, kind: wall|gate|tower|keep,
                           rangedArc?: {range, damage} },
+              // M28 delta: implemented — `kind` feeds the defence graph/enclosure
+              // algorithm (game/castles.ts); `rangedArc` stays inert until Sieges (M29).
+              // `category: castle` implemented; `monument` is unclaimed content past this.
               upgradesTo?: Id<BuildingDef>, modifiers?: Modifier[], spriteId, tags, props }
 
 Building(state) { id, defId, villageId, pos, rotation, condition: 0..1,
@@ -81,6 +88,44 @@ Unit(state) { id, defId, kingdomId, armyId?, count: number,       // men in the 
 Army(state) { id, kingdomId, name, commanderId?: Id<Character>,
               units: Id<Unit>[], pos, path?: Point[], stance: garrison|patrol|raid|siege|march,
               supplies: Map<Id<ResourceDef>, number>, fatigue: 0..100, version }
+
+// M25 delta (game/military.ts): "basics" slice only — recruitment (barracks-gated,
+// atomic pop/resource/gold check), training (`progress`/`complete`, hourly, mirrors
+// construction), armies as a lightweight `Unit.armyId` grouping (no pos/path/stance/
+// supplies/fatigue yet — those are Movement, M26), and seasonal upkeep (gold via the
+// kingdom ledger, food via the home village stockpile; unpayable units DESERT,
+// returning population, mirroring an unpayable edict lapsing). `cost` folds the
+// doc's separate `equipment` list into one flat resource map (mirrors BuildingDef);
+// `stats`/`counters`/`abilities`/`training`/`experience`/`equipmentTier` stay inert
+// content until Combat (M27). The Marshal office (kingdom.ts) discounts upkeep by
+// martial skill, same shape as the Steward's tax bonus.
+//
+// M26 delta (game/armies.ts): `pos`/`path`/`stance`/`fatigue` land. Pathing is
+// hierarchical HPA* (nav/hpaStar.ts) — a chunk-graph built once at load, so a
+// long route never re-walks the whole map. `stance` stores all five values but
+// only `garrison` (halts movement) and `march` (set by `army.moveTo`, cleared
+// on arrival) do anything yet — patrol/raid/siege wait on hostile kingdoms
+// (M31) and castles (M28). `supplies` is drawn first, then FORAGED from the
+// nearest friendly village within range (a real stockpile cost, not a free
+// depot — full road-network depots are Castles/Sieges, M28/M29). Unsupplied
+// fatigue climbs and, sustained at max, triggers ATTRITION: `Unit.count`
+// shrinks for real — unlike disband/desertion (M25), attrition never returns
+// population to any cohort. `commanderId`/`units` (the reverse of `armyId`)
+// are not modelled — mirrors `Building.village` over a `Village.buildings`
+// list elsewhere in this doc.
+//
+// M27 delta (game/combat.ts): `stats.moraleBase` and `counters` activate.
+// `Unit.morale` (added this milestone) starts at `moraleBase` and IS the
+// "true HP" GDD §8 describes — sub-round damage subtracts from it, not from
+// `stats.hp` (hp stays authored content, unconsumed — a per-soldier
+// durability nuance deferred past v1). A routed unit's `armyId` clears (it
+// survives, unlike `Unit.count` casualties, which are real and never
+// returned — the same irreversible loss as armies.ts's starvation
+// attrition). `Engagement` (doc 06's Combat kinds) is a plain relational
+// class (`CombatState`, mirrors `DiplomacyState`) keyed by army pair, not an
+// ECS entity — combat has no state of its own beyond which two armies are
+// fighting and how many ticks have elapsed. Front/flank/reserve lines,
+// formation orders, and equipmentTier/experience/training stay inert.
 ```
 
 ## §4. Village (state)
@@ -100,6 +145,33 @@ Cohort  { ageBand: child|adult|elder, occupation: Id<JobDef>|idle,
           count: number, skill: 0..100 }
 DefenseGraph { nodes: [{buildingId, kind, hp, armor}], edges: [...],
                enclosedArea: Footprint, autonomyDays: number }
+
+// M28 delta (game/castles.ts): a castle is NOT a separate entity kind — any Village
+// becomes one the moment its wall/gate/tower/keep buildings (ordinary BuildingDefs
+// with the new `defense` block, doc 06 §2) close a loop. `isCastle` and `DefenseGraph`
+// are DERIVED (recomputed on building.completed/demolished, never per-tick), not
+// authored state — no `edges` list; the enclosure algorithm is a bounded flood-fill
+// (village radius + a fixed padding) rather than a persisted graph traversal.
+// `enclosedArea` is a tile-index Set, not a Footprint rect (real castles aren't
+// rectangles). `autonomyDays` (siege endurance) is `SiegeState`'s concern — both stay
+// undefined until Sieges (M29). `military.garrisonCap` (BuildingDef, doc 06 §2) is
+// authored on keep/tower content now but not yet enforced against actual garrisons —
+// same "data now, active later" pattern as M25's unit `stats`.
+//
+// M29 delta (game/siege.ts): `SiegeState` lands as a plain relational class keyed by
+// castle (mirrors DiplomacyState/CombatState), not a Village field — one attacker per
+// castle at a time (v1). Phases: ENCIRCLE (`siege.begin`, army stance → `siege`,
+// GDD §7's fifth stance, inert since M26) → BOMBARD (daily; besieger attack, siege-class
+// units at `SIEGE_BOMBARD_BONUS`×, vs. the targeted segment's armor; at 0 HP the
+// segment is demolished via the same `VillageOps.demolish` a player uses, so castles.ts's
+// existing enclosure rebuild fires with no new plumbing) → ASSAULT/SORTIE (both reuse
+// combat.ts's resolver exactly; `Engagement.casualtyMultiplier` makes assaults bloody,
+// GDD §8) or STARVE (a season-scale granary countdown once the stockpile sits near
+// empty). `autonomyDays` isn't a stored countdown — it's however long
+// `STARVATION_SURRENDER_DAYS` takes to elapse while the food stockpile stays at/near
+// zero. Capture transfers `VillageOwner` (M22) if multi-kingdom; single-kingdom
+// compositions can't besiege at all (nothing to capture from). Multiple simultaneous
+// besiegers, mining, and ransom (Characters, M34) stay out of scope.
 ```
 
 ## §5. Kingdom (state) & PlayerProfile
@@ -121,6 +193,10 @@ Kingdom { id, name, bannerDef, isPlayer: bool, aiPersonalityId?: Id<AIPersonalit
 Player  { settings: {...}, chronicle: ChronicleEntry[],   // meta, outside sim state
           keybinds, unlockedCosmetics: string[] }
 ```
+
+**M32 delta:** `techsKnown`/`researchActive` implemented in `ResearchState` (§8's delta note),
+not as literal `Kingdom` fields — keyed by kingdom EntityId in a plain class alongside
+`DiplomacyState`, the same "relational, not entity-component" reasoning throughout this doc.
 
 **M19 delta — `KnowledgeModel` (fog of information, AI doc §6):** implemented as a
 per-kingdom collection of `KnowledgeFact`, packed as a flat `number[]` (the ECS
@@ -178,6 +254,27 @@ TechDef { id, name, desc, branch: agri|construction|warfare|statecraft,
           modifiers?: Modifier[], diffusionDiscount: 0..1, tags, props }
 ```
 
+**M32 delta (packages/data/src/techs.ts, game/research.ts):** ships 72 base techs (60-80
+target), 18 per branch, tiers 1-5 mapped to early/early/high/high/late — `modifiers` reuses
+edicts.ts's `ModifierDef`/`MODIFIER_TARGETS` verbatim ("tech M32 reuses this shape", that
+module's own comment), gaining a `kingdom.researchYield` target for the Scholar office
+(game/kingdom.ts). **DAG validation** (the T objective) runs at content load
+(`DefinitionDatabase.fromValidated`, packages/data/src/terrain.ts): prerequisites must
+reference real techs, tier/era must be non-decreasing along every prerequisite edge, unlocks
+must reference real building/unit/edict ids, and the prerequisite graph must be acyclic
+(Kahn's algorithm) — any violation is a load-time integrity failure, same severity as a
+duplicate terrain id. Kingdom-side state (`ResearchState`, game/research.ts) is a plain
+relational class keyed by kingdom EntityId — same reasoning as `DiplomacyState`: lazy
+per-kingdom defaults need no genesis-system ordering. One kingdom researches one tech at a
+time (`kingdom.setActiveResearch`); **era gates** (GDD §9 "require breadth") check the
+CONTENT's actual per-era tech count — `ERA_BREADTH_FRACTION` (0.6) of the prior era must be
+known before starting the next. `unlocks` are validated referentially but NOT enforced against
+`village.build`/`army.recruitUnit` yet (`hasUnlocked` is a queryable convenience) — the same
+"data now, active later" precedent M25 set for `BuildingDef.military.garrisonCap`. `ransom`
+(GDD §9 diplomacy acquisition) stays out of scope (Characters, M34); the era pacing sim T
+objective is proven in game/research.test.ts (a bounded budget reaches real coverage without
+ever completing a later-era tech before its era's breadth gate clears).
+
 ## §9. Terrain
 
 ```
@@ -209,6 +306,29 @@ Clause = peace|nonAggression|trade{route}|tribute{amount,interval}|gift{...}
         |ransom{characterId,amount}
 ```
 
+// M23 delta (game/diplomacy.ts): implemented slice = pairwise `DiplomacyState`
+// (opinion, pact bitmask, gift/insult cooldowns) as a plain relational class, not
+// per-kingdom ECS state — same reasoning as `KingdomLedger`/`CombatState`. No
+// `Treaty`/`Clause` object model yet — pacts are a 2-bit mask (`PACT_NAP`/`PACT_TRADE`),
+// evaluated by a pure `evaluateDeal(opinion, type, weights)` (deal-value symmetry).
+// `opinionModifiers` (decaying, per-source) and `embassies` stay unmodelled (v1: only
+// gifts/insults/pact-break move opinion, no decay-over-time term). Reputation, alliances,
+// vassalage, marriage, and joint wars are M35 "Diplomacy v2".
+//
+// M31 delta (game/diplomacy.ts): `atWar`/`warExhaustion` (0..100) land on the SAME
+// relation record, not a separate `Treaty`. `kingdom.declareWar` sets `atWar` (auto-
+// breaking any NAP — holding one while declaring war IS the betrayal) with an opinion
+// penalty scaled by `casusBelli` (a trust-the-input claim, no verification — a real
+// reputation system is M35). War exhaustion climbs a fixed amount/day while `atWar`;
+// at `FORCED_PEACE_EXHAUSTION` peace is imposed unconditionally — the roadmap's
+// "no forever-wars" GUARANTEE, not an AI tendency. Short of that cap,
+// `kingdom.proposePeace` evaluates through `evaluatePeaceDeal` (same
+// value-vs-threshold shape as `evaluateDeal`) — `tribute` (flat one-time gold) is this
+// milestone's stand-in for `Clause.ransom`, which stays Character-scoped (M34) and out
+// of scope. Note: declaring war does NOT itself gate `combat.ts`/`siege.ts` engagement —
+// those already treat any two kingdoms without an active NAP as hostile (M27/M30); `atWar`
+// is the negotiable, exhaustion-tracked diplomatic layer on top, not a new combat trigger.
+
 ## §11. EventDef & scheduled EventInstance
 
 ```
@@ -221,6 +341,24 @@ EventDef { id, pool: disaster|opportunity|character|diplomatic|unrest|era,
            tags, props }
 EffectExpr = grant/remove resource | Modifier | spawn | opinionChange | startEvent | command
 ```
+
+**M33 delta (packages/data/src/events.ts, game/events.ts):** ships 18 base events (3 per
+pool × 6 pools) — `EventDef.text` drops `LocalizedText` for a flat `{title, body}` pair (no
+locale system yet); `EffectExpr` implements grant/remove resource, an immediate one-time
+`modifier` nudge (targets the SAME closed `STAT_PATHS` vocabulary triggers read — `village.
+happiness`, `village.foodSecurity`, `village.tier`, `kingdom.treasury` — applied directly, NOT
+a persistent `StatModifiers` entry; a real timed-buff/expiry system is future work), `opinionChange`
+(optional diplomacy hook, inert without one), and `command` (an escape hatch: submits any
+already-registered kernel command). `spawn`/`startEvent` stay out of scope (`spawn` needs
+Characters, M34; `startEvent` needs an event-chaining scheduler this milestone doesn't build).
+`PredicateExpr` (doc 09 §4) is a small closed vocabulary — `all`/`any`/`not`, `season`,
+`hasEdict`, `hasTech` (ties directly into M32's `techsKnown`), `chance`, and `stat` with five
+comparators — validated at content load (`terrain.ts`'s `DefinitionDatabase`, alongside DAG-
+style referential checks: `hasEdict`/`hasTech`/resource references must be real). `EventState`
+is a plain relational class keyed by kingdom EntityId (same reasoning as `DiplomacyState`/
+`ResearchState`), tracking fired-history (cooldowns, `once`-flags), per-season fire counts (the
+pacing governor's input), and pending (unanswered) event instances — `kingdom.setActiveResearch`-
+style one-command-per-decision (`event.choose`), not an authored `EventInstance` schedule.
 
 ## §12. Save File
 

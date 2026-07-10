@@ -1,0 +1,81 @@
+// Era pool (M33; GDD App. A; §9 "era transitions raise event"). Milestone
+// events tied to real tech-tree/kingdom progress rather than season/chance —
+// `hasTech` ties directly into M32's research layer.
+[
+  {
+    "id": "base:event.era.first-tech",
+    "name": "A New Age of Learning",
+    "pool": "era",
+    "scope": "kingdom",
+    "trigger": { "hasTech": "base:tech.agriculture-t1-1" },
+    "weight": 1,
+    "once": true,
+    "text": {
+      "title": "A New Age of Learning",
+      "body": "The realm's first true innovation spreads through the villages.",
+    },
+    "choices": [
+      {
+        "id": "celebrate",
+        "text": "Declare a day of celebration",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 5 } }],
+        "aiScoreHints": { "tech": 0.6 },
+      },
+    ],
+    "tags": ["milestone"],
+  },
+  {
+    "id": "base:event.era.prosperity",
+    "name": "An Age of Prosperity",
+    "pool": "era",
+    "scope": "kingdom",
+    "trigger": { "stat": "kingdom.treasury", "gte": 500 },
+    "weight": 1,
+    "once": true,
+    "text": {
+      "title": "An Age of Prosperity",
+      "body": "The treasury swells beyond anything the realm has seen before.",
+    },
+    "choices": [
+      {
+        "id": "public-works",
+        "text": "Fund public works",
+        "requirements": { "stat": "kingdom.treasury", "gte": 50 },
+        "effects": [
+          { "modifier": { "stat": "kingdom.treasury", "op": "add", "value": -50 } },
+          { "modifier": { "stat": "village.happiness", "op": "add", "value": 6 } },
+        ],
+        "aiScoreHints": { "economy": 0.7 },
+      },
+      {
+        "id": "hoard",
+        "text": "Hoard the surplus",
+        "effects": [],
+        "aiScoreHints": { "riskTolerance": 0.5 },
+      },
+    ],
+    "tags": ["milestone"],
+  },
+  {
+    "id": "base:event.era.tercentenary",
+    "name": "A Village Come of Age",
+    "pool": "era",
+    "scope": "village",
+    "trigger": { "stat": "village.tier", "gte": 2 },
+    "weight": 1,
+    "once": true,
+    "text": {
+      "title": "A Village Come of Age",
+      "body": "The settlement has grown into a true village, with all the standing that implies.",
+    },
+    "choices": [
+      {
+        "id": "acknowledge",
+        "text": "Mark the occasion",
+        "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 4 } }],
+        "aiScoreHints": { "expansion": 0.5 },
+      },
+    ],
+    "tags": ["milestone"],
+  },
+]

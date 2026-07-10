@@ -13,15 +13,21 @@ import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
 import { registerPopulationGameplay } from './population.js';
 import { registerEconomyGameplay } from './economy.js';
 import { registerKingdomGameplay, StatModifiers } from './kingdom.js';
+import { TICKS_PER_DAY } from '../time.js';
 import {
   registerDiplomacyGameplay,
   evaluateDeal,
+  evaluatePeaceDeal,
   trustFactor,
   personalityMargin,
   DiplomacyState,
   GIFT_COOLDOWN_TICKS,
   INSULT_COOLDOWN_TICKS,
   MAX_GIFT_OPINION,
+  WAR_DECLARED_OPINION_PENALTY,
+  WAR_DECLARED_NO_CAUSE_PENALTY,
+  WAR_EXHAUSTION_PER_DAY,
+  FORCED_PEACE_EXHAUSTION,
   type DealEvaluation,
 } from './diplomacy.js';
 
@@ -96,6 +102,40 @@ test('trustFactor / personalityMargin stay within their documented bounds', () =
   for (const trust of [0, 0.5, 1]) {
     const margin = personalityMargin({ diplomacyTrust: trust });
     assert.ok(margin >= 0.8 - 1e-9 && margin <= 1.2 + 1e-9); // floating-point epsilon
+  }
+});
+
+// ---------------------------------------------------------------- peace-deal evaluator sanity (M31)
+
+test('evaluatePeaceDeal: a pure function of (exhaustion, tribute, weights) — no notion of "who is asking"', () => {
+  const weights = { diplomacyTrust: 0.7 };
+  const a: DealEvaluation = evaluatePeaceDeal(50, 100, weights);
+  const b: DealEvaluation = evaluatePeaceDeal(50, 100, weights);
+  assert.deepEqual(a, b);
+});
+
+test('evaluatePeaceDeal: value rises monotonically with exhaustion and with tribute', () => {
+  const weights = { diplomacyTrust: 0.5 };
+  const low = evaluatePeaceDeal(10, 0, weights);
+  const high = evaluatePeaceDeal(90, 0, weights);
+  assert.ok(high.value > low.value);
+
+  const noTribute = evaluatePeaceDeal(50, 0, weights);
+  const withTribute = evaluatePeaceDeal(50, 200, weights);
+  assert.ok(withTribute.value > noTribute.value);
+});
+
+test('evaluatePeaceDeal: exhaustion is clamped to [0, 100] and tribute never reduces value', () => {
+  const weights = { diplomacyTrust: 0.5 };
+  assert.equal(evaluatePeaceDeal(-50, 0, weights).value, 0);
+  assert.equal(evaluatePeaceDeal(150, 0, weights).value, evaluatePeaceDeal(100, 0, weights).value);
+  assert.equal(evaluatePeaceDeal(50, -100, weights).value, evaluatePeaceDeal(50, 0, weights).value);
+});
+
+test('evaluatePeaceDeal: a fully exhausted war (100) alone clears the base threshold regardless of trust', () => {
+  for (const trust of [0, 0.5, 1]) {
+    const evaluation = evaluatePeaceDeal(100, 0, { diplomacyTrust: trust });
+    assert.ok(evaluation.accept, `exhaustion=100 should be enough to accept peace at trust=${trust}`);
   }
 });
 
@@ -236,6 +276,140 @@ test('kingdom.breakPact: removes the pact and applies an opinion penalty', () =>
   submit(kernel, 'kingdom.breakPact', 1, { targetKingdom: 1, pactType: 'nonAggression' });
   assert.ok(!diplomacyGame.state.hasPact(kingdomIds[0] as number, kingdomIds[1] as number, 'nonAggression'));
   assert.ok(diplomacyGame.state.opinionOf(kingdomIds[0] as number, kingdomIds[1] as number) < opinionBefore);
+});
+
+// ---------------------------------------------------------------- war & peace (M31)
+
+test('DiplomacyState: declareWar/makePeace/advanceWarExhaustion — symmetric, clamped, and auto-breaks NAP', () => {
+  const state = new DiplomacyState();
+  state.addPact(1, 2, 'nonAggression');
+  state.declareWar(2, 1); // argument order reversed vs. the pact call — still resolves the same pair
+  assert.ok(state.isAtWar(1, 2));
+  assert.ok(state.isAtWar(2, 1));
+  assert.ok(!state.hasPact(1, 2, 'nonAggression'));
+
+  state.advanceWarExhaustion(1, 2, 40);
+  state.advanceWarExhaustion(2, 1, 40);
+  assert.equal(state.warExhaustionOf(1, 2), 80);
+  assert.equal(state.warExhaustionOf(2, 1), 80);
+
+  const clamped = state.advanceWarExhaustion(1, 2, 1000);
+  assert.equal(clamped, 100);
+
+  assert.deepEqual(state.activeWars(), [{ a: 1, b: 2 }]);
+
+  state.makePeace(2, 1);
+  assert.ok(!state.isAtWar(1, 2));
+  assert.equal(state.warExhaustionOf(1, 2), 0);
+  assert.deepEqual(state.activeWars(), []);
+});
+
+test('kingdom.declareWar: a claimed casus belli costs less opinion than an unprovoked declaration', () => {
+  const { kernel, kingdomGame, diplomacyGame } = makeTwoKingdoms();
+  kernel.step();
+  const kingdomIds = kingdomGame.kingdomEntities();
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1, casusBelli: true });
+  const withCause = diplomacyGame.state.opinionOf(kingdomIds[0] as number, kingdomIds[1] as number);
+  assert.equal(withCause, WAR_DECLARED_OPINION_PENALTY);
+
+  const { kernel: kernel2, kingdomGame: kingdomGame2, diplomacyGame: diplomacyGame2 } = makeTwoKingdoms();
+  kernel2.step();
+  const kingdomIds2 = kingdomGame2.kingdomEntities();
+  submit(kernel2, 'kingdom.declareWar', 1, { targetKingdom: 1 });
+  const withoutCause = diplomacyGame2.state.opinionOf(kingdomIds2[0] as number, kingdomIds2[1] as number);
+  assert.equal(withoutCause, WAR_DECLARED_NO_CAUSE_PENALTY);
+  assert.ok(withCause > withoutCause);
+});
+
+test('kingdom.declareWar: sets atWar, auto-breaks an active NAP, and rejects a duplicate declaration', () => {
+  const { kernel, kingdomGame, diplomacyGame } = makeTwoKingdoms();
+  kernel.step();
+  const kingdomIds = kingdomGame.kingdomEntities();
+  submit(kernel, 'kingdom.proposePact', 1, { targetKingdom: 1, pactType: 'nonAggression' });
+  assert.ok(diplomacyGame.state.hasPact(kingdomIds[0] as number, kingdomIds[1] as number, 'nonAggression'));
+
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1, casusBelli: true });
+  assert.ok(diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
+  assert.ok(!diplomacyGame.state.hasPact(kingdomIds[0] as number, kingdomIds[1] as number, 'nonAggression'));
+
+  const rejections: string[] = [];
+  kernel.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rejections.push(e.data.reason));
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1 });
+  assert.ok(rejections.some((r) => r.includes('already at war')));
+});
+
+test('kingdom.declareWar: rejects self-war and a not-yet-discovered target', () => {
+  const { kernel: k1 } = makeTwoKingdoms();
+  k1.step();
+  const rej1: string[] = [];
+  k1.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rej1.push(e.data.reason));
+  submit(k1, 'kingdom.declareWar', 1, { targetKingdom: 0 });
+  assert.ok(rej1.some((r) => r.includes('cannot declare war on yourself')));
+
+  const { kernel: k2 } = makeTwoKingdoms(false); // hasDiscovered always false
+  k2.step();
+  const rej2: string[] = [];
+  k2.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rej2.push(e.data.reason));
+  submit(k2, 'kingdom.declareWar', 1, { targetKingdom: 1 });
+  assert.ok(rej2.some((r) => r.includes('not yet discovered')));
+});
+
+test('kingdom.proposePeace: rejects when not at war, and when tribute exceeds the treasury', () => {
+  const { kernel } = makeTwoKingdoms();
+  kernel.step();
+  const rejections: string[] = [];
+  kernel.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rejections.push(e.data.reason));
+
+  submit(kernel, 'kingdom.proposePeace', 1, { targetKingdom: 1 });
+  assert.ok(rejections.some((r) => r.includes('not at war')));
+
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1, casusBelli: true });
+  submit(kernel, 'kingdom.proposePeace', 1, { targetKingdom: 1, tribute: 10_000 });
+  assert.ok(rejections.some((r) => r.includes('insufficient gold for tribute')));
+});
+
+test('kingdom.proposePeace: a weak offer is rejected (war continues); a sweetened one ends the war and pays tribute', () => {
+  const { kernel, world, kingdomGame, diplomacyGame } = makeTwoKingdoms();
+  kernel.step();
+  const kingdomIds = kingdomGame.kingdomEntities();
+  const treasuryOf = (i: number): number => world.read(kingdomGame.Kingdom).treasury[(kingdomIds[i] as number) & 0x3fffff] as number;
+
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1, casusBelli: true });
+  assert.ok(diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
+
+  // fresh war (exhaustion 0), no tribute: value 0 < threshold — a weak offer is rejected, war continues
+  const proposals: { accepted: boolean }[] = [];
+  kernel.subscribe<{ accepted: boolean }>('diplomacy.peaceProposed', (e) => proposals.push(e.data));
+  submit(kernel, 'kingdom.proposePeace', 1, { targetKingdom: 1 });
+  assert.equal(proposals[0]?.accepted, false);
+  assert.ok(diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
+
+  // sweeten it with enough tribute to clear the threshold
+  const targetBefore = treasuryOf(1);
+  const proposerBefore = treasuryOf(0);
+  submit(kernel, 'kingdom.proposePeace', 1, { targetKingdom: 1, tribute: 300 });
+  assert.equal(proposals[1]?.accepted, true);
+  assert.ok(!diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
+  assert.equal(treasuryOf(0), proposerBefore - 300);
+  assert.equal(treasuryOf(1), targetBefore + 300);
+});
+
+test('war exhaustion: a war neither side ends is FORCED to peace once exhaustion caps out (no forever-wars)', () => {
+  const { kernel, kingdomGame, diplomacyGame } = makeTwoKingdoms();
+  kernel.step();
+  const kingdomIds = kingdomGame.kingdomEntities();
+  submit(kernel, 'kingdom.declareWar', 1, { targetKingdom: 1, casusBelli: true });
+  assert.ok(diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
+
+  const forced: unknown[] = [];
+  kernel.subscribe('diplomacy.peaceForced', (e) => forced.push(e));
+
+  // reaches FORCED_PEACE_EXHAUSTION in ~90 days, unaided by any peace proposal from either side
+  const days = Math.ceil(FORCED_PEACE_EXHAUSTION / WAR_EXHAUSTION_PER_DAY) + 1;
+  for (let i = 0; i < days * TICKS_PER_DAY; i++) kernel.step();
+
+  assert.ok(forced.length > 0, 'expected the war to be forcibly ended by exhaustion');
+  assert.ok(!diplomacyGame.state.isAtWar(kingdomIds[0] as number, kingdomIds[1] as number));
 });
 
 test('determinism: DiplomacyState.fold produces the same hash for the same sequence of commands', () => {

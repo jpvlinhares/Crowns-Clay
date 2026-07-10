@@ -6,11 +6,13 @@
  * (`planAwareNeeds`) and M15's settler dispatch, and publish a decision-log
  * event every week so "why this plan?" is always answerable (doc 13 R1).
  *
- * Only 3 archetypes ship: DevelopHeartland, ExpandSettle, Recover — the rest
- * of doc 07 §2's list (ConquestWar, ForgeAlliance, TechRace, ...) needs
- * systems that don't exist yet (military M25, diplomacy M23, tech M32);
- * `DEFAULT_PLAN_ARCHETYPES` is an extensible array so those append later
- * without a rewrite, mirroring M20's `NeedEvaluator` list.
+ * M21 shipped 3 archetypes (DevelopHeartland, ExpandSettle, Recover);
+ * ForgeAlliance (M23), MilitaryBuildup/ConquestWar (M30), and TechRace (M32)
+ * joined once their underlying systems (diplomacy/military/research) landed
+ * — `DEFAULT_PLAN_ARCHETYPES` is an extensible array exactly so each could
+ * append without a rewrite, mirroring M20's `NeedEvaluator` list. The rest of
+ * doc 07 §2's list (PunitiveRaid, FortifyBorder, PrepareVictory, ...) stays
+ * deferred pending their own systems.
  *
  * `PersonalityWeights` here is a minimal in-code subset (not the content-
  * defined, mod-loadable `AIPersonalityDef` of doc 06 §7 — that full system,
@@ -22,7 +24,7 @@
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase } from '@crowns/data';
-import { SoAComponent, World } from '../ecs.js';
+import { SoAComponent, World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from '../game/villages.js';
@@ -41,6 +43,10 @@ export interface PersonalityWeights {
   readonly riskTolerance: number; // 0..1
   /** How readily this kingdom trusts diplomatic overtures (M23); optional, defaults to 0.5. */
   readonly diplomacyTrust?: number; // 0..1
+  /** How readily this kingdom builds up and commits military force (M30); optional, defaults to 0.5. */
+  readonly aggression?: number; // 0..1
+  /** How readily this kingdom invests in research over other priorities (M32); optional, defaults to 0.5. */
+  readonly tech?: number; // 0..1
 }
 
 export const DEFAULT_PERSONALITY_WEIGHTS: PersonalityWeights = {
@@ -48,6 +54,8 @@ export const DEFAULT_PERSONALITY_WEIGHTS: PersonalityWeights = {
   economy: 0.5,
   riskTolerance: 0.5,
   diplomacyTrust: 0.5,
+  aggression: 0.5,
+  tech: 0.5,
 };
 
 // ---------------------------------------------------------------- considerations
@@ -58,6 +66,9 @@ export interface Considerations {
   readonly settleReadiness: number; // spare adults/cohorts/cargo for a settler party
   readonly crisisSignal: number; // 1 if actually starving/unhappy, else 0
   readonly allianceOpportunity: number; // 0..1: is there a known, non-hostile, not-yet-pacted foreign kingdom (M23)
+  readonly militaryStrength: number; // 0..1: own committed troops, normalised (M30)
+  readonly relativeAdvantage: number; // 0..1: own strength vs. the strongest known rival's (M30); 0 if none known
+  readonly researchOpportunity: number; // 0..1: how much of the tech tree is left to research (M32)
 }
 
 const CRISIS_FOOD_SECURITY = 0.6;
@@ -77,10 +88,31 @@ export interface AiDiplomacyContext {
   kingdomIndexOf(target: EntityId): number;
 }
 
+/** Military context (M30) a planner reads to score `MilitaryBuildup`/`ConquestWar` — optional
+ * and additive, same shape convention as `AiDiplomacyContext`. Strength is a plain committed-
+ * troop count read directly (this planner stays standalone from M19's Knowledge Model, like
+ * M21/M23 before it — not "believed" strength through fog uncertainty). */
+export interface AiMilitaryContext {
+  ownStrength(): number;
+  /** Committed troop counts of every known, non-allied rival (M22 scouting; empty ⇒ neutral 0.5 advantage). */
+  knownRivalStrengths(): readonly number[];
+}
+
+const MILITARY_STRENGTH_NORM = 40; // committed troop count treated as "fully built up" (a handful of units)
+
+/** Research context (M32) a planner reads to score `TechRace` — optional and additive, same
+ * shape convention as `AiDiplomacyContext`/`AiMilitaryContext`. */
+export interface AiResearchContext {
+  /** Fraction (0..1) of the tech tree this kingdom already knows. */
+  coverage(): number;
+}
+
 export function computeConsiderations(
   ctx: NeedContext,
   popGame: PopulationGameplay,
   diplomacy?: AiDiplomacyContext,
+  military?: AiMilitaryContext,
+  research?: AiResearchContext,
 ): Considerations {
   const pop = ctx.world.read(popGame.Population);
   const vi = ctx.villageIndex;
@@ -112,12 +144,36 @@ export function computeConsiderations(
     }
   }
 
+  // inert defaults: militaryStrength=1 ("no need to build up" — building up isn't even a concept
+  // without a military module) and relativeAdvantage=0 ("no case for war" — conquering nothing
+  // known scores as nothing to conquer, not a coin-flip). Both keep militaryBuildup/conquestWar
+  // at exactly 0 wherever no military context is wired in (every M20/M21/M23 test) or no rival
+  // is known yet (nothing to size up against) — never a false readiness signal.
+  let militaryStrength = 1;
+  let relativeAdvantage = 0;
+  if (military !== undefined) {
+    const ownStrength = military.ownStrength();
+    militaryStrength = clamp01(ownStrength / MILITARY_STRENGTH_NORM);
+    const rivals = military.knownRivalStrengths();
+    if (rivals.length > 0) {
+      const bestRival = Math.max(...rivals);
+      relativeAdvantage = ownStrength + bestRival <= 0 ? 0.5 : clamp01(ownStrength / (ownStrength + bestRival));
+    }
+  }
+
+  // inert default: researchOpportunity=0 ("nothing to race toward" — without a research module,
+  // there's no tree to have headroom in) wherever no research context is wired in.
+  const researchOpportunity = research === undefined ? 0 : clamp01(1 - research.coverage());
+
   return {
     economyStrength: clamp01((foodSecurity + happiness / 100) / 2),
     growthHeadroom: clamp01(1 - Math.min(foodRatio, housingRatio)),
     settleReadiness: cohortsOk && cargoOk ? clamp01(adultsSurplus / SETTLER_PARTY.adults) : 0,
     crisisSignal: foodSecurity < CRISIS_FOOD_SECURITY || happiness < CRISIS_HAPPINESS ? 1 : 0,
     allianceOpportunity,
+    militaryStrength,
+    relativeAdvantage,
+    researchOpportunity,
   };
 }
 
@@ -151,7 +207,36 @@ const forgeAlliance: PlanArchetype = {
   utility: (c, w) => clamp01((w.diplomacyTrust ?? 0.5) * c.allianceOpportunity),
 };
 
-export const DEFAULT_PLAN_ARCHETYPES: readonly PlanArchetype[] = [developHeartland, expandSettle, recover, forgeAlliance];
+/** M30: real now that military exists — inert (`militaryStrength` always 0) when no `military`
+ * context is wired in. Wants to build up specifically while WEAK — the natural lead-in to
+ * `conquestWar` below, a ladder that emerges from utility scoring rather than an authored
+ * milestone sequence (doc 07 §2's fuller "ConquestWar ladder" stays deferred — v1 scope). */
+const militaryBuildup: PlanArchetype = {
+  id: 'MilitaryBuildup',
+  utility: (c, w) => clamp01((w.aggression ?? 0.5) * (1 - c.militaryStrength) * c.economyStrength),
+};
+
+/** M30: wants to actually go to war only once ALREADY strong and advantaged — otherwise
+ * `militaryBuildup` (above) keeps outscoring it, so the two form a natural weak→strong ladder
+ * without any explicit state machine. Target selection (which rival, where) is the AI military
+ * manager's job (ai/military.ts) once this plan is chosen, mirroring how `expandSettle` picks its
+ * site only in the planner system's `update()`, not in the archetype's own utility function. */
+const conquestWar: PlanArchetype = {
+  id: 'ConquestWar',
+  utility: (c, w) => clamp01((w.aggression ?? 0.5) * c.relativeAdvantage * c.militaryStrength),
+};
+
+/** M32: real now that research exists — inert (`researchOpportunity` always 0) when no
+ * `research` context is wired in. Wants a strong economy funding it AND real headroom left
+ * in the tree — a kingdom that's already researched everything has nothing left to race for. */
+const techRace: PlanArchetype = {
+  id: 'TechRace',
+  utility: (c, w) => clamp01((w.tech ?? 0.5) * c.researchOpportunity * c.economyStrength),
+};
+
+export const DEFAULT_PLAN_ARCHETYPES: readonly PlanArchetype[] = [
+  developHeartland, expandSettle, recover, forgeAlliance, militaryBuildup, conquestWar, techRace,
+];
 
 // ---------------------------------------------------------------- construction bridge
 
@@ -193,6 +278,12 @@ export interface AiStrategicPlannerOptions {
   readonly sharedPlanState?: SoAComponent<{ plan: 'u8'; adoptedTick: 'u32' }>;
   /** Diplomacy context (M23) — omit for no `ForgeAlliance` behaviour (M21's existing tests). */
   readonly diplomacy?: AiDiplomacyContext;
+  /** Military context (M30) — omit for no `MilitaryBuildup`/`ConquestWar` behaviour. */
+  readonly military?: AiMilitaryContext;
+  /** Research context (M32) — omit for no `TechRace` behaviour. */
+  readonly research?: AiResearchContext;
+  /** Extra components a custom `military`/`diplomacy` context reads (e.g. game/military.ts's `Unit`). */
+  readonly extraReads?: readonly Component[];
 }
 
 export interface AiStrategicPlanner {
@@ -236,7 +327,7 @@ export function registerAiStrategicPlanner(
     period: TICKS_PER_DAY * 7,
     phase: 0,
     access: {
-      reads: [game.comps.VillageCore, game.comps.BuildingCore, popGame.Population, game.comps.Stockpile],
+      reads: [game.comps.VillageCore, game.comps.BuildingCore, popGame.Population, game.comps.Stockpile, ...(options.extraReads ?? [])],
       writes: [AiPlanState],
     },
     update(ctx: TickContext): void {
@@ -250,7 +341,7 @@ export function registerAiStrategicPlanner(
       const previousId = (archetypes[previousIndex] ?? (archetypes[0] as PlanArchetype)).id;
 
       const needCtx: NeedContext = { world, comps: game.comps, ops: game.ops, popGame, db, villageIndex: vi };
-      const considerations = computeConsiderations(needCtx, popGame, options.diplomacy);
+      const considerations = computeConsiderations(needCtx, popGame, options.diplomacy, options.military, options.research);
 
       const scores: Record<string, number> = {};
       let bestIndex = previousIndex;

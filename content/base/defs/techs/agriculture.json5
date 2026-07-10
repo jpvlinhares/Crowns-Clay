@@ -1,0 +1,293 @@
+// Agriculture branch techs (M32; GDD §9). Tiers 1-5 map to
+// early/early/high/high/late eras; each tech (tier>1) requires 1-2 techs from the
+// previous tier in this branch (cross-links, not a single chain) — see
+// packages/data/src/terrain.ts's DAG validation for the tier/era monotonicity and
+// acyclic-graph rules this content must satisfy.
+[
+  {
+    "id": "base:tech.agriculture-t1-1",
+    "name": "Crop Rotation",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "agriculture",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "unlocks": {
+      "buildings": [
+        "base:building.farm"
+      ]
+    },
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t1-2",
+    "name": "Animal Husbandry",
+    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "branch": "agriculture",
+    "tier": 1,
+    "era": "early",
+    "cost": 20,
+    "prerequisites": [],
+    "diffusionDiscount": 0.1,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t2-1",
+    "name": "Selective Breeding",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "agriculture",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.agriculture-t1-1"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.lumber-camp"
+      ]
+    },
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t2-2",
+    "name": "Irrigation Ditches",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "agriculture",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.agriculture-t1-2"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t2-3",
+    "name": "Forestry",
+    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "branch": "agriculture",
+    "tier": 2,
+    "era": "early",
+    "cost": 35,
+    "prerequisites": [
+      "base:tech.agriculture-t1-1"
+    ],
+    "diffusionDiscount": 0.15,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t3-1",
+    "name": "Horse Collar",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "agriculture",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.agriculture-t2-1",
+      "base:tech.agriculture-t2-2"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.dock"
+      ]
+    },
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t3-2",
+    "name": "Fallow Fields",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "agriculture",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.agriculture-t2-2",
+      "base:tech.agriculture-t2-3"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t3-3",
+    "name": "Apiculture",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "agriculture",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.agriculture-t2-3",
+      "base:tech.agriculture-t2-1"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t3-4",
+    "name": "Fish Weirs",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "agriculture",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.agriculture-t2-1",
+      "base:tech.agriculture-t2-2"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t3-5",
+    "name": "Terracing",
+    "desc": "A high-medieval advance requiring real institutional investment.",
+    "branch": "agriculture",
+    "tier": 3,
+    "era": "high",
+    "cost": 60,
+    "prerequisites": [
+      "base:tech.agriculture-t2-2",
+      "base:tech.agriculture-t2-3"
+    ],
+    "diffusionDiscount": 0.2,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t4-1",
+    "name": "Heavy Plough",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "agriculture",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.agriculture-t3-1",
+      "base:tech.agriculture-t3-2"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.sawmill"
+      ]
+    },
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t4-2",
+    "name": "Windmills",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "agriculture",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.agriculture-t3-2",
+      "base:tech.agriculture-t3-3"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t4-3",
+    "name": "Watermills",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "agriculture",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.agriculture-t3-3",
+      "base:tech.agriculture-t3-4"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t4-4",
+    "name": "Crop Diversification",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "agriculture",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.agriculture-t3-4",
+      "base:tech.agriculture-t3-5"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t4-5",
+    "name": "Enclosure",
+    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "branch": "agriculture",
+    "tier": 4,
+    "era": "high",
+    "cost": 90,
+    "prerequisites": [
+      "base:tech.agriculture-t3-5",
+      "base:tech.agriculture-t3-1"
+    ],
+    "diffusionDiscount": 0.25,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t5-1",
+    "name": "Three-Field System",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "agriculture",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.agriculture-t4-1",
+      "base:tech.agriculture-t4-2"
+    ],
+    "unlocks": {
+      "buildings": [
+        "base:building.quarry"
+      ]
+    },
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t5-2",
+    "name": "Selective Husbandry II",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "agriculture",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.agriculture-t4-2",
+      "base:tech.agriculture-t4-3"
+    ],
+    "diffusionDiscount": 0.3,
+    "tags": []
+  },
+  {
+    "id": "base:tech.agriculture-t5-3",
+    "name": "Agrarian Reform",
+    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "branch": "agriculture",
+    "tier": 5,
+    "era": "late",
+    "cost": 140,
+    "prerequisites": [
+      "base:tech.agriculture-t4-3",
+      "base:tech.agriculture-t4-4"
+    ],
+    "diffusionDiscount": 0.3,
+    "tags": []
+  }
+]

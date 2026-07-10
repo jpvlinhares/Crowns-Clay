@@ -32,7 +32,7 @@ export interface Recipe {
 export interface BuildingDef {
   readonly id: string;
   readonly name: string;
-  readonly category: 'civic' | 'housing' | 'service' | 'storage' | 'production' | 'military';
+  readonly category: 'civic' | 'housing' | 'service' | 'storage' | 'production' | 'military' | 'castle';
   readonly footprint: { readonly w: number; readonly h: number };
   readonly cost: Readonly<Record<string, number>>;
   readonly buildTicks: number;
@@ -44,6 +44,23 @@ export interface BuildingDef {
   readonly storage?: { readonly capacity: number };
   readonly recipes?: readonly Recipe[];
   readonly workers?: { readonly required: number };
+  /** M25: which unit defs this building can train (barracks); M28: garrisonCap caps how
+   * many troops the village can shelter as defenders (keeps/towers — no recruits of their
+   * own). doc 06 §2; drillRate (training-quality) stays deferred. */
+  readonly military?: { readonly recruits?: readonly string[]; readonly garrisonCap?: number };
+  /** M28: wall/gate/tower/keep segments (doc 06 §2). `kind` feeds the defence graph
+   * and enclosure algorithm (game/castles.ts); `rangedArc` stays inert until Sieges (M29). */
+  readonly defense?: {
+    readonly hp: number;
+    readonly armor: number;
+    readonly kind: 'wall' | 'gate' | 'tower' | 'keep';
+    readonly rangedArc?: { readonly range: number; readonly damage: number };
+  };
+  /** M32: scholar buildings (scribe's hut → library → university, GDD §9) generate
+   * research points daily; game/research.ts sums this across a kingdom's completed,
+   * owned buildings. No workforce-efficiency gating yet (v1: flat per-building rate,
+   * same simplification precedent as serviceAura's flat strength). */
+  readonly research?: { readonly pointsPerDay: number };
   readonly tags: readonly string[];
 }
 
@@ -80,11 +97,21 @@ const recipeValidator: Validator<Recipe> = v.object({
   outputs: v.array(yieldValidator, { minItems: 1 }),
 }) as Validator<Recipe>;
 
+const defenseValidator = v.object(
+  {
+    hp: v.number({ min: 1 }),
+    armor: v.number({ min: 0 }),
+    kind: v.literal('wall', 'gate', 'tower', 'keep'),
+    rangedArc: v.object({ range: v.number({ min: 1 }), damage: v.number({ min: 0 }) }),
+  },
+  { optional: ['rangedArc'] },
+);
+
 export const buildingValidator: Validator<BuildingDef> = v.object(
   {
     id: v.id(),
     name: v.string({ minLength: 1 }),
-    category: v.literal('civic', 'housing', 'service', 'storage', 'production', 'military'),
+    category: v.literal('civic', 'housing', 'service', 'storage', 'production', 'military', 'castle'),
     footprint: v.object({ w: v.number({ min: 1, max: 8, integer: true }), h: v.number({ min: 1, max: 8, integer: true }) }),
     cost: costValidator,
     buildTicks: v.number({ min: 1, integer: true }),
@@ -95,7 +122,13 @@ export const buildingValidator: Validator<BuildingDef> = v.object(
     storage: v.object({ capacity: v.number({ min: 1, integer: true }) }),
     recipes: v.array(recipeValidator, { minItems: 1 }),
     workers: v.object({ required: v.number({ min: 1, integer: true }) }),
+    military: v.object(
+      { recruits: v.array(v.id(), { minItems: 1 }), garrisonCap: v.number({ min: 1, integer: true }) },
+      { optional: ['recruits', 'garrisonCap'] },
+    ),
+    defense: defenseValidator as unknown as Validator<BuildingDef['defense']>,
+    research: v.object({ pointsPerDay: v.number({ min: 0 }) }),
     tags: v.array(v.string({ minLength: 1 })),
   },
-  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'workers'] },
+  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'workers', 'military', 'defense', 'research'] },
 ) as Validator<BuildingDef>;
