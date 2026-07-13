@@ -338,7 +338,9 @@ per-parameter overrides. Seeds shareable as strings.
 
 **Internal mechanics.** Pipeline stages (each deterministic from seed): heightmap (layered noise) →
 climate bands & moisture → biomes → rivers (downhill carving) → resource node scatter (biome-
-weighted) → start-site scoring (food, water, buildables, spacing) → kingdom placement (fairness
+weighted) → start-site scoring (food, water, woodland access, buildables, spacing — a wood-free
+start would soft-lock the Lumber Camp / raw-materials chain, so woodland within the tier-1 build
+radius is a strong bounded term in `scoreSite`) → kingdom placement (fairness
 solver: comparable start-site scores, minimum pairwise distance) → neutral features (ruins, sacred
 sites, mountain passes) → history seeding (initial opinions, minor lore tags).
 

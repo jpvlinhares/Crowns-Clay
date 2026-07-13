@@ -50,13 +50,24 @@ export const TIER2_REQUIREMENTS = {
 };
 
 export const SITE_SCORE_RADIUS = 6;
+/** Woodland is scored over the tier-1 village build radius (VILLAGE_RADIUS_T1) — that's the
+ * region a Lumber Camp can actually be placed in. Kept local to avoid a villages.ts import cycle. */
+export const WOODLAND_SCORE_RADIUS = 12;
+/** Having a few forest tiles in reach is what matters (a Lumber Camp needs one); beyond this the
+ * bonus plateaus so the founder doesn't chase forest-heavy, farm-poor sites. */
+export const WOODLAND_SCORE_CAP = 8;
+/** Strong enough to pull the capital toward reachable forest over a marginally better-fed but
+ * wood-free pocket, but bounded so food still dominates among wood-adjacent sites. */
+export const WOODLAND_SCORE_WEIGHT = 20;
 
 // ---------------------------------------------------------------- site scoring
 
 /**
  * Pure site score (GDD §13): food potential (farmable tiles), buildable
- * ground (open tiles), water access (river or coast within reach). Spacing
- * and legality are the validator's job — this only RANKS.
+ * ground (open tiles), water access (river or coast within reach), and
+ * woodland access (forest within reach — a Lumber Camp's only valid ground, so
+ * a wood-free start soft-locks the raw-materials chain). Spacing and legality
+ * are the validator's job — this only RANKS.
  */
 export function scoreSite(terrain: TerrainAccessor, x: number, y: number): number {
   let farmable = 0;
@@ -73,9 +84,22 @@ export function scoreSite(terrain: TerrainAccessor, x: number, y: number): numbe
       if (terrain.riverAt(tx, ty) || tags.includes('dockable')) water++;
     }
   }
-  // food is the economy's heartbeat (GDD §3) — weight it highest;
-  // water is a bounded bonus, not a multiplier
-  return farmable * 3 + open * 1 + Math.min(water, 6) * 4;
+  // Woodland is scored over the whole tier-1 BUILD radius (a Lumber Camp can go
+  // anywhere in it), not the tight radius-6 core the other terms use — a wood-free
+  // start soft-locks the raw-materials chain, so this is a strong pull toward at
+  // least SOME forest in reach, then plateaus (a forest-choked spot is no better a
+  // capital). Food still dominates the ranking among wood-adjacent sites.
+  let woodland = 0;
+  for (let dy = -WOODLAND_SCORE_RADIUS; dy <= WOODLAND_SCORE_RADIUS; dy++) {
+    for (let dx = -WOODLAND_SCORE_RADIUS; dx <= WOODLAND_SCORE_RADIUS; dx++) {
+      const tx = x + dx;
+      const ty = y + dy;
+      if (tx < 0 || ty < 0 || tx >= terrain.width || ty >= terrain.height) continue;
+      if (terrain.tagsAt(tx, ty).includes('woodland')) woodland++;
+    }
+  }
+  // food is the economy's heartbeat (GDD §3) — weight it highest; water is a bounded bonus.
+  return farmable * 3 + open * 1 + Math.min(water, 6) * 4 + Math.min(woodland, WOODLAND_SCORE_CAP) * WOODLAND_SCORE_WEIGHT;
 }
 
 /**

@@ -212,6 +212,29 @@ test('scoring: food and water rank sites; bestSiteNear picks the winner determin
   assert.deepEqual(best, again);
 });
 
+test('scoring: at equal food, a forest-adjacent site outranks a wood-free one (Lumber Camp needs woodland)', () => {
+  // farmable everywhere (food is equal), but forest only in the band x∈[40,50]
+  const terrain: TerrainAccessor = {
+    width: 64,
+    height: 64,
+    tagsAt: (x) => (x >= 40 && x <= 50 ? ['farmable', 'open', 'woodland'] : ['farmable', 'open']),
+    riverAt: () => false,
+    movementCostAt: () => 1,
+  };
+  const woodFree = scoreSite(terrain, 15, 30); // no woodland within the build radius
+  const woodAdjacent = scoreSite(terrain, 45, 30); // forest in reach
+  assert.ok(woodAdjacent > woodFree, `wood-adjacent ${woodAdjacent} must beat wood-free ${woodFree} at equal food`);
+
+  const kernel = new Kernel(7);
+  const world = new World(128);
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const game = registerVillageGameplay(kernel, world, db, terrain, {});
+  // searching from the wood-free side, the founder still moves within reach of the forest (x ≥ 28
+  // puts x = 40 inside the radius-12 build zone) rather than settling on the nearest equal-food rock
+  const best = bestSiteNear(game, db, 30, 30, 20);
+  assert.ok(best !== null && best.x >= 28, `founder should found within reach of forest, got x=${best?.x}`);
+});
+
 // ---------------- tier upgrade fixtures (the M15 test objective) ----------------
 
 test('tiers: every requirement gates by name, then the upgrade lands and unlocks', () => {
