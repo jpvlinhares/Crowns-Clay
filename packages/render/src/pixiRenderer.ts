@@ -33,6 +33,16 @@ const CATEGORY_COLORS: Record<string, number> = {
   production: 0x7a9a5a,
   military: 0x9a5a5a,
 };
+const INK = 0x1a1409; // dark outline/detail ink shared by building glyphs
+const HIGHLIGHT = 0xf0e2b0; // light accent (flags, details)
+
+/** Multiply each RGB channel by `f` (f<1 darkens, f>1 lightens). */
+function shade(color: number, f: number): number {
+  const r = Math.min(255, Math.round(((color >> 16) & 0xff) * f));
+  const g = Math.min(255, Math.round(((color >> 8) & 0xff) * f));
+  const b = Math.min(255, Math.round((color & 0xff) * f));
+  return (r << 16) | (g << 8) | b;
+}
 
 export class PixiRenderer {
   readonly app = new Application();
@@ -61,6 +71,10 @@ export class PixiRenderer {
   private readonly fogGraphics = new Map<number, Graphics>();
   private readonly revealedTiles = new Set<number>();
   private fogActive = false;
+  // footprint preview (building placement): a single outline-only Graphics that
+  // follows the cursor; topmost so it reads over everything, terrain still visible.
+  private readonly previewLayer = new Container();
+  private readonly previewGraphic = new Graphics();
 
   constructor(
     private readonly widthTiles: number,
@@ -239,13 +253,16 @@ export class PixiRenderer {
     const color = CATEGORY_COLORS[rec.category] ?? 0xcccccc;
     const w = rec.w * TILE_PX;
     const h = rec.h * TILE_PX;
+    const built = rec.progress >= 1;
+    const alpha = built ? 1 : 0.4;
     g.clear();
-    // footprint plate: translucent while under construction, solid when done
-    g.rect(1, 1, w - 2, h - 2).fill({ color, alpha: rec.progress >= 1 ? 1 : 0.35 });
-    g.rect(1, 1, w - 2, h - 2).stroke({ color: 0x201808, width: 1.5 });
-    if (rec.progress < 1) {
+    // footprint plate: a shaded ground tile the icon sits on (translucent while building)
+    g.roundRect(1, 1, w - 2, h - 2, 2).fill({ color: shade(color, 0.55), alpha: alpha * 0.9 });
+    g.roundRect(1, 1, w - 2, h - 2, 2).stroke({ color: INK, width: 1.2, alpha });
+    drawBuildingIcon(g, rec.category, w, h, color, alpha);
+    if (!built) {
       // construction bar along the bottom edge
-      g.rect(2, h - 4, (w - 4) * rec.progress, 2).fill(0xe8d8a0);
+      g.rect(2, h - 3, (w - 4) * rec.progress, 2).fill(HIGHLIGHT);
     }
   }
 
@@ -263,12 +280,48 @@ export class PixiRenderer {
     this.worldLayer.addChild(this.buildingLayer);
     this.worldLayer.addChild(this.entityLayer);
     this.worldLayer.addChild(this.fogLayer); // topmost — obscures everything unrevealed
+    this.previewLayer.addChild(this.previewGraphic);
+    this.previewLayer.visible = false;
+    this.worldLayer.addChild(this.previewLayer); // above fog — placement guide is always visible
     this.app.stage.addChild(this.worldLayer);
     return this.app.canvas;
   }
 
   resize(w: number, h: number): void {
     this.camera.setViewport(w, h);
+  }
+
+  /** Open the camera centred on a tile (e.g. the player's starting village). */
+  centerOnTile(tileX: number, tileY: number): void {
+    this.camera.centerOn((tileX + 0.5) * TILE_PX, (tileY + 0.5) * TILE_PX);
+  }
+
+  /**
+   * Footprint placement preview (building placement mode): draw ONLY the outline of a
+   * `w`×`h` footprint anchored at tile (x, y) — every occupied tile bordered, plus a
+   * bolder outer boundary — tinted green when placement is valid, red when not. No fill,
+   * so the terrain stays fully visible. Generic: any footprint size, any (modded) def.
+   */
+  showFootprintPreview(x: number, y: number, w: number, h: number, valid: boolean): void {
+    const color = valid ? 0x54d15a : 0xe25555;
+    const g = this.previewGraphic;
+    g.clear();
+    // per-tile grid so each occupied cell is unambiguous
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        g.rect((x + dx) * TILE_PX, (y + dy) * TILE_PX, TILE_PX, TILE_PX);
+      }
+    }
+    g.stroke({ color, width: 1, alpha: 0.65 });
+    // bolder outer boundary
+    g.rect(x * TILE_PX, y * TILE_PX, w * TILE_PX, h * TILE_PX).stroke({ color, width: 2.5, alpha: 0.95 });
+    this.previewLayer.visible = true;
+  }
+
+  /** Leave building placement mode: remove the footprint outline. */
+  hideFootprintPreview(): void {
+    this.previewLayer.visible = false;
+    this.previewGraphic.clear();
   }
 
   /** Per-frame: cull/create chunks, place entity dots, apply camera transform. */
@@ -380,10 +433,18 @@ export class PixiRenderer {
       let dot = this.entitySprites.get(e.id);
       if (dot === undefined) {
         dot = new Graphics();
+        // a little person silhouette (round head + tapered body) reads as a
+        // character far better than the old bare dot — see doc 10 §asset placeholders
+        const color = ENTITY_COLORS[e.id % ENTITY_COLORS.length] as number;
+        const s = TILE_PX * 0.44;
         dot
-          .circle(0, 0, TILE_PX * 0.35)
-          .fill(ENTITY_COLORS[e.id % ENTITY_COLORS.length] as number)
-          .stroke({ color: 0x201808, width: 1.5 });
+          .poly([-s * 0.62, s * 0.85, 0, -s * 0.05, s * 0.62, s * 0.85])
+          .fill(color)
+          .stroke({ color: INK, width: 1.2 });
+        dot
+          .circle(0, -s * 0.55, s * 0.42)
+          .fill(color)
+          .stroke({ color: INK, width: 1.2 });
         this.entitySprites.set(e.id, dot);
         this.entityLayer.addChild(dot);
       }
@@ -396,6 +457,108 @@ export class PixiRenderer {
         dot.destroy();
         this.entitySprites.delete(id);
       }
+    }
+  }
+}
+
+/**
+ * Draw a simple, category-distinct glyph centred in a building footprint, so a
+ * keep, a cottage, a market, a silo, a barn and a watchtower are all legible at
+ * a glance instead of six identically-shaped coloured blocks. Vector-only (no
+ * asset bank) — the placeholder-art strategy of doc 10 §3, one tier up from the
+ * old flat rectangle. All shapes derive from the footprint (w, h) so they scale
+ * with any building size.
+ */
+function drawBuildingIcon(g: Graphics, category: string, w: number, h: number, color: number, alpha: number): void {
+  const light = shade(color, 1.3);
+  const dark = shade(color, 0.75);
+  const pad = Math.max(1.5, Math.min(w, h) * 0.13);
+  const x0 = pad;
+  const y0 = pad;
+  const iw = w - pad * 2;
+  const ih = h - pad * 2;
+  const cx = w / 2;
+  const f = (c: number) => ({ color: c, alpha });
+  const line = (x1: number, y1: number, x2: number, y2: number, wd: number) =>
+    g.moveTo(x1, y1).lineTo(x2, y2).stroke({ color: INK, width: wd, alpha });
+
+  switch (category) {
+    case 'housing': {
+      // cottage: peaked roof, walls, a dark door
+      const roofH = ih * 0.44;
+      const by = y0 + roofH;
+      const bh = ih - roofH;
+      g.poly([x0, by, cx, y0, x0 + iw, by]).fill(f(dark));
+      g.rect(x0 + iw * 0.14, by, iw * 0.72, bh).fill(f(light));
+      g.rect(cx - iw * 0.11, by + bh * 0.42, iw * 0.22, bh * 0.58).fill(f(INK));
+      break;
+    }
+    case 'civic': {
+      // keep / town hall: crenellated block, arched door, a pennant on a mast
+      const by = y0 + ih * 0.34;
+      const bw = iw * 0.62;
+      const bx = cx - bw / 2;
+      g.rect(bx, by, bw, y0 + ih - by).fill(f(light));
+      const merlon = bw / 5;
+      for (let i = 0; i < 5; i += 2) g.rect(bx + i * merlon, by - ih * 0.13, merlon, ih * 0.13).fill(f(light));
+      g.rect(cx - iw * 0.09, by + ih * 0.26, iw * 0.18, ih * 0.4).fill(f(INK));
+      line(cx, y0, cx, by - ih * 0.13, 1); // mast
+      g.poly([cx, y0, cx + iw * 0.24, y0 + ih * 0.08, cx, y0 + ih * 0.16]).fill(f(HIGHLIGHT)); // pennant
+      break;
+    }
+    case 'service': {
+      // market stall: a striped awning over a counter on two posts
+      const awH = ih * 0.34;
+      g.rect(x0 + iw * 0.08, y0 + awH, iw * 0.06, ih - awH).fill(f(dark)); // left post
+      g.rect(x0 + iw * 0.86, y0 + awH, iw * 0.06, ih - awH).fill(f(dark)); // right post
+      g.rect(x0, y0 + ih * 0.62, iw, ih * 0.2).fill(f(light)); // counter
+      g.poly([x0, y0 + awH, cx, y0, x0 + iw, y0 + awH]).fill(f(light)); // awning
+      for (let i = 0; i < 4; i++) line(x0 + iw * (0.2 + i * 0.2), y0 + awH * 0.55, x0 + iw * (0.2 + i * 0.2), y0 + awH, 1);
+      break;
+    }
+    case 'storage': {
+      // granary / silo: a rounded body with binding hoops and a small cap
+      const bx = cx - iw * 0.32;
+      const bw = iw * 0.64;
+      g.poly([cx - iw * 0.4, y0 + ih * 0.24, cx, y0, cx + iw * 0.4, y0 + ih * 0.24]).fill(f(dark)); // cap
+      g.roundRect(bx, y0 + ih * 0.22, bw, ih * 0.78, Math.min(bw, ih) * 0.18).fill(f(light)); // body
+      line(bx, y0 + ih * 0.46, bx + bw, y0 + ih * 0.46, 1);
+      line(bx, y0 + ih * 0.72, bx + bw, y0 + ih * 0.72, 1);
+      break;
+    }
+    case 'production': {
+      // barn / workshop: wide gambrel roof + a cross-braced door
+      const roofH = ih * 0.36;
+      const by = y0 + roofH;
+      g.poly([x0, by, x0 + iw * 0.2, y0, x0 + iw * 0.8, y0, x0 + iw, by]).fill(f(dark)); // roof
+      g.rect(x0 + iw * 0.06, by, iw * 0.88, ih - roofH).fill(f(light)); // walls
+      const dx = cx - iw * 0.16;
+      const dw = iw * 0.32;
+      const dy = by + (ih - roofH) * 0.28;
+      const dh = (ih - roofH) * 0.72;
+      g.rect(dx, dy, dw, dh).fill(f(dark)); // door
+      line(dx, dy, dx + dw, dy + dh, 1); // brace
+      line(dx + dw, dy, dx, dy + dh, 1);
+      break;
+    }
+    case 'military': {
+      // watchtower: tall crenellated tower with a shield device
+      const bw = iw * 0.5;
+      const bx = cx - bw / 2;
+      const by = y0 + ih * 0.2;
+      g.rect(bx, by, bw, y0 + ih - by).fill(f(light));
+      const merlon = bw / 5;
+      for (let i = 0; i < 5; i += 2) g.rect(bx + i * merlon, by - ih * 0.12, merlon, ih * 0.12).fill(f(light));
+      // shield
+      const sw = iw * 0.26;
+      const sy = by + ih * 0.24;
+      g.poly([cx - sw / 2, sy, cx + sw / 2, sy, cx + sw / 2, sy + ih * 0.16, cx, sy + ih * 0.34, cx - sw / 2, sy + ih * 0.16])
+        .fill(f(HIGHLIGHT))
+        .stroke({ color: INK, width: 1, alpha });
+      break;
+    }
+    default: {
+      g.circle(cx, h / 2, Math.min(iw, ih) * 0.32).fill(f(light));
     }
   }
 }

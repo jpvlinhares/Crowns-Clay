@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
-import { verifyCorpusEntry, CORPUS_DIR, type CorpusEntry } from './save-corpus.js';
+import { verifyCorpusEntry, tortureCorpusEntry, CORPUS_DIR, type CorpusEntry } from './save-corpus.js';
 
 test('corpus: every committed save loads and resumes to its pinned hash', () => {
   const entries = readdirSync(CORPUS_DIR).filter((f) => f.endsWith('.json'));
@@ -17,6 +17,16 @@ test('corpus: every committed save loads and resumes to its pinned hash', () => 
   for (const file of entries) {
     const entry = JSON.parse(readFileSync(`${CORPUS_DIR}/${file}`, 'utf8')) as CorpusEntry;
     const result = verifyCorpusEntry(entry);
+    assert.ok(result.ok, `${entry.name}: ${result.detail}`);
+  }
+});
+
+test('corpus: every committed save survives repeated save/load cycles, not just one (M47 torture)', () => {
+  const entries = readdirSync(CORPUS_DIR).filter((f) => f.endsWith('.json'));
+  assert.ok(entries.length >= 2, 'expected at least 2 corpus entries covering distinct code paths (base + sandbox)');
+  for (const file of entries) {
+    const entry = JSON.parse(readFileSync(`${CORPUS_DIR}/${file}`, 'utf8')) as CorpusEntry;
+    const result = tortureCorpusEntry(entry, 5);
     assert.ok(result.ok, `${entry.name}: ${result.detail}`);
   }
 });

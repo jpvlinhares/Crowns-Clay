@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App icon (roadmap M44 PWA manifest). Crown content stays inside an ~80%-diameter
+       safe circle centered on the canvas, per the maskable-icon spec — a launcher may
+       crop the background to any shape without clipping the glyph itself. -->
+  <rect width="512" height="512" fill="#14120f" />
+  <path
+    d="M146 210 L196 300 L256 190 L316 300 L366 210 L346 340 L166 340 Z"
+    fill="#d8b060"
+  />
+  <circle cx="146" cy="200" r="16" fill="#d8b060" />
+  <circle cx="256" cy="178" r="16" fill="#d8b060" />
+  <circle cx="366" cy="200" r="16" fill="#d8b060" />
+  <rect x="166" y="340" width="180" height="24" fill="#d8b060" />
+</svg>

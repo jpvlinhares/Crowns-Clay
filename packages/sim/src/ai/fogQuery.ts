@@ -44,6 +44,31 @@ export class FogRegistry {
     if (w >= mask.length) return false;
     return ((mask[w] as number) & (1 << (entityIndex & 31))) !== 0;
   }
+
+  /** Deterministic fold for stateHash (M47.6): fog is real sim state — AI decisions read it —
+   * so the unified campaign pins it like every other relational state. Sorted kingdom order. */
+  fold(fold: (v: number) => void): void {
+    for (const kingdom of [...this.known.keys()].sort((a, b) => a - b)) {
+      fold(kingdom);
+      const mask = this.known.get(kingdom) as Uint32Array;
+      for (let w = 0; w < mask.length; w++) if ((mask[w] as number) !== 0) { fold(w); fold(mask[w] as number); }
+    }
+  }
+
+  /** Save/restore (M47.6): masks as plain word arrays, sorted by kingdom. Without this, a
+   * loaded campaign's AI forgets every discovery outside current scouting range — an honest
+   * divergence the save→load→resume determinism test would catch downstream. */
+  save(): { kingdom: number; words: number[] }[] {
+    return [...this.known.keys()].sort((a, b) => a - b).map((kingdom) => ({
+      kingdom,
+      words: [...(this.known.get(kingdom) as Uint32Array)],
+    }));
+  }
+
+  restore(data: readonly { kingdom: number; words: readonly number[] }[]): void {
+    this.known.clear();
+    for (const d of data) this.known.set(d.kingdom, Uint32Array.from(d.words));
+  }
 }
 
 export interface FogQuery {

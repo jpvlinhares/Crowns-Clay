@@ -1,0 +1,14 @@
+{
+  "name": "Crowns & Clay",
+  "short_name": "Crowns & Clay",
+  "description": "Browser-based medieval kingdom management",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14120f",
+  "theme_color": "#14120f",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

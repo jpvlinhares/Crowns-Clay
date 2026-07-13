@@ -33,6 +33,12 @@ inspectable and makes every interaction loggable/replayable.
 - **Interfaces:** consumes Snapshot Stream; subscribes to GameEvents for one-shot VFX; exposes
   `pick(screenXY) → entityRef` to the UI; reads camera state from Input.
 - **Extensibility:** all drawables resolve sprites via Asset Manager logical ids → mod-replaceable.
+- **Initial camera framing:** on every full snapshot (new game or load) the camera opens centred on
+  the PLAYER's own starting village, not the geometric map centre. The sim reports the player
+  kingdom's home tile (`snapshotFull.kingdom.home`, from the kingdom-index-0 village centre — the
+  same "player is kingdom 0" convention the fog/territory emitters use); `Camera2D.centerOn` /
+  `PixiRenderer.centerOnTile` apply it. Fallback chain: home → building-footprint centroid → map
+  centre, so single-village and building-only compositions still frame sensibly.
 
 ## §2. Simulation Subsystem (worker)
 
@@ -90,6 +96,48 @@ inspectable and makes every interaction loggable/replayable.
   Ledgers, Diplomacy table, Research tree, Army orders, Build palettes, Event dialogs, Menus.
 - **Interfaces:** `pick()` from renderer for world selection; localisation service for all strings
   (doc 10 §6); input focus arbitration with the Input Mapper (typing ≠ hotkeys).
+- **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk · treasury)
+  where each value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never
+  reflows its neighbours. Per-village vitals render as one bordered fixed-column chip per village on
+  their own full-width row (built via DOM, not string concat), keeping numbers legibly in place —
+  the "grids, text doesn't move even with different counts" requirement.
+- **Building inspector + demolish:** clicking a building opens the Building panel (name · category ·
+  footprint · construction %) and offers a two-click-confirm **🧹 Demolish** that issues the
+  `village.demolish` command (the same command a besieger's breach uses). Village-centre buildings
+  are disabled up-front (the sim also refuses them, surfacing `village.rejected` as a toast); a
+  successful raze emits `building.demolished`, which the notification table shows and the building
+  emitter streams as a removal so the sprite disappears. No refund — matches `village.build`'s
+  trust-the-issuer model (there is no adversarial client in this single-player design).
+- **Building footprint preview:** arming a def in the Build panel enters placement mode; a cursor-
+  following **outline** (per-tile grid + bolder boundary, no fill so terrain shows through — no ghost
+  sprite) marks exactly the tiles the footprint will occupy, sized straight from the def's
+  `footprint` (any size, any modded def, zero per-building code). Validity is authoritative: the
+  client sends a read-only `previewBuild {seq, villageId, def, x, y}` probe when the hovered tile
+  changes, the worker answers `buildPreview {seq, x, y, w, h, ok}` by running the sim's single
+  `VillageOps.validatePlacement` rulebook (terrain tags, rivers, occupancy, village radius, tier —
+  and any future rule), and the outline recolours **green (valid) / red (invalid)**. A monotonic
+  `seq` discards replies the cursor has already moved past; drawing happens immediately on move
+  (real-time position) while the verdict colour follows within a frame. Renderer surface:
+  `PixiRenderer.show/hideFootprintPreview` over a topmost outline-only layer.
+- **Continuous building mode:** arming a def stays armed after every placement attempt (success OR
+  failure), RTS-style, so the player drops copy after copy without re-picking from the palette; the
+  footprint preview keeps following the cursor and re-validating throughout. Placement mode exits
+  only on an explicit cancel: **Esc**, **right-click** (a `contextmenu` handler that also suppresses
+  the browser menu), re-selecting/picking a different building in the palette, or arming another
+  tool (an army order clears the armed build). Only the primary mouse button places — right/middle
+  never do.
+- **Dismissible notifications:** every toast carries a **× close button** (`NotificationQueue.dismiss(id)`)
+  that removes it from the on-screen `visible()` set immediately while leaving the scrollback `all()`
+  history intact; automatic roll-off (VISIBLE_CAP) is unchanged. Applies to every severity tier, not
+  just build refusals.
+
+**M43 delta:** **Event dialogs** are real — `packages/app/index.html`'s `#event-dialog-backdrop`,
+a modal fed by `event.fired`/a `pendingEvents` recovery field, first built to carry the tutorial
+(roadmap M43) but generic from the start: any pool's event uses the identical dialog, verified
+live in-browser with a real (non-tutorial) `opportunity` event. **Ledgers** and **Build palettes**
+were already real (M16/M18); **Diplomacy table**, **Research tree**, and **Army orders** remain
+unbuilt — those systems are still debug-injector-only, a named gap neither M42 nor M43 closed and
+no later roadmap milestone currently claims (doc 13 R10's own M42 delta already flagged this).
 
 ## §8. Audio Subsystem (main thread)
 
@@ -97,6 +145,16 @@ inspectable and makes every interaction loggable/replayable.
   music director selects era/season/tension-state playlists (tension from war/unrest events with
   hysteresis). Positional attenuation for world SFX from camera distance. Web Audio graph: music /
   world SFX / UI SFX buses with independent volume.
+
+**M41 delta:** real now, `@crowns/audio` (roadmap M41). The cue table and playlists are genuine
+new `@crowns/data` content kinds (`AudioCueDef`/`MusicPlaylistDef`, doc 09's "data, hence
+moddable" promise), projected to the presentation side as a protocol `AudioCatalog` — the exact
+`UICatalog` pattern M18 established, so `@crowns/audio` never imports `@crowns/data` directly.
+Tension is a pure `heat` scalar (war/unrest GameEvent weights, linear decay) crossing separate
+up/down thresholds per band — the hysteresis this section asks for, fully unit-tested without any
+`AudioContext`. Positional attenuation is NOT built this milestone — every cue/playlist plays at
+its authored gain regardless of camera distance; a real addition later, not a rewrite, once world
+SFX cues actually exist in numbers where it'd matter.
 
 ## §9. Input Subsystem (main thread)
 

@@ -152,6 +152,19 @@ export const v = {
     };
   },
 
+  /** A locale KEY (roadmap M44; doc 06 "LocalizedText: key into localization tables, never raw
+   * strings in defs"), e.g. `event.tutorial.welcome.title` — dotted, lowercase, no spaces. Returns
+   * a plain `string`; callers brand it `LocalizedText` via `@crowns/core`'s `localeKey()` at the
+   * type layer (this module stays dependency-free, per its own module doc). */
+  localeKey(): Validator<string> {
+    return (value, path, errors, file) => {
+      if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9.-]*$/i.test(value)) {
+        return fail(errors, file, path, `expected a locale key like 'event.welcome.title', got ${JSON.stringify(value)}`) as never;
+      }
+      return value;
+    };
+  },
+
   /** '#rrggbb' → packed 0xrrggbb number. */
   color(): Validator<number> {
     return (value, path, errors, file) => {

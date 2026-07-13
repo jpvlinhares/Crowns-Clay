@@ -2,6 +2,8 @@
 // system's own event hooks (Characters land at M34); these fire at kingdom
 // scope without naming a specific advisor, since notables aren't queryable
 // from the event DSL yet.
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.character.advisor-dispute",
@@ -12,19 +14,19 @@
     "weight": 2,
     "cooldownDays": 60,
     "text": {
-      "title": "Advisor Dispute",
-      "body": "Two of the court's advisors clash publicly over policy.",
+      "title": "event.character.advisor-dispute.title",
+      "body": "event.character.advisor-dispute.body",
     },
     "choices": [
       {
         "id": "mediate",
-        "text": "Mediate personally",
+        "text": "event.character.advisor-dispute.choice.mediate",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 2 } }],
         "aiScoreHints": { "diplomacyTrust": 0.5 },
       },
       {
         "id": "ignore",
-        "text": "Let them settle it themselves",
+        "text": "event.character.advisor-dispute.choice.ignore",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -1 } }],
         "aiScoreHints": { "riskTolerance": 0.5 },
       },
@@ -40,13 +42,13 @@
     "weight": 2,
     "cooldownDays": 90,
     "text": {
-      "title": "A Local Hero",
-      "body": "A villager's quiet acts of generosity have become the talk of the realm.",
+      "title": "event.character.local-hero.title",
+      "body": "event.character.local-hero.body",
     },
     "choices": [
       {
         "id": "honor",
-        "text": "Honor them publicly",
+        "text": "event.character.local-hero.choice.honor",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 4 } }],
         "aiScoreHints": { "economy": 0.2 },
       },
@@ -62,20 +64,20 @@
     "weight": 1,
     "cooldownDays": 180,
     "text": {
-      "title": "Advisor Retirement",
-      "body": "One of the court's advisors asks to step down while still in good health.",
+      "title": "event.character.retirement.title",
+      "body": "event.character.retirement.body",
     },
     "choices": [
       {
         "id": "grant-pension",
-        "text": "Grant a modest pension",
+        "text": "event.character.retirement.choice.grant-pension",
         "requirements": { "stat": "kingdom.treasury", "gte": 10 },
         "effects": [{ "modifier": { "stat": "kingdom.treasury", "op": "add", "value": -10 } }],
         "aiScoreHints": { "diplomacyTrust": 0.4 },
       },
       {
         "id": "accept",
-        "text": "Accept the retirement plainly",
+        "text": "event.character.retirement.choice.accept",
         "effects": [],
         "aiScoreHints": { "economy": 0.3 },
       },

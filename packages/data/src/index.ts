@@ -7,9 +7,20 @@ export {
   type Validator,
 } from './validate.js';
 export { DefinitionDatabase, TERRAIN_BIOME_CODES, TERRAIN_KINDS, terrainValidator, overlayValidator, type TerrainDef, type OverlayDef } from './terrain.js';
-export { BASE_CONTENT_FILES } from './generated/base-content.js';
-export { GAME_VERSION, loadModLayers, resolveLoadOrder, type ModSource, type ModManifest, type LoadReport, type DefKindSpec } from './mods.js';
+export { BASE_CONTENT_FILES, EXAMPLE_MOD_FILES } from './generated/base-content.js';
+export {
+  GAME_VERSION,
+  loadModLayers,
+  resolveLoadOrder,
+  parseModManifestPreview,
+  type ModSource,
+  type ModManifest,
+  type LoadReport,
+  type ModManifestEntry,
+  type DefKindSpec,
+} from './mods.js';
 export { parseVersion, compareVersions, satisfies, type Version } from './semver.js';
+export { parseLocaleTable, loadLocaleTable } from './locale.js';
 export { resourceValidator, buildingValidator, type ResourceDef, type BuildingDef, type Recipe, type Yield } from './buildings.js';
 export { edictValidator, MODIFIER_TARGETS, type EdictDef, type ModifierDef, type ModifierTarget } from './edicts.js';
 export { unitValidator, UNIT_CLASSES, type UnitDef } from './units.js';
@@ -56,3 +67,17 @@ export {
 export { traitValidator, SKILL_NAMES, type TraitDef, type SkillName } from './traits.js';
 export { personalityValidator, PERSONALITY_AXES, type AIPersonalityDef, type PersonalityAxis } from './personalities.js';
 export { VICTORY_TYPES, type VictoryType } from './victory.js';
+export {
+  AUDIO_BUSES,
+  SYNTH_WAVEFORMS,
+  TENSION_STATES,
+  LOUDNESS_MIN_GAIN,
+  LOUDNESS_MAX_GAIN,
+  audioCueValidator,
+  musicPlaylistValidator,
+  type AudioBus,
+  type SynthWaveform,
+  type TensionState,
+  type AudioCueDef,
+  type MusicPlaylistDef,
+} from './audio.js';

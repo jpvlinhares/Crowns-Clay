@@ -1,5 +1,9 @@
 // Core roster (M25: military basics; M27: combat stats activate, GDD §6/§8).
 // `counters` are soft (GDD §6 "clear but soft"): spearmen counter cavalry.
+// M45: completes GDD §6's named roster (militia, spearmen, swordsmen, archers,
+// crossbowmen, cavalry, knights, ram/catapult/trebuchet) — swordsman,
+// crossbowman, knight, ram, trebuchet added; each gated behind a warfare tech
+// that previously unlocked nothing (see techs/warfare.json5's M45 delta).
 [
   {
     "id": "base:unit.militia",
@@ -29,6 +33,21 @@
     "tags": [],
   },
   {
+    // M45: a versatile heavy-infantry alternative to the spearman — higher attack, no
+    // anti-cavalry counter (that's the spearman's whole reason to exist, GDD §6).
+    "id": "base:unit.swordsman",
+    "name": "Swordsman",
+    "class": "infantry",
+    "stats": { "attack": 6, "defense": 5, "hp": 13, "speed": 3, "moraleBase": 50 },
+    "cost": { "base:resource.tools": 14 },
+    "costGold": 28,
+    "upkeepGold": 4,
+    "upkeepFood": 6,
+    "recruitTicks": 84,
+    "popCost": { "cohort": "adult", "count": 10 },
+    "tags": [],
+  },
+  {
     "id": "base:unit.archer",
     "name": "Archer",
     "class": "ranged",
@@ -38,6 +57,22 @@
     "upkeepGold": 4,
     "upkeepFood": 6,
     "recruitTicks": 96,
+    "popCost": { "cohort": "adult", "count": 10 },
+    "tags": [],
+  },
+  {
+    // M45: a slower-training, harder-hitting ranged unit — the mechanical crossbow's
+    // bolt punches through armor better than a bow (counters cavalry, GDD §6).
+    "id": "base:unit.crossbowman",
+    "name": "Crossbowman",
+    "class": "ranged",
+    "stats": { "attack": 8, "defense": 3, "hp": 10, "speed": 3, "moraleBase": 45 },
+    "counters": { "cavalry": 1.2 },
+    "cost": { "base:resource.tools": 22 },
+    "costGold": 40,
+    "upkeepGold": 5,
+    "upkeepFood": 6,
+    "recruitTicks": 108,
     "popCost": { "cohort": "adult", "count": 10 },
     "tags": [],
   },
@@ -56,6 +91,22 @@
     "tags": [],
   },
   {
+    // M45: elite heavy cavalry — a straight upgrade on Cavalry (higher stats across the
+    // board, GDD §6), gated a tier later behind Combined Arms (warfare-t4-4).
+    "id": "base:unit.knight",
+    "name": "Knight",
+    "class": "cavalry",
+    "stats": { "attack": 10, "defense": 7, "hp": 18, "speed": 5, "moraleBase": 65 },
+    "counters": { "ranged": 1.4 },
+    "cost": { "base:resource.tools": 35 },
+    "costGold": 80,
+    "upkeepGold": 9,
+    "upkeepFood": 10,
+    "recruitTicks": 160,
+    "popCost": { "cohort": "adult", "count": 6 },
+    "tags": [],
+  },
+  {
     // M29: bombards the defence graph (game/siege.ts) — a dedicated siege
     // workshop building is deferred; recruited at the barracks for v1.
     "id": "base:unit.catapult",
@@ -68,6 +119,38 @@
     "upkeepFood": 4,
     "recruitTicks": 144,
     "popCost": { "cohort": "adult", "count": 4 },
+    "tags": [],
+  },
+  {
+    // M45: the basic siege engine (GDD §6) — cheaper and weaker than the catapult,
+    // unlocked a tier earlier (Siege Basics, warfare-t3-5); same class = same
+    // SIEGE_BOMBARD_BONUS against the defence graph (game/siege.ts), no code needed.
+    "id": "base:unit.ram",
+    "name": "Battering Ram",
+    "class": "siege",
+    "stats": { "attack": 10, "defense": 2, "hp": 25, "speed": 1, "moraleBase": 25 },
+    "cost": { "base:resource.wood": 25, "base:resource.tools": 10 },
+    "costGold": 35,
+    "upkeepGold": 3,
+    "upkeepFood": 3,
+    "recruitTicks": 96,
+    "popCost": { "cohort": "adult", "count": 4 },
+    "tags": [],
+  },
+  {
+    // M45: the branch's siege capstone (GDD §6) — strictly stronger than the catapult;
+    // unlocked by the SAME tech (Trebuchet Engineering, warfare-t5-1) that already
+    // (mis-)unlocked the catapult by that tech's name alone — now it unlocks both.
+    "id": "base:unit.trebuchet",
+    "name": "Trebuchet",
+    "class": "siege",
+    "stats": { "attack": 22, "defense": 1, "hp": 18, "speed": 1, "moraleBase": 30 },
+    "cost": { "base:resource.tools": 40, "base:resource.wood": 25 },
+    "costGold": 90,
+    "upkeepGold": 7,
+    "upkeepFood": 5,
+    "recruitTicks": 180,
+    "popCost": { "cohort": "adult", "count": 5 },
     "tags": [],
   },
 ]

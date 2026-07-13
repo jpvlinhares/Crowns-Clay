@@ -3,7 +3,7 @@
  * (roadmap M18; doc 05 §7). Speaks @crowns/protocol ONLY (TDD §3): state in
  * via snapshot deltas + GameEvents, orders out via command drafts.
  */
-export { UIStore, type UIState, type VillageInfo, type KingdomInfo, type StoreListener } from './store.js';
+export { UIStore, LEDGER_LOG_CAP, type UIState, type VillageInfo, type KingdomInfo, type LedgerRow, type StoreListener } from './store.js';
 export {
   NotificationQueue,
   NOTIFICATION_RULES,
@@ -13,3 +13,4 @@ export {
   type Severity,
 } from './notifications.js';
 export { PanelHost, type Panel } from './panels.js';
+export { TooltipController } from './tooltip.js';

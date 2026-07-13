@@ -7,12 +7,34 @@
  * the first thing the renderer shows is, deliberately, a world whose exact
  * evolution is pinned by committed fixtures.
  */
-import type { FromSimMessage, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
-import { TickDriver, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World } from '@crowns/sim';
+import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
+import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
+import {
+  STANCES, TickDriver, composeCampaign, difficultyFromSettings, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
+} from '@crowns/sim';
+import type { EntityId, Locale } from '@crowns/core';
 import { SnapshotEmitter } from './snapshots.js';
 import { BuildingEmitter, RoadEmitter, TerritoryEmitter, VillageStatsEmitter } from './buildingEmitter.js';
-import { composeTerra } from './terra.js';
-import { autosaveSlot, getSlot, putSlot } from './saveStore.js';
+import { composeTerra, type ModSelection, type SandboxOptions } from './terra.js';
+import { autosaveSlot, estimateStorage, getSlot, isStorageTight, pruneAutosaveRing, putSlot, requestPersistence } from './saveStore.js';
+
+/** Every mod bundled with this build, available for the Mods screen to enable (roadmap M39). */
+export const AVAILABLE_MODS: readonly { readonly dir: string; readonly id: string; readonly name: string; readonly version: string; readonly tags: readonly string[] }[] =
+  Object.entries(EXAMPLE_MOD_FILES)
+    .map(([dir, files]) => {
+      const preview = parseModManifestPreview(files);
+      return preview === null ? null : { dir, ...preview };
+    })
+    .filter((m): m is { dir: string; id: string; name: string; version: string; tags: readonly string[] } => m !== null);
+
+/** Resolve Mods-screen selections (manifest ids) to loadable sources, in the requested order. */
+function resolveModSelection(enabled: readonly string[], order: readonly string[]): ModSelection {
+  const byId = new Map(AVAILABLE_MODS.map((m) => [m.id, m]));
+  const chosen = enabled.map((id) => byId.get(id)).filter((m): m is (typeof AVAILABLE_MODS)[number] => m !== undefined);
+  const sources: ModSource[] = chosen.map((m) => ({ files: EXAMPLE_MOD_FILES[m.dir] as Readonly<Record<string, string>> }));
+  return { sources, order: order.filter((id) => chosen.some((m) => m.id === id)) };
+}
 
 export interface SimSession {
   readonly kernel: Kernel;
@@ -29,13 +51,179 @@ export interface SimSession {
   readonly saves: SaveManager;
   /** Player-facing content catalog (M18) — defs projected for the ui package. */
   readonly catalog: UICatalog;
+  /** Cue table + music playlists (M41) — defs projected for the audio package. */
+  readonly audioCatalog: AudioCatalog;
+  /** Resolved mod layer order/conflicts (Mods screen, M39). */
+  readonly modReport: LoadReport;
+  /** GDD §17 sandbox mode (roadmap M40) — gates the privileged sandbox.* commands. */
+  readonly sandbox: boolean;
+  /** M47.7: live player-panel projection — null on the terra composition (no war stack). */
+  readonly panels: (() => PlayerPanels) | null;
   kingdomInfo(): { activeEdicts: string[] };
+  /** Read-only placement probe for the footprint preview: runs the sim's ONE placement
+   * rulebook (`VillageOps.validatePlacement`) without mutating anything, and returns the
+   * def's footprint so the client can draw the outline straight from the reply. Unknown
+   * def → not placeable, 1×1 (a harmless default the renderer can still outline). */
+  previewPlacement(villageId: number, defId: string, x: number, y: number): { ok: boolean; w: number; h: number };
 }
 
-export function createSession(seed: number, clock?: () => number): SimSession {
-  const c = composeTerra(seed, clock); // terrain demo (M8) — golden scenario 'terra-demo'
+/**
+ * Compose the full multi-kingdom campaign for the app (M47.6; doc 12 R1) —
+ * ONE option-builder shared by the live worker session, the 'campaign-demo'
+ * golden scenario, and the save corpus, so the fixtures pin exactly what the
+ * player plays. Content personalities drive the AI kingdoms; the player is
+ * kingdom 0 (issuer 1), villages founded at fairness-checked worldgen sites.
+ */
+export function composeCampaignForApp(
+  seed: number,
+  campaign: CampaignSettings,
+  mods?: ModSelection,
+  sandbox?: SandboxOptions,
+  localeId?: string,
+  clock?: () => number,
+): CampaignComposition {
+  const difficulty = difficultyFromSettings(campaign);
+  return composeCampaign({
+    seed,
+    kingdomCount: campaign.kingdomCount,
+    mapSize: campaign.mapSize,
+    ...(difficulty !== undefined ? { difficulty } : {}),
+    victory: victoryFromSettings(campaign),
+    personalities: 'content',
+    mods: { sources: [...(mods?.sources ?? [])], ...(mods?.order !== undefined ? { order: mods.order } : {}) },
+    ...(sandbox !== undefined ? { sandbox } : {}),
+    ...(localeId !== undefined ? { localeId } : {}),
+    ...(clock !== undefined ? { clock } : {}),
+    settings: campaign,
+    startingPopulation: { children: 12, adults: 30, elders: 5 }, // terra's cohorts — enough spare adults to recruit
+    villageNameOf: (k) => (k === 0 ? 'Firstholm' : `Kingdom ${k}`),
+  });
+}
+
+/**
+ * Live player-scoped panel projection (M47.7; doc 12 R1 "minimum viable panels").
+ * Fog-gated server-side: an undiscovered kingdom shows existence only. Reads run
+ * OUTSIDE any system's access scope (between ticks), so unscoped world reads are safe.
+ */
+function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
+  const { world, kingdomGame, diplomacyGame, militaryGame, armiesGame, siegeGame, combatGame, researchGame, victoryGame, fog, game, db, kernel } = cc;
+  const idx = (id: number): number => id & 0x3fffff;
+  return (): PlayerPanels => {
+    const kingdomIds = kingdomGame.kingdomEntities().map((e) => e as number);
+    const playerId = kingdomIds[0] ?? 0;
+    const names = world.readObj(game.comps.VillageName);
+
+    const kingdoms: PanelKingdomRec[] = [];
+    for (let k = 1; k < kingdomIds.length; k++) {
+      const kid = kingdomIds[k] as number;
+      const vi = cc.villageOf(k);
+      const discovered = vi !== null && fog.isKnown(0, vi);
+      kingdoms.push({
+        index: k,
+        name: vi !== null ? (names.tryGet(vi) ?? `Kingdom ${k}`) : `Kingdom ${k}`,
+        discovered,
+        defeated: victoryGame.isDefeated(kid as never),
+        opinion: discovered ? diplomacyGame.state.opinionOf(playerId, kid) : 0,
+        reputation: discovered ? diplomacyGame.state.reputationOf(kid) : 0,
+        atWar: diplomacyGame.state.isAtWar(playerId, kid),
+        warExhaustion: diplomacyGame.state.warExhaustionOf(playerId, kid),
+        pacts: (['nonAggression', 'trade', 'alliance'] as const).filter((p) => diplomacyGame.state.hasPact(playerId, kid, p)),
+        knownFor: discovered ? cc.personalityTagsOf(k) : [],
+        vassalOfPlayer: diplomacyGame.state.lordOf(kid) === playerId,
+        playerIsVassal: diplomacyGame.state.lordOf(playerId) === kid,
+      });
+    }
+
+    const u = world.read(militaryGame.Unit);
+    const units: PanelUnitRec[] = [];
+    world.query([militaryGame.Unit]).forEach((ui, entity) => {
+      if ((u.kingdomId[ui] as number) !== playerId) return;
+      units.push({
+        id: entity as number,
+        name: militaryGame.ops.unitDef(u.def[ui] as number).name,
+        count: u.count[ui] as number,
+        complete: (u.complete[ui] as number) === 1,
+        armyId: u.armyId[ui] as number,
+      });
+    });
+
+    const a = world.read(militaryGame.Army);
+    const m = world.read(armiesGame.ArmyMovement);
+    const armyNames = world.readObj(militaryGame.ArmyName);
+    const armies: PanelArmyRec[] = [];
+    world.query([militaryGame.Army]).forEach((ai, entity) => {
+      if ((a.kingdomId[ai] as number) !== playerId) return;
+      let strength = 0;
+      world.query([militaryGame.Unit]).forEach((ui) => {
+        if ((u.armyId[ui] as number) === (entity as number) && (u.complete[ui] as number) === 1) strength += u.count[ui] as number;
+      });
+      armies.push({
+        id: entity as number,
+        name: armyNames.tryGet(ai) ?? `Army ${idx(entity as number)}`,
+        x: Math.round(m.x[ai] as number),
+        y: Math.round(m.y[ai] as number),
+        stance: STANCES[m.stance[ai] as number] ?? 'march',
+        strength,
+        siegeOf: siegeGame.state.siegeOfArmy(entity as number)?.castle ?? null,
+        inBattle: combatGame.state.engagementOf(entity as number) !== undefined,
+      });
+    });
+
+    const activeRaw = researchGame.activeResearch(playerId as never);
+    let knownCount = 0;
+    for (const techId of db.techs.keys()) if (researchGame.isKnown(playerId as never, techId)) knownCount++;
+    const research = {
+      active: activeRaw === undefined
+        ? null
+        : {
+            techId: activeRaw.techId,
+            name: db.techs.get(activeRaw.techId)?.name ?? activeRaw.techId,
+            progress: activeRaw.progress,
+            cost: researchGame.costOf(playerId as never, activeRaw.techId),
+          },
+      available: researchGame.availableTechs(playerId as never).map((techId) => ({
+        techId,
+        name: db.techs.get(techId)?.name ?? techId,
+        branch: db.techs.get(techId)?.branch ?? '',
+        cost: researchGame.costOf(playerId as never, techId),
+      })),
+      knownCount,
+      totalCount: db.techs.size,
+    };
+
+    const w = victoryGame.winner();
+    const victory = {
+      tracks: victoryGame.tracksOf(playerId as never, kernel.currentTick).map((t) => ({ type: t.type, progress: t.progress })),
+      prestige: victoryGame.prestigeOf(playerId as never),
+      winner: w === null ? null : { kingdomIndex: kingdomIds.indexOf(w.kingdomId), type: w.type },
+      playerDefeated: victoryGame.isDefeated(playerId as never),
+    };
+
+    return { kingdoms, units, armies, research, victory };
+  };
+}
+
+/** Player-facing content projections (M18/M41/M43) — shared verbatim by both compositions. */
+function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boolean): { catalog: UICatalog; audioCatalog: AudioCatalog } {
   const catalog: UICatalog = {
-    buildings: [...c.db.buildings.values()]
+    ...(includeUnits
+      ? {
+          units: [...db.units.values()].map((def) => ({
+            id: def.id,
+            name: def.name,
+            unitClass: def.class,
+            popCost: def.popCost.count,
+            costGold: def.costGold,
+            upkeepGold: def.upkeepGold,
+            cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [
+              db.resources.get(resId)?.name ?? resId,
+              amount,
+            ]),
+            recruitTicks: def.recruitTicks,
+          })),
+        }
+      : {}),
+    buildings: [...db.buildings.values()]
       .filter((def) => !def.tags.includes('center')) // centres come from settlers, not the palette
       .map((def) => ({
         id: def.id,
@@ -45,32 +233,147 @@ export function createSession(seed: number, clock?: () => number): SimSession {
         h: def.footprint.h,
         tier: def.requires?.villageTier ?? 1,
         cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [
-          c.db.resources.get(resId)?.name ?? resId,
+          db.resources.get(resId)?.name ?? resId,
           amount,
         ]),
       })),
-    edicts: [...c.db.edicts.values()].map((def) => ({ id: def.id, name: def.name, upkeep: def.upkeep })),
+    edicts: [...db.edicts.values()].map((def) => ({
+      id: def.id,
+      name: def.name,
+      upkeep: def.upkeep,
+      modifiers: def.modifiers.map((m) => ({ target: m.target, op: m.op, value: m.value })),
+    })),
+    // M43: display text for the event-choice dialog — resolved by id off the GameEvent stream's
+    // `event.fired`/`event.resolved`, the same "sim worker projects DefinitionDatabase once" shape
+    // buildings/edicts already use. M44: def.text/choice.text are locale KEYS (@crowns/core
+    // `LocalizedText`), resolved here against the base locale — the catalog the client receives
+    // has always been plain display strings, so nothing downstream of this projection changes.
+    events: [...db.events.values()].map((def) => ({
+      id: def.id,
+      title: locale.resolve(def.text.title),
+      body: locale.resolve(def.text.body),
+      choices: def.choices.map((choice) => ({ id: choice.id, text: locale.resolve(choice.text) })),
+    })),
+  };
+  const audioCatalog: AudioCatalog = {
+    cues: [...db.audioCues.values()].map((def) => ({
+      id: def.id,
+      event: def.event,
+      bus: def.bus,
+      gain: def.gain,
+      waveform: def.waveform,
+      frequencyHz: def.frequencyHz,
+      durationMs: def.durationMs,
+      placeholder: def.placeholder,
+    })),
+    playlists: [...db.musicPlaylists.values()].map((def) => ({
+      id: def.id,
+      tension: def.tension,
+      ...(def.era !== undefined ? { era: def.era } : {}),
+      ...(def.season !== undefined ? { season: def.season } : {}),
+      gain: def.gain,
+      trackIds: def.trackIds,
+      placeholder: def.placeholder,
+    })),
+  };
+  return { catalog, audioCatalog };
+}
+
+export function createSession(
+  seed: number,
+  clock?: () => number,
+  mods?: ModSelection,
+  sandbox?: SandboxOptions,
+  localeId?: string,
+  campaign?: CampaignSettings,
+): SimSession {
+  // M47.6: `campaign` present = the unified multi-kingdom composition (composeCampaignForApp);
+  // absent = the classic single-kingdom terra composition (golden scenario 'terra-demo').
+  const c =
+    campaign !== undefined
+      ? composeCampaignForApp(seed, campaign, mods, sandbox, localeId, clock)
+      : composeTerra(seed, clock, mods, sandbox, localeId);
+  const terrain = 'terrainSnapshot' in c ? c.terrainSnapshot : c.terrain;
+  if (terrain === null) throw new Error('createSession: composition produced no terrain snapshot');
+  if (c.modReport === null) throw new Error('createSession: composition produced no mod report');
+  if (c.worldDef === null) throw new Error('createSession: composition ran no worldgen');
+  const fog = 'fog' in c ? c.fog : null;
+  const panels = 'victoryGame' in c ? buildPanelsProjection(c) : null; // M47.7
+  const { catalog, audioCatalog } = buildCatalogs(c.db, c.locale, panels !== null);
+  // Tile-space centre of the PLAYER's own starting village (kingdom index 0 —
+  // the same "player is kingdom 0" convention TerritoryEmitter's fog uses). Lets
+  // the client open the camera on the player's keep, not the map centre. Single-
+  // kingdom compositions (terra-demo) have no VillageOwner → first village wins.
+  const playerHome = (): { x: number; y: number } | null => {
+    const player = c.kingdomGame.kingdomEntities()[0];
+    const VillageOwner = c.kingdomGame.VillageOwner;
+    const core = c.world.read(c.game.comps.VillageCore);
+    const owner = VillageOwner !== undefined ? c.world.read(VillageOwner) : null;
+    let home: { x: number; y: number } | null = null;
+    c.world.query([c.game.comps.VillageCore]).forEach((vi) => {
+      if (home !== null) return;
+      if (owner !== null && player !== undefined && (owner.kingdom[vi] as number) !== (player as number)) return;
+      home = { x: core.centerX[vi] as number, y: core.centerY[vi] as number };
+    });
+    return home;
   };
   return {
+    panels,
     catalog,
+    audioCatalog,
     kingdomInfo() {
       const kingdom = c.kingdomGame.kingdomEntity();
       if (kingdom === null) return { activeEdicts: [] };
       const active = c.world.readObj(c.kingdomGame.ActiveEdicts).tryGet((kingdom as number) & 0x3fffff);
       const ids = [...c.db.edicts.keys()].sort();
-      return { activeEdicts: [...(active?.keys() ?? [])].sort((a, b) => a - b).map((code) => ids[code] as string) };
+      const home = playerHome();
+      return {
+        activeEdicts: [...(active?.keys() ?? [])].sort((a, b) => a - b).map((code) => ids[code] as string),
+        // M43: unresolved event dialogs from before this snapshot (e.g. a save loaded mid-tutorial)
+        pendingEvents: c.eventsGame.pendingChoices(kingdom),
+        id: kingdom as number, // M47.6: lets the client claim only its own event.fired dialogs
+        ...(home !== null ? { home } : {}),
+      };
+    },
+    previewPlacement(villageId, defId, x, y) {
+      const def = c.db.buildings.get(defId);
+      if (def === undefined) return { ok: false, w: 1, h: 1 };
+      const verdict = c.game.ops.validatePlacement(def, x | 0, y | 0, villageId as EntityId);
+      return { ok: verdict.ok, w: def.footprint.w, h: def.footprint.h };
     },
     kernel: c.kernel,
     driver: new TickDriver(c.kernel, { maxTicksPerAdvance: 32 }),
     emitter: new SnapshotEmitter(c.world, c.Position),
     worldMeta: { widthTiles: c.worldDef.width, heightTiles: c.worldDef.height },
-    terrain: c.terrain,
+    terrain,
     world: c.world,
     buildingEmitter: new BuildingEmitter(c.world, c.game),
     villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db),
     roadEmitter: new RoadEmitter(c.logiGame.roads),
-    territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, null),
+    territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, fog),
     saves: c.saves,
+    modReport: c.modReport,
+    sandbox: c.sandbox,
+  };
+}
+
+/** LoadReport (data-package shape) → the protocol's plain wire ModReport. */
+function toModReportWire(report: LoadReport): ModReport {
+  return {
+    order: report.order,
+    disabled: report.disabled.map((d) => ({ id: d.id, reasons: d.reasons })),
+    overrides: report.overrides,
+    patched: report.patched,
+  };
+}
+
+/** ModReconciliationReport (sim-package shape) → the protocol's plain wire form. */
+function toModReconciliationWire(r: ReturnType<typeof reconcileModManifest>): ModReconciliation {
+  return {
+    missing: r.missing.map((m) => ({ modId: m.modId, version: m.version })),
+    added: r.added.map((m) => ({ modId: m.modId, version: m.version })),
+    versionChanged: r.versionChanged.map((c) => ({ modId: c.saved.modId, saved: c.saved.version, installed: c.installed.version })),
+    contentChanged: r.contentChanged.map((c) => ({ modId: c.saved.modId, version: c.saved.version })),
   };
 }
 
@@ -79,8 +382,33 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
   let telemetryEvery = 0; // 0 = off
   let lastTelemetryTick = 0;
   let autosaveCounter = 0;
+  let storagePersisted = false;
+  let storageAdvisorySent = false; // roadmap M44: one advisory per session, not per autosave
 
   const send = (message: FromSimMessage): void => port.postMessage(message);
+
+  /** Risk R6 tripwire check, run alongside the autosave scheduler (same cadence, doc 11 §3/§4):
+   * quota estimate <2× current footprint narrows the ring and tells the player once. */
+  const checkStorageQuota = (): void => {
+    if (storageAdvisorySent) return;
+    void estimateStorage().then((estimate) => {
+      if (estimate === null || !isStorageTight(estimate)) return;
+      storageAdvisorySent = true;
+      void pruneAutosaveRing(1); // doc 11 §3 "managed ring": narrow from AUTOSAVE_RING(3) under pressure
+      send({ kind: 'storageAdvisory', usageBytes: estimate.usageBytes, quotaBytes: estimate.quotaBytes, persisted: storagePersisted });
+    });
+  };
+
+  const sendReady = (seed: number): void => {
+    if (session === null) return;
+    send({ kind: 'ready', seed, availableMods: AVAILABLE_MODS, modReport: toModReportWire(session.modReport), sandbox: session.sandbox });
+  };
+
+  /** M47.7: push a fresh panel projection (campaign sessions only). */
+  const sendPanels = (): void => {
+    if (session === null || session.panels === null) return;
+    send({ kind: 'panels', tick: session.kernel.currentTick, panels: session.panels() });
+  };
 
   const sendFullSnapshot = (): void => {
     if (session === null) return;
@@ -94,20 +422,43 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
       buildings: session.buildingEmitter.full(),
       roads: session.roadEmitter.full(),
       catalog: session.catalog,
+      audio: session.audioCatalog,
       kingdom: session.kingdomInfo(),
       territory: territory.territory,
       fogRevealed: territory.fogRevealed,
     });
+    sendPanels(); // M47.7: panels bootstrap alongside every full snapshot (init/setMods/load)
   };
 
-  /** Rebuild the session from a save payload and hydrate it (TDD §8 load path). */
+  /**
+   * Rebuild the session from a save payload and hydrate it (TDD §8 load path).
+   * Re-applies whatever mod set is CURRENTLY active (the player's live Mods-screen
+   * choice, not whatever the save was originally written with) — reconciliation
+   * (OQ-4) compares the save's embedded manifest against that installed set and
+   * reports differences, but never blocks: best-effort load is the ratified
+   * policy, with an automatic pre-load backup export as the safety net.
+   */
   const loadFromPayload = (payload: string): void => {
     try {
       const save = JSON.parse(payload) as CampaignSave;
-      const next = createSession(save.header.seed, clock);
-      const migrations = next.saves.hydrate(save); // throws on mismatch — old session stays live
+      const installedIds = session !== null ? session.modReport.order.filter((id) => id !== 'base') : [];
+      const currentSandbox: SandboxOptions | undefined =
+        session !== null && session.sandbox ? { ironman: session.saves.getSandboxFlags().ironman } : undefined;
+      // M47.6: the header's campaign settings drive recomposition — the kernel's restoreState
+      // demands an identical composition, so the save itself says what to build (R1 round-trip).
+      const next = createSession(
+        save.header.seed, clock, resolveModSelection(installedIds, installedIds), currentSandbox,
+        undefined, save.header.campaign,
+      );
+      const modReport = reconcileModManifest(save.header.modManifest, next.saves.getModManifest());
+      if (modReconciliationHasFindings(modReport)) {
+        // OQ-4's mandatory pre-load backup: the untouched save, exported before
+        // any best-effort reconciliation touches it.
+        send({ kind: 'exportResult', payload });
+      }
+      const migrations = next.saves.hydrate(save); // throws on format/seed/section mismatch — old session stays live
       session = next;
-      send({ kind: 'loadResult', ok: true, tick: session.kernel.currentTick, migrations });
+      send({ kind: 'loadResult', ok: true, tick: session.kernel.currentTick, migrations, modReport: toModReconciliationWire(modReport) });
       sendFullSnapshot();
     } catch (error) {
       send({
@@ -142,6 +493,7 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
     // between ticks, in the worker, and only where IndexedDB exists
     if (typeof indexedDB !== 'undefined' && results.some((r) => r.events.some((e) => e.type === 'time.seasonStarted'))) {
       saveToSlot(autosaveSlot(autosaveCounter++));
+      checkStorageQuota(); // roadmap M44: same cadence as the autosave scheduler itself
     }
     const { spawned, moved, despawned } = session.emitter.delta();
     const b = session.buildingEmitter.delta();
@@ -168,6 +520,16 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
         fogRevealedAdded: territory.fogRevealedAdded,
       });
     }
+    // M47.7: refresh the player panels when their state can have moved — a day boundary
+    // (every daily system has run) or any executed PLAYER command (instant feedback after
+    // a button press). AI-only ticks between day boundaries change nothing a panel shows.
+    if (
+      session.panels !== null &&
+      (results.some((r) => r.events.some((e) => e.type === 'time.dayStarted')) ||
+        results.some((r) => r.executed.some((cmd) => cmd.issuer === 1)))
+    ) {
+      sendPanels();
+    }
     // sampling stream: at most one report per flush, whenever the interval has
     // elapsed since the last report (flushes are per-batch, not per-tick)
     if (telemetryEvery > 0 && session.kernel.currentTick >= lastTelemetryTick + telemetryEvery) {
@@ -189,12 +551,38 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
     try {
       switch (message.kind) {
         case 'init':
-          session = createSession(message.seed, clock);
-          send({ kind: 'ready', seed: message.seed });
+          session = createSession(
+            message.seed,
+            clock,
+            resolveModSelection(message.mods?.enabled ?? [], message.mods?.order ?? []),
+            message.sandbox,
+            message.locale,
+            message.campaign,
+          );
+          // roadmap M44 (doc 11 §4 mitigation list): request durable storage once per session —
+          // best-effort, browsers grant/deny silently; storagePersisted just informs the advisory.
+          void requestPersistence().then((granted) => {
+            storagePersisted = granted;
+          });
+          sendReady(message.seed);
           // Genesis runs on tick 1; step it so the first full snapshot is populated.
           flushlessFirstTick(session);
           sendFullSnapshot();
           return;
+        case 'setMods': {
+          // Recompose fresh at the SAME seed — a mod's content change starts a
+          // new campaign (doc 09 §5); this is the in-game Mods screen's "Apply".
+          // Sandbox status AND campaign settings carry over unchanged (independent knobs).
+          const seed = session?.kernel.seed ?? 0;
+          const sandbox: SandboxOptions | undefined =
+            session !== null && session.sandbox ? { ironman: session.saves.getSandboxFlags().ironman } : undefined;
+          const campaign = session?.saves.getCampaignSettings();
+          session = createSession(seed, clock, resolveModSelection(message.enabled, message.order), sandbox, undefined, campaign);
+          sendReady(seed);
+          flushlessFirstTick(session);
+          sendFullSnapshot();
+          return;
+        }
         case 'save':
           saveToSlot(message.slot);
           return;
@@ -244,8 +632,21 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
               inspection: session.world.inspect(message.entityId as never),
             });
           } else if (message.op === 'commands') {
-            send({ kind: 'debugCommands', types: session.kernel.commandTypes() });
+            // sandbox.* would only reject if offered outside a sandboxed session (GDD §17) —
+            // don't even list a doomed-to-reject command in the injector's vocabulary
+            const sandboxed = session.sandbox;
+            const types = session.kernel.commandTypes().filter((t) => sandboxed || !t.startsWith('sandbox.'));
+            send({ kind: 'debugCommands', types });
           }
+          return;
+        }
+        case 'requestPanels':
+          sendPanels();
+          return;
+        case 'previewBuild': {
+          if (session === null) return;
+          const { ok, w, h } = session.previewPlacement(message.villageId, message.def, message.x, message.y);
+          send({ kind: 'buildPreview', seq: message.seq, x: message.x, y: message.y, w, h, ok });
           return;
         }
         case 'requestHash':

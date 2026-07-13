@@ -38,6 +38,8 @@ import type { MilitaryGameplay } from '../game/military.js';
 import type { ArmyGameplay } from '../game/armies.js';
 import type { CastleGameplay } from '../game/castles.js';
 import type { SiegeGameplay } from '../game/siege.js';
+import { FOOD_PER_PERSON_DAY, type PopulationGameplay } from '../game/population.js';
+import { productionCapacity } from './needs.js';
 import { findBuildSite } from './placement.js';
 
 const index = (id: number): number => id & 0x3fffff;
@@ -45,6 +47,26 @@ const index = (id: number): number => id & 0x3fffff;
 export const BARRACKS_DEF = 'base:building.barracks';
 export const RECRUIT_ORDER = ['base:unit.spearman', 'base:unit.militia'] as const; // preference order, cheapest fallback
 export const WAR_MIN_STRENGTH = 20; // committed troop count before marching to war
+/** M46 balance fix (doc 01 §8 SC-2): recruiting costs `UnitDef.popCost` ADULTS, permanently,
+ * whether or not the war they were raised for ever happens — an unconditional daily recruit
+ * order with no regard for whether the village can still feed itself was found, via the M46
+ * balance harness (`bench-balance.js`), to reliably famine-collapse EVERY AI kingdom within 5
+ * years, at every difficulty, with zero wars ever declared (recruiting alone did it). Requiring
+ * real food surplus — not just break-even — before recruiting is the minimal fix: it defers
+ * MilitaryBuildup, it never cancels it outright (the daily loop retries once the economy catches
+ * up), so an aggressive personality still builds an army, just not by starving its own farms. */
+export const RECRUIT_FOOD_SURPLUS_RATIO = 1.3;
+/** M46 balance fix, second gate: `productionCapacity` (ai/needs.ts) reports DECLARED recipe
+ * capacity for complete buildings, not realized output after workforce staffing — so the food
+ * ratio alone still let a real harness run recruit its way into a spiral once one recruit
+ * thinned the farm's actual workforce below what nominal capacity assumed. A floor below which
+ * the village simply never recruits, regardless of nominal food math, is the blunter backstop
+ * that actually held up under the M46 balance harness. */
+export const RECRUIT_MIN_POPULATION_FLOOR = 20;
+/** M47.8: recruiting eats ADULTS — at least this many must remain to run farms/haul/build. */
+export const RECRUIT_MIN_ADULTS_REMAINING = 12;
+/** M47.8: realized-hunger gate — no levies from a village whose security EMA is sagging. */
+export const RECRUIT_MIN_FOOD_SECURITY = 0.95;
 export const WALL_DEF = 'base:building.wall';
 export const CASTLE_RING_RADIUS = 6;
 const WAR_STANCE_CONTACT_RANGE = 1; // Chebyshev — "arrived" for tactical purposes
@@ -82,6 +104,9 @@ export interface AiMilitaryOptions {
   readonly villageId: EntityId;
   readonly kingdomId: EntityId;
   readonly getPlan: () => string;
+  /** M47.8: the kingdom this AI holds its heaviest grudge against (doc 07 §7) — a PunitiveRaid
+   * prefers that kingdom's villages over merely-nearest targets. Optional and additive. */
+  readonly grudgeTarget?: () => EntityId | null;
   /** Known (fog-gated) hostile villages worth marching on — omit for buildup-only behaviour
    * (recruit/assemble/fortify, never marches to war). */
   readonly warTargets?: () => readonly AiWarTarget[];
@@ -112,6 +137,7 @@ export function registerAiMilitaryManager(
   world: World,
   db: DefinitionDatabase,
   game: VillageGameplay,
+  popGame: PopulationGameplay,
   military: MilitaryGameplay,
   armies: ArmyGameplay,
   castleGame: CastleGameplay,
@@ -145,11 +171,13 @@ export function registerAiMilitaryManager(
     name: options.id !== undefined ? `ai-military-${options.id}` : 'ai-military',
     period: TICKS_PER_DAY,
     phase: 7,
-    access: { reads: [VillageCore, BuildingCore, Unit, Army, ArmyMovement, ...(options.extraReads ?? [])] },
+    access: { reads: [VillageCore, BuildingCore, Unit, Army, ArmyMovement, popGame.Population, ...(options.extraReads ?? [])] },
     update(): void {
       if (!world.isAlive(options.villageId)) return;
       const plan = options.getPlan();
-      if (plan !== 'MilitaryBuildup' && plan !== 'ConquestWar') {
+      // M47.8: PunitiveRaid (doc 07 §7) is war conduct too — same buildup/march machinery,
+      // but the grudge target outranks the merely-nearest one (below).
+      if (plan !== 'MilitaryBuildup' && plan !== 'ConquestWar' && plan !== 'PunitiveRaid') {
         // war fell out of favor with the planner (economy/other archetype won out) — sue for
         // peace with anyone still at war (M31); a weak, tribute-free offer, but the exhaustion-
         // driven FORCED peace (diplomacy.ts) guarantees the war ends regardless of acceptance.
@@ -180,10 +208,36 @@ export function registerAiMilitaryManager(
       }
 
       if (hasBuildingOfDef(world, game, vi, barracksCode, true)) {
-        for (const defId of RECRUIT_ORDER) {
-          kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
-          break; // rejected silently (unaffordable etc.) is fine — retried next day
+        const population = popGame.totalOf(vi);
+        const foodNeeded = population * FOOD_PER_PERSON_DAY;
+        const foodProduced = productionCapacity({ world, comps: game.comps, ops: game.ops, popGame, db, villageIndex: vi }, 'base:resource.food');
+        const hasFoodSurplus = foodNeeded <= 0 || foodProduced / foodNeeded >= RECRUIT_FOOD_SURPLUS_RATIO;
+        const nextUnitPopCost = db.units.get(RECRUIT_ORDER[0])?.popCost.count ?? 0;
+        const staysAboveFloor = population - nextUnitPopCost >= RECRUIT_MIN_POPULATION_FLOOR;
+        // M47.8 (real-composition matrix findings): the M46 gates were still nameplate-based.
+        // Recruiting consumes ADULTS — the workforce — so the floor must hold in adults, not
+        // total heads (a 30-person village with 14 adults passed the old floor, recruited 10 of
+        // them, and famine-collapsed at year 10, both kingdoms, every seed). And declared farm
+        // capacity means nothing if the village is REALIZED-hungry: gate on the security EMA too.
+        const pop = world.read(popGame.Population);
+        const adultsAfter = (pop.adults[vi] as number) - nextUnitPopCost;
+        const keepsWorkforce = adultsAfter >= RECRUIT_MIN_ADULTS_REMAINING;
+        const actuallyFed = (pop.foodSecurity[vi] as number) >= RECRUIT_MIN_FOOD_SECURITY;
+        if (hasFoodSurplus && staysAboveFloor && keepsWorkforce && actuallyFed) {
+          for (const defId of RECRUIT_ORDER) {
+            kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
+            break; // rejected silently (unaffordable etc.) is fine — retried next day
+          }
         }
+        // neither gate met: skip recruiting today, retried tomorrow — MilitaryBuildup stays the
+        // active plan (a deferral, not a cancellation); the food-need evaluator (ai/needs.ts) the
+        // CONSTRUCTION manager already reads keeps queueing farms in parallel regardless. TWO
+        // gates, not one: `productionCapacity` reports DECLARED recipe capacity for complete
+        // buildings, not realized output after workforce staffing (economy.ts's own efficiency
+        // scaling) — a food ratio alone still let the M46 balance harness observe a long-stable
+        // 25-population village take a 3rd recruit, then spiral to 4 over the next nine months
+        // once that recruit itself thinned the farm's workforce below what nominal capacity
+        // assumed. The population floor is the blunter, harness-verified-effective backstop.
       }
 
       const armyId = ownArmy();
@@ -222,8 +276,8 @@ export function registerAiMilitaryManager(
         }
       }
 
-      // tactical war conduct (doc 07 §3) — ConquestWar only
-      if (plan !== 'ConquestWar' || options.warTargets === undefined) return;
+      // tactical war conduct (doc 07 §3) — ConquestWar and PunitiveRaid (M47.8)
+      if ((plan !== 'ConquestWar' && plan !== 'PunitiveRaid') || options.warTargets === undefined) return;
       if (committedCount(armyId) < WAR_MIN_STRENGTH) return;
 
       const existingSiege = siegeGame.state.siegeOfArmy(armyId);
@@ -240,8 +294,17 @@ export function registerAiMilitaryManager(
         return;
       }
 
-      const targets = options.warTargets();
+      let targets = options.warTargets();
       if (targets.length === 0) return;
+      // M47.8 (doc 07 §7): a PunitiveRaid marches on WHOEVER WRONGED US, not whoever's closest —
+      // narrow the target list to the grudge-holder's villages when the composition supplies one.
+      if (plan === 'PunitiveRaid' && options.grudgeTarget !== undefined) {
+        const grudge = options.grudgeTarget();
+        if (grudge !== null) {
+          const held = targets.filter((t) => t.kingdomId === (grudge as number));
+          if (held.length > 0) targets = held;
+        }
+      }
       const ai = index(armyId);
       const m = world.read(ArmyMovement);
       const ax = m.x[ai] as number;

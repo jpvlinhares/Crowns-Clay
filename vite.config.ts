@@ -8,7 +8,9 @@ const pkg = (name: string): string =>
 
 export default defineConfig({
   root: 'packages/app',
-  publicDir: false,
+  // roadmap M44: manifest.webmanifest, icon.svg, sw.js (packages/app/public/) — served as-is,
+  // copied verbatim into dist-web on build (Vite's own publicDir passthrough, TDD §11).
+  publicDir: 'public',
   resolve: {
     alias: {
       '@crowns/core': pkg('core'),
@@ -17,9 +19,12 @@ export default defineConfig({
       '@crowns/sim': pkg('sim'),
       '@crowns/render': pkg('render'),
       '@crowns/ui': pkg('ui'),
+      '@crowns/audio': pkg('audio'),
       '@crowns/app': pkg('app'),
     },
   },
-  server: { port: 5173 },
+  // PORT env (when a harness assigns one) wins over the 5173 default, so dev tooling
+  // that expects its assigned port to be honored (preview panels, CI) actually finds us.
+  server: { port: process.env['PORT'] !== undefined ? Number(process.env['PORT']) : 5173 },
   build: { outDir: '../../dist-web', emptyOutDir: true, target: 'es2022' },
 });

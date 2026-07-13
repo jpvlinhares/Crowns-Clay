@@ -80,7 +80,7 @@ const archetypeById = (id: string): PlanArchetype => DEFAULT_PLAN_ARCHETYPES.fin
 test('utility: DevelopHeartland rises with growthHeadroom, weighted by economy', () => {
   const low: Considerations = {
     economyStrength: 0.5, growthHeadroom: 0.1, settleReadiness: 0, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0,
   };
   const high: Considerations = { ...low, growthHeadroom: 0.9 };
   const utility = archetypeById('DevelopHeartland').utility;
@@ -90,7 +90,7 @@ test('utility: DevelopHeartland rises with growthHeadroom, weighted by economy',
 test('utility: ExpandSettle rises with settleReadiness and the expansion weight', () => {
   const c: Considerations = {
     economyStrength: 0.8, growthHeadroom: 0.2, settleReadiness: 0.8, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0,
   };
   const utility = archetypeById('ExpandSettle').utility;
   const lowExpansion = utility(c, { ...DEFAULT_PERSONALITY_WEIGHTS, expansion: 0.1 });
@@ -100,7 +100,7 @@ test('utility: ExpandSettle rises with settleReadiness and the expansion weight'
 
 test('utility: Recover is a hard 1 under crisis, 0 otherwise', () => {
   const utility = archetypeById('Recover').utility;
-  const neutral = { militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0 } as const;
+  const neutral = { militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0 } as const;
   assert.equal(utility({ economyStrength: 0.9, growthHeadroom: 0.1, settleReadiness: 0.5, crisisSignal: 0, allianceOpportunity: 0, ...neutral }, DEFAULT_PERSONALITY_WEIGHTS), 0);
   assert.equal(utility({ economyStrength: 0.1, growthHeadroom: 0.9, settleReadiness: 0, crisisSignal: 1, allianceOpportunity: 0, ...neutral }, DEFAULT_PERSONALITY_WEIGHTS), 1);
 });
@@ -108,7 +108,7 @@ test('utility: Recover is a hard 1 under crisis, 0 otherwise', () => {
 test('utility: TechRace rises with researchOpportunity and the tech weight; inert without a research context', () => {
   const c: Considerations = {
     economyStrength: 0.8, growthHeadroom: 0.2, settleReadiness: 0, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0.9,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0.9, grievance: 0,
   };
   const utility = archetypeById('TechRace').utility;
   const lowTech = utility(c, { ...DEFAULT_PERSONALITY_WEIGHTS, tech: 0.1 });

@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { GameEvent } from '@crowns/protocol';
-import { UIStore } from './store.js';
+import { UIStore, LEDGER_LOG_CAP } from './store.js';
 import { NotificationQueue, VISIBLE_CAP, LOG_CAP } from './notifications.js';
 
 const village = (id: number, over: Partial<Parameters<UIStore['applyVillageStats']>[0][number]> = {}) => ({
@@ -45,7 +45,7 @@ test('store: mirrors villages, selects a default, and finds placement targets', 
   assert.equal(store.villageNear(200, 30)?.id, 7);
 
   // a full snapshot (load) resets volatile slices but keeps the catalog
-  store.applyFull({ buildings: [], edicts: [] }, { activeEdicts: ['base:edict.corvee-labor'] });
+  store.applyFull({ buildings: [], edicts: [], events: [] }, { activeEdicts: ['base:edict.corvee-labor'] });
   assert.equal(store.state.villages.size, 0);
   assert.ok(store.state.activeEdicts.has('base:edict.corvee-labor'));
   assert.equal(store.state.selectedVillage, null);
@@ -59,6 +59,29 @@ test('store: edict toggles and rollups land in state', () => {
   assert.ok(store.state.activeEdicts.has('base:edict.harvest-festival'));
   store.applyEdictChange('base:edict.harvest-festival', false);
   assert.ok(!store.state.activeEdicts.has('base:edict.harvest-festival'));
+});
+
+test('store: ledger appends newest-last, caps at LEDGER_LOG_CAP, and resets on a full snapshot (M42)', () => {
+  const store = new UIStore();
+  store.appendLedger([{ tick: 1, kind: 'tax', amount: 5, detail: 'Firstholm' }]);
+  store.appendLedger([{ tick: 2, kind: 'edict-upkeep', amount: -1, detail: 'base:edict.corvee-labor' }]);
+  assert.deepEqual(store.state.ledger.map((r) => r.tick), [1, 2]);
+
+  for (let n = 0; n < LEDGER_LOG_CAP + 10; n++) {
+    store.appendLedger([{ tick: 100 + n, kind: 'tax', amount: 1, detail: 'V' }]);
+  }
+  assert.equal(store.state.ledger.length, LEDGER_LOG_CAP, 'log capped');
+  assert.equal(store.state.ledger.at(-1)?.tick, 100 + LEDGER_LOG_CAP + 9, 'newest entry retained');
+  assert.equal(store.state.ledger[0]?.tick, 100 + 10, 'oldest entries trimmed first');
+
+  // an empty delta (no rollup activity yet) is a safe no-op, not a spurious notify
+  let notified = 0;
+  store.subscribe(() => notified++);
+  store.appendLedger([]);
+  assert.equal(notified, 0);
+
+  store.applyFull({ buildings: [], edicts: [], events: [] }, undefined);
+  assert.deepEqual(store.state.ledger, []);
 });
 
 // ---------------- notifications (GDD §1 severity tiers) ----------------
@@ -97,4 +120,23 @@ test('notifications: visible toasts cap and the log rolls over', () => {
   assert.equal(queue.visible().length, VISIBLE_CAP);
   assert.equal(queue.all().length, LOG_CAP, 'log capped');
   assert.ok(queue.visible()[0]?.text.includes(`V${LOG_CAP + 9}`), 'newest first');
+});
+
+test('notifications: manual dismiss hides a toast but keeps the scrollback', () => {
+  const queue = new NotificationQueue();
+  queue.push(event('village.founded', 1000, { name: 'Alpha' }));
+  const b = queue.push(event('village.founded', 2000, { name: 'Bravo' }));
+  assert.equal(queue.visible().length, 2);
+
+  queue.dismiss(b?.id ?? -1);
+  assert.deepEqual(queue.visible().map((n) => n.text.includes('Alpha')), [true], 'only the un-dismissed toast shows');
+  assert.equal(queue.all().length, 2, 'dismiss clears the toast, not the history');
+
+  // dismissing pulls an older toast up into the visible window (not just leaving a gap)
+  const queue2 = new NotificationQueue();
+  for (let n = 0; n < VISIBLE_CAP + 1; n++) queue2.push(event('village.founded', n * 1000, { name: `V${n}` }));
+  const newest = queue2.visible()[0];
+  queue2.dismiss(newest?.id ?? -1);
+  assert.equal(queue2.visible().length, VISIBLE_CAP, 'an older toast fills the freed slot');
+  assert.ok(!queue2.visible().some((n) => n.id === newest?.id), 'the dismissed one is gone');
 });

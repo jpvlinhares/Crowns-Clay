@@ -28,12 +28,15 @@ export class PanelHost {
     const root = document.createElement('section');
     root.className = 'panel';
     root.dataset['panel'] = id;
+    root.setAttribute('role', 'region'); // M42 accessibility: named landmark per panel
+    root.setAttribute('aria-label', title);
     const heading = document.createElement('header');
     const label = document.createElement('span');
     label.textContent = title;
     const closeButton = document.createElement('button');
     closeButton.textContent = '×';
     closeButton.title = 'close';
+    closeButton.setAttribute('aria-label', `Close ${title} panel`);
     heading.append(label, closeButton);
     const body = document.createElement('div');
     body.className = 'panel-body';
@@ -43,6 +46,8 @@ export class PanelHost {
     const toolbarButton = document.createElement('button');
     toolbarButton.textContent = icon;
     toolbarButton.title = title;
+    toolbarButton.setAttribute('aria-label', title); // icon-only glyph has no accessible name otherwise
+    toolbarButton.setAttribute('aria-pressed', 'false');
     this.toolbar.append(toolbarButton);
 
     const panel: Panel = {
@@ -51,10 +56,12 @@ export class PanelHost {
       open: () => {
         root.classList.add('open');
         toolbarButton.classList.add('active');
+        toolbarButton.setAttribute('aria-pressed', 'true');
       },
       close: () => {
         root.classList.remove('open');
         toolbarButton.classList.remove('active');
+        toolbarButton.setAttribute('aria-pressed', 'false');
       },
       toggle: () => (root.classList.contains('open') ? panel.close() : panel.open()),
       isOpen: () => root.classList.contains('open'),

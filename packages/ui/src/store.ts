@@ -27,6 +27,17 @@ export interface KingdomInfo {
   readonly net: number;
 }
 
+/** One itemized ledger entry (M42; GDD §2 "Read the Ledger: full income/expense breakdown"). */
+export interface LedgerRow {
+  readonly tick: number;
+  readonly kind: string;
+  readonly amount: number; // signed: income positive, expense negative
+  readonly detail: string;
+}
+
+/** Newest-first scrollback cap — same bound NotificationQueue's LOG_CAP already uses. */
+export const LEDGER_LOG_CAP = 100;
+
 export interface UIState {
   villages: Map<number, VillageInfo>;
   kingdom: KingdomInfo | null;
@@ -36,6 +47,8 @@ export interface UIState {
   armedBuild: string | null;
   /** selected village (panel focus), or null */
   selectedVillage: number | null;
+  /** newest-last itemized ledger scrollback, capped at LEDGER_LOG_CAP (M42) */
+  ledger: LedgerRow[];
 }
 
 export type StoreListener = (state: UIState) => void;
@@ -48,6 +61,7 @@ export class UIStore {
     catalog: null,
     armedBuild: null,
     selectedVillage: null,
+    ledger: [],
   };
 
   private readonly listeners: StoreListener[] = [];
@@ -68,6 +82,7 @@ export class UIStore {
     this.state.activeEdicts = new Set(kingdom?.activeEdicts ?? []);
     this.state.armedBuild = null;
     this.state.selectedVillage = null;
+    this.state.ledger = [];
     this.emit();
   }
 
@@ -82,6 +97,15 @@ export class UIStore {
 
   applyRollup(kingdom: KingdomInfo): void {
     this.state.kingdom = kingdom;
+    this.emit();
+  }
+
+  appendLedger(entries: readonly LedgerRow[]): void {
+    if (entries.length === 0) return;
+    this.state.ledger.push(...entries);
+    if (this.state.ledger.length > LEDGER_LOG_CAP) {
+      this.state.ledger.splice(0, this.state.ledger.length - LEDGER_LOG_CAP);
+    }
     this.emit();
   }
 

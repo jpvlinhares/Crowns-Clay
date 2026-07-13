@@ -23,8 +23,8 @@ mymod/
 │  ├─ sprites/  audio/  music/  fonts/  icons/  ui-themes/
 ├─ locale/
 │  ├─ en.json5  de.json5 ...
-├─ scripts/                 # optional sandboxed hooks [OQ-3]
-│  └─ hooks.js
+├─ scripts/                 # optional sandboxed hooks [OQ-3] — CLOSED at M39: DSL-only ships at
+│  └─ hooks.js              # 1.0 (doc 14), so this directory has no runtime yet; reserved shape only
 └─ README.md
 ```
 
@@ -47,7 +47,7 @@ Manifest:
 | Sprites | PNG (+ aseprite source optional) | atlased at load or pre-packed | doc 10 conventions |
 | Audio | OGG (WAV accepted, transcoded warning) | decoded buffers | |
 | Fonts | WOFF2/TTF | FontFace | |
-| Scripts | JS (sandboxed) [OQ-3] | isolated runtime | capability-limited API |
+| Scripts | JS (sandboxed) [OQ-3 — CLOSED, not built] | isolated runtime | capability-limited API — reserved shape only, doc 14 |
 
 ## §3. Data Validation
 
@@ -97,6 +97,16 @@ needs them, and the vocabulary is additive (doc 09 §8) so they can land later w
 
 Per-save mod sets: the active set is embedded in every save (doc 06 §13) and re-imposed on load.
 
+**M39 delta:** steps 1–5 are real (`packages/data/src/mods.ts`'s `loadModLayers`/`DefinitionDatabase.loadMods`
+since M10; unchanged this milestone). What M39 adds is the in-game **Mods screen**
+(`packages/app/src/main.ts`'s 🧩 panel): it lists every mod bundled with the current build, lets the
+player check/uncheck and drag-reorder (feeding step 3's user-order tie-break — `ToSimMessage`'s
+`setMods`), and shows the resolved order plus the full §6 conflict report live. Step 1's "installed
+mod library" (IndexedDB import, File System Access folder import, in-game mod browser/sharing) stays
+the Post-1.0 candidate §8 already named — M39 offers exactly the mods COMPILED INTO the current
+build (base + `content/examples/*`), which is sufficient to prove ordering, conflicts, and
+reconciliation end-to-end without building a mod marketplace first.
+
 ## §6. Override & Patch Rules
 
 - **New id** → added. **Same id as an earlier layer** → *replace* by default.
@@ -104,10 +114,16 @@ Per-save mod sets: the active set is embedded in every save (doc 06 §13) and re
 
 ```json5
 { patch: "base:building.granary",
-  ops: [ { set: "cost.resources.base:stone", value: 40 },
+  ops: [ { set: "buildTicks", value: 96 },
          { mergeAppend: "tags", value: ["riverlords:food-hub"] },
          { remove: "serviceAura" } ] }
 ```
+
+  (Corrected from the original draft's `cost.resources.base:stone` — `BuildingDef.cost` is a FLAT
+  `Record<resourceId, amount>`, doc 06 §2, and `packages/data/src/mods.ts`'s patch-op path splits on
+  every `.`, so it can't address a map key that itself contains one — every content id does. Patching
+  a single `cost`/`recipes` entry by key isn't expressible; override the def for that case. Full
+  writeup: `docs/modding/04-patches-and-overrides.md`.)
 
 - Deterministic outcome: later layer wins; the Mods screen conflict report lists every id touched by
   ≥2 mods with final winner, so users can reorder informedly.
@@ -121,6 +137,17 @@ Per-save mod sets: the active set is embedded in every save (doc 06 §13) and re
   upgrade old-format defs at load where mechanical, else fatal-with-message.
 - Save↔mod reconciliation on load (changed/missing mods) produces a report; policy details are
   **[OQ-4]** (recommended default in doc 14).
+
+**M39 delta — OQ-4 shipped:** `packages/sim/src/persistence.ts`'s `reconcileModManifest` compares a
+save's embedded `{modId, version, hash}[]` (populated at composition time from `LoadReport.manifest`,
+`packages/data/src/mods.ts`) against the currently-installed set, reporting `missing` /
+`versionChanged` / `contentChanged` (same version, different content — a rebalance in place, caught
+by `fnv1a32` over the layer's file contents) / `added`. Per the ratified recommendation it's
+INFORMATIONAL ONLY — `SaveManager.hydrate` never consults it and never refuses to load on a
+mismatch; the hard-block backstop is (and always was) the existing content-validation fatal-error
+path (§3), not a new reconciliation-specific block. `packages/app/src/simPort.ts`'s `loadFromPayload`
+auto-exports the raw, untouched save payload (the mandated "pre-load backup") the instant
+reconciliation finds anything, before hydrating.
 
 ## §8. Future Extensibility
 

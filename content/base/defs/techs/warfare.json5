@@ -3,6 +3,10 @@
 // previous tier in this branch (cross-links, not a single chain) — see
 // packages/data/src/terrain.ts's DAG validation for the tier/era monotonicity and
 // acyclic-graph rules this content must satisfy.
+// M45 delta: 5 tech nodes that previously unlocked nothing (Barracks Discipline,
+// Siege Basics, Tower Emplacements, Combined Arms) now gate the new
+// swordsman/ram/crossbowman/knight units (GDD §6's named roster, units/core.json5);
+// Trebuchet Engineering's unlock gains the trebuchet unit its own name always implied.
 [
   {
     "id": "base:tech.warfare-t1-1",
@@ -72,6 +76,11 @@
     "prerequisites": [
       "base:tech.warfare-t1-1"
     ],
+    "unlocks": {
+      "units": [
+        "base:unit.swordsman"
+      ]
+    },
     "diffusionDiscount": 0.15,
     "tags": []
   },
@@ -163,6 +172,11 @@
       "base:tech.warfare-t2-2",
       "base:tech.warfare-t2-3"
     ],
+    "unlocks": {
+      "units": [
+        "base:unit.ram"
+      ]
+    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -218,6 +232,11 @@
       "base:tech.warfare-t3-3",
       "base:tech.warfare-t3-4"
     ],
+    "unlocks": {
+      "units": [
+        "base:unit.crossbowman"
+      ]
+    },
     "diffusionDiscount": 0.25,
     "tags": []
   },
@@ -233,6 +252,11 @@
       "base:tech.warfare-t3-4",
       "base:tech.warfare-t3-5"
     ],
+    "unlocks": {
+      "units": [
+        "base:unit.knight"
+      ]
+    },
     "diffusionDiscount": 0.25,
     "tags": []
   },
@@ -265,7 +289,8 @@
     ],
     "unlocks": {
       "units": [
-        "base:unit.catapult"
+        "base:unit.catapult",
+        "base:unit.trebuchet"
       ],
       "wallTier": 3
     },

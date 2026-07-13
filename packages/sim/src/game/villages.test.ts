@@ -43,16 +43,17 @@ function fixtureTerrain(): TerrainAccessor {
 
 const STOCK = { 'base:resource.wood': 200, 'base:resource.stone': 100, 'base:resource.food': 50 };
 
-function makeGame() {
+function makeGame(sandboxEnabled = false) {
   const kernel = new Kernel(42);
   const world = new World(128);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
-  const game = registerVillageGameplay(kernel, world, db, fixtureTerrain(), STOCK);
+  const game = registerVillageGameplay(kernel, world, db, fixtureTerrain(), STOCK, sandboxEnabled);
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
   const events: { type: string; data: unknown }[] = [];
   for (const type of [
     'village.founded', 'village.rejected', 'building.placed', 'building.completed', 'building.demolished',
+    'sandbox.resourceGranted',
   ]) {
     kernel.subscribe(type, (e) => events.push({ type: e.type, data: e.data }));
   }
@@ -217,6 +218,33 @@ test('demolish: frees occupancy for rebuilding; centers are protected', () => {
   g.submit('village.demolish', { buildingId: g.world.entityAt(centerId & 0x3fffff) as number });
   assert.match(g.lastRejection(), /cannot demolish a village center|no such building/);
   void village;
+});
+
+// ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
+
+test('sandbox.grantResource: rejected outside a sandboxed session', () => {
+  const g = makeGame(false);
+  const village = foundedVillage(g);
+  g.submit('sandbox.grantResource', { villageId: village, resource: 'base:resource.wood', amount: 100 });
+  assert.match(g.lastRejection(), /sandbox mode is not enabled/);
+});
+
+test('sandbox.grantResource: adds to the stockpile, rejects unknown resource/village/non-positive amount', () => {
+  const g = makeGame(true);
+  const village = foundedVillage(g);
+  const code = g.game.ops.resourceCode('base:resource.wood') as number;
+  const before = g.world.readObj(g.game.comps.Stockpile).get(village & 0x3fffff)?.get(code) ?? 0;
+  g.submit('sandbox.grantResource', { villageId: village, resource: 'base:resource.wood', amount: 250 });
+  const after = g.world.readObj(g.game.comps.Stockpile).get(village & 0x3fffff)?.get(code) ?? 0;
+  assert.equal(after, before + 250);
+  assert.ok(g.events.some((e) => e.type === 'sandbox.resourceGranted'));
+
+  g.submit('sandbox.grantResource', { villageId: village, resource: 'nonexistent:resource', amount: 10 });
+  assert.match(g.lastRejection(), /unknown resource/);
+  g.submit('sandbox.grantResource', { villageId: 999999, resource: 'base:resource.wood', amount: 10 });
+  assert.match(g.lastRejection(), /no such village/);
+  g.submit('sandbox.grantResource', { villageId: village, resource: 'base:resource.wood', amount: -5 });
+  assert.match(g.lastRejection(), /positive number/);
 });
 
 // ---------------- determinism ----------------

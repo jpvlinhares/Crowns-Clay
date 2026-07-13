@@ -118,6 +118,23 @@ export class ResearchState {
       fold(Math.round(rec.progress * 1000));
     }
   }
+
+  /** Save/restore (M47.6): tech CODES are stable per composition (sorted def ids), the same
+   * convention ActiveEdicts already saves under — a save is only ever hydrated into a session
+   * composed from the same mod set (persistence.ts's reconciliation reports any drift). */
+  save(): { kingdomId: number; known: number[]; activeCode: number; progress: number }[] {
+    return [...this.byKingdom.keys()].sort((a, b) => a - b).map((kingdomId) => {
+      const rec = this.byKingdom.get(kingdomId) as ResearchRecord;
+      return { kingdomId, known: [...rec.known].sort((a, b) => a - b), activeCode: rec.activeCode, progress: rec.progress };
+    });
+  }
+
+  restore(data: readonly { kingdomId: number; known: readonly number[]; activeCode: number; progress: number }[]): void {
+    this.byKingdom.clear();
+    for (const d of data) {
+      this.byKingdom.set(d.kingdomId, { known: new Set(d.known), activeCode: d.activeCode, progress: d.progress });
+    }
+  }
 }
 
 // ---------------------------------------------------------------- registrar

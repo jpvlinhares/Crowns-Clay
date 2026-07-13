@@ -55,11 +55,15 @@ export {
   SaveManager,
   kernelSection,
   worldSection,
+  reconcileModManifest,
+  modReconciliationHasFindings,
   SAVE_FORMAT_VERSION,
   type SaveSection,
   type CampaignSave,
   type CampaignSaveHeader,
   type Migration,
+  type ModReconciliationReport,
+  type SandboxFlags,
 } from './persistence.js';
 export type { KernelSaveState } from './kernel.js';
 export type { WorldSaveState, ComponentSaveState, EncodedObjectValue } from './ecs.js';
@@ -330,5 +334,50 @@ export {
   type EventGameplayOptions,
   type EventDiplomacyHook,
   type EventResearchHook,
+  type EventStateSave,
 } from './game/events.js';
 export { registerAiEventAnswering, type AiEventOptions } from './ai/events.js';
+export {
+  registerVictoryGameplay,
+  DEFAULT_CONQUEST_SHARE,
+  DEFAULT_HEGEMONY_YEARS,
+  DEFAULT_PROSPERITY_HAPPINESS,
+  DEFAULT_PROSPERITY_YEARS,
+  DEFAULT_WONDER_COUNT,
+  DEFAULT_YEAR_LIMIT,
+  APPROACHING_FRACTION,
+  type VictoryOptions,
+  type VictoryDeps,
+  type VictoryResult,
+  type VictoryGameplay,
+  type VictoryTrackProgress,
+  type VictorySaveState,
+} from './game/victory.js';
+export {
+  DIFFICULTY_LEVELS,
+  DIFFICULTY_PRESETS,
+  STORY_PRESET,
+  FAIR_PRESET,
+  HARD_PRESET,
+  BRUTAL_PRESET,
+  type DifficultyLevel,
+  type DifficultyPreset,
+} from './ai/difficulty.js';
+export {
+  composeMultiKingdom,
+  flatTerrain,
+  type MultiKingdomComposition,
+  type MultiKingdomOptions,
+} from './ai/multiKingdomHarness.js';
+export {
+  composeCampaign,
+  contentPersonalityWeights,
+  contentPersonalityAssigner,
+  difficultyFromSettings,
+  victoryFromSettings,
+  DEFAULT_CAMPAIGN_STOCK,
+  DEFAULT_CAMPAIGN_POPULATION,
+  DEFAULT_CAMPAIGN_VICTORY,
+  type ComposeCampaignOptions,
+  type CampaignComposition,
+} from './campaign.js';

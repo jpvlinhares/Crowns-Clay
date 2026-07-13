@@ -58,6 +58,17 @@ office's `kingdom.researchYield` modifier, game/kingdom.ts) into the active tech
 completion swaps it into `known` and clears the active slot. `kingdom.setActiveResearch` itself
 is command-driven (like row 16's gifts/pacts), not cadence-gated — only the accrual is daily.
 
+**M47.8 delta (doc 12 R1):** the HOURLY jobs solver (population.ts — a finer cadence than row
+10's daily cohort math, per that module's own doc) gains an explicit staffing priority: builders
+→ haulers → FOOD production → other production. Previously production staffed in bare entity
+order, which let an accumulating building roster out-compete farms for hands — the M46
+Builder-starvation defect, root-caused and closed here. Two new daily campaign systems join the
+pipeline: `occupation` (phase 9 — undefended at-war non-castle villages change hands after 5
+unopposed days; the Conquest path plain villages never had) and `belief-sensors` (phase 11 —
+contact-refresh + confidence decay for AI `armyStrength` beliefs, doc 07 §6). Both are
+campaign-composition systems; the legacy AI-harness wrapper pins its recorded M22-M46 conditions
+and runs neither.
+
 **M37 delta (game/victory.ts):** row 20 lands exactly as designed too — `victory-tracker` runs
 daily, evaluating all five GDD §16 tracks plus the last-village defeat rule (doc 06 §12). Legacy's
 wonder-completion bookkeeping is the one piece that ISN'T daily-polled: it's event-driven off

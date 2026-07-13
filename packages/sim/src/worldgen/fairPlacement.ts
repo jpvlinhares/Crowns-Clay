@@ -17,7 +17,7 @@
  */
 import type { DefinitionDatabase } from '@crowns/data';
 import { scoreSite } from '../game/settlers.js';
-import type { VillageGameplay } from '../game/villages.js';
+import { VILLAGE_MIN_SPACING, type VillageGameplay } from '../game/villages.js';
 
 export interface KingdomSite {
   readonly x: number;
@@ -61,6 +61,7 @@ function bestInSector(
   halfWidth: number,
   radiusLo: number,
   radiusHi: number,
+  taken: readonly KingdomSite[],
 ): KingdomSite | null {
   const centerDef = db.buildings.get('base:building.village-center');
   if (centerDef === undefined) return null;
@@ -71,6 +72,12 @@ function bestInSector(
       const x = Math.round(cx + r * Math.cos(angle));
       const y = Math.round(cy + r * Math.sin(angle));
       if (!game.ops.validatePlacement(centerDef, x, y, null).ok) continue;
+      // GDD §13's "minimum pairwise distance", enforced at last (M47.9): on crowded small
+      // maps, widened radius bands + coastline-squeezed candidates could converge two
+      // sectors' picks inside VILLAGE_MIN_SPACING — genesis then threw ("too close to
+      // another village center"), killing 11 of 100 real-composition triage campaigns at
+      // tick 1. The module doc's old "sectors are naturally far apart" claim was wrong.
+      if (taken.some((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) < VILLAGE_MIN_SPACING)) continue;
       const score = scoreSite(game.terrain, x, y);
       if (
         best === null ||
@@ -91,7 +98,7 @@ function placeAtBand(game: VillageGameplay, db: DefinitionDatabase, n: number, r
   const halfWidth = (Math.PI / n) * SECTOR_ARC_FRACTION;
   for (let k = 0; k < n; k++) {
     const sectorAngle = (2 * Math.PI * k) / n;
-    const site = bestInSector(game, db, cx, cy, sectorAngle, halfWidth, radiusLo, radiusHi);
+    const site = bestInSector(game, db, cx, cy, sectorAngle, halfWidth, radiusLo, radiusHi, sites);
     if (site === null) return null;
     sites.push(site);
   }
@@ -100,9 +107,11 @@ function placeAtBand(game: VillageGameplay, db: DefinitionDatabase, n: number, r
 
 /**
  * Score N deterministic, fairness-checked kingdom start sites. `n` must be
- * at least 1; sectors are spread evenly around the map center, so distinct
- * sectors are naturally far apart for any reasonable kingdom count — no
- * separate pairwise-distance check is added on top.
+ * at least 1; sectors are spread evenly around the map center AND (M47.9)
+ * every candidate must clear `VILLAGE_MIN_SPACING` from already-chosen sites
+ * — GDD §13's "minimum pairwise distance", which the original "sectors are
+ * naturally far apart" assumption turned out not to guarantee on crowded
+ * small maps (11/100 triage campaigns died at genesis before this check).
  */
 export function scoreKingdomSites(game: VillageGameplay, db: DefinitionDatabase, n: number): FairPlacementResult {
   const baseRadius = Math.min(game.terrain.width, game.terrain.height) * RING_RADIUS_FRACTION;

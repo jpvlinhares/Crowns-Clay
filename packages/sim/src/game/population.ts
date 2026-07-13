@@ -103,6 +103,20 @@ export function registerPopulationGameplay(
     game.ops.buildingDef(b.def[i] as number);
 
   // ---------------- hourly: jobs solver ----------------
+  // M47.8 (doc 12 R1): the M46 Builder-starvation defect root-caused HERE — production was
+  // staffed in bare ascending entity order, so a village accumulating non-food buildings could
+  // out-compete its own farms for hands and slowly starve at peace. FOOD SECURITY IS THE
+  // ECONOMY'S HEARTBEAT (GDD §3): food-producing buildings now staff before everything else.
+  const producesFood = new Map<number, boolean>(); // def code → outputs the food resource
+  const isFoodProducer = (defCode: number): boolean => {
+    let known = producesFood.get(defCode);
+    if (known === undefined) {
+      const def = game.ops.buildingDef(defCode);
+      known = def.recipes?.some((r) => r.outputs.some((o) => o.resource === 'base:resource.food')) ?? false;
+      producesFood.set(defCode, known);
+    }
+    return known;
+  };
   const jobs: SimSystem = {
     name: 'jobs',
     period: 1,
@@ -115,11 +129,13 @@ export function registerPopulationGameplay(
       world.query([Population, VillageCore]).forEach((vi) => {
         available.set(vi, Math.floor(pop.adults[vi] as number));
       });
-      // builders first (construction is the village's urgent work), then
-      // haulers (logistics staff, M14 — capped so production never starves
-      // of hands entirely), then production — ascending entity order
-      for (const pass of ['sites', 'production'] as const) {
-        if (pass === 'production' && game.settings.haulerTarget > 0) {
+      // builders first (construction is the village's urgent work), then haulers
+      // (logistics staff, M14 — claimed BEFORE food so farm output actually reaches
+      // the stockpile: a fed village needs carts as much as fields), then food
+      // production (feed the village before anything else — M47.8), then remaining
+      // production — ascending entity order within a pass
+      for (const pass of ['sites', 'food', 'production'] as const) {
+        if (pass === 'food' && game.settings.haulerTarget > 0) {
           world.query([Population, VillageCore]).forEach((vi) => {
             const pool = available.get(vi) ?? 0;
             const claimed = Math.min(game.settings.haulerTarget, Math.floor(pool * HAULER_POOL_CAP));
@@ -135,7 +151,13 @@ export function registerPopulationGameplay(
             return;
           }
           const complete = (b.complete[i] as number) === 1;
-          if (pass === 'sites' ? complete : !complete) return;
+          if (pass === 'sites') {
+            if (complete) return;
+          } else if (!complete) {
+            return;
+          } else if ((pass === 'food') !== isFoodProducer(b.def[i] as number)) {
+            return;
+          }
           const required = complete ? (defOf(b, i).workers?.required ?? 0) : BUILDERS_PER_SITE;
           const assigned = Math.min(required, pool);
           b.workers[i] = assigned;

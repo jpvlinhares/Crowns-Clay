@@ -1,5 +1,7 @@
 // Unrest pool (M33; GDD App. A; §12's happiness -> unrest link). Fires when
 // happiness runs low — a real cost to ignoring discontent, not just flavour.
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.unrest.grumbling",
@@ -10,19 +12,19 @@
     "weight": 3,
     "cooldownDays": 30,
     "text": {
-      "title": "Grumbling in the Streets",
-      "body": "Discontent is spreading. Something needs to give.",
+      "title": "event.unrest.grumbling.title",
+      "body": "event.unrest.grumbling.body",
     },
     "choices": [
       {
         "id": "address",
-        "text": "Address grievances publicly",
+        "text": "event.unrest.grumbling.choice.address",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 6 } }],
         "aiScoreHints": { "diplomacyTrust": 0.5 },
       },
       {
         "id": "crackdown",
-        "text": "Crack down on troublemakers",
+        "text": "event.unrest.grumbling.choice.crackdown",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -4 } }],
         "aiScoreHints": { "aggression": 0.4 },
       },
@@ -38,13 +40,13 @@
     "weight": 2,
     "cooldownDays": 45,
     "text": {
-      "title": "Workers' Strike",
-      "body": "Laborers refuse to work until conditions improve.",
+      "title": "event.unrest.strike.title",
+      "body": "event.unrest.strike.body",
     },
     "choices": [
       {
         "id": "concede",
-        "text": "Concede to their demands",
+        "text": "event.unrest.strike.choice.concede",
         "effects": [
           { "removeResource": { "resource": "base:resource.food", "amount": 10 } },
           { "modifier": { "stat": "village.happiness", "op": "add", "value": 10 } },
@@ -53,7 +55,7 @@
       },
       {
         "id": "wait-out",
-        "text": "Wait it out",
+        "text": "event.unrest.strike.choice.wait-out",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -5 } }],
         "aiScoreHints": { "riskTolerance": 0.5 },
       },
@@ -69,19 +71,19 @@
     "weight": 1,
     "cooldownDays": 45,
     "text": {
-      "title": "Rumor Mongering",
-      "body": "Wild rumors about the kingdom's leadership circulate among the discontented.",
+      "title": "event.unrest.rumor-mongering.title",
+      "body": "event.unrest.rumor-mongering.body",
     },
     "choices": [
       {
         "id": "counter",
-        "text": "Counter the rumors openly",
+        "text": "event.unrest.rumor-mongering.choice.counter",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 3 } }],
         "aiScoreHints": { "diplomacyTrust": 0.4 },
       },
       {
         "id": "ignore",
-        "text": "Ignore it — it'll pass",
+        "text": "event.unrest.rumor-mongering.choice.ignore",
         "effects": [],
         "aiScoreHints": { "riskTolerance": 0.6 },
       },

@@ -24,6 +24,7 @@ data-driven engine. This documentation set is the authoritative reference for al
 | 12 | [Development Roadmap](12-roadmap.md) | 48 milestones from empty repo to feature-complete game |
 | 13 | [Risk Assessment](13-risks.md) | Largest technical risks and mitigation strategies |
 | 14 | [Open Design Questions](14-open-questions.md) | Unresolved choices, trade-offs, recommendations |
+| 15 | [Decision Records](15-decision-records.md) | ADRs for decisions outside the OQ process (added M47.9, doc 12 R1) |
 
 ## Reading Order
 

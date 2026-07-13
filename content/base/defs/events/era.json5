@@ -1,6 +1,8 @@
 // Era pool (M33; GDD App. A; §9 "era transitions raise event"). Milestone
 // events tied to real tech-tree/kingdom progress rather than season/chance —
 // `hasTech` ties directly into M32's research layer.
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.era.first-tech",
@@ -11,13 +13,13 @@
     "weight": 1,
     "once": true,
     "text": {
-      "title": "A New Age of Learning",
-      "body": "The realm's first true innovation spreads through the villages.",
+      "title": "event.era.first-tech.title",
+      "body": "event.era.first-tech.body",
     },
     "choices": [
       {
         "id": "celebrate",
-        "text": "Declare a day of celebration",
+        "text": "event.era.first-tech.choice.celebrate",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 5 } }],
         "aiScoreHints": { "tech": 0.6 },
       },
@@ -33,13 +35,13 @@
     "weight": 1,
     "once": true,
     "text": {
-      "title": "An Age of Prosperity",
-      "body": "The treasury swells beyond anything the realm has seen before.",
+      "title": "event.era.prosperity.title",
+      "body": "event.era.prosperity.body",
     },
     "choices": [
       {
         "id": "public-works",
-        "text": "Fund public works",
+        "text": "event.era.prosperity.choice.public-works",
         "requirements": { "stat": "kingdom.treasury", "gte": 50 },
         "effects": [
           { "modifier": { "stat": "kingdom.treasury", "op": "add", "value": -50 } },
@@ -49,7 +51,7 @@
       },
       {
         "id": "hoard",
-        "text": "Hoard the surplus",
+        "text": "event.era.prosperity.choice.hoard",
         "effects": [],
         "aiScoreHints": { "riskTolerance": 0.5 },
       },
@@ -65,13 +67,13 @@
     "weight": 1,
     "once": true,
     "text": {
-      "title": "A Village Come of Age",
-      "body": "The settlement has grown into a true village, with all the standing that implies.",
+      "title": "event.era.tercentenary.title",
+      "body": "event.era.tercentenary.body",
     },
     "choices": [
       {
         "id": "acknowledge",
-        "text": "Mark the occasion",
+        "text": "event.era.tercentenary.choice.acknowledge",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 4 } }],
         "aiScoreHints": { "expansion": 0.5 },
       },

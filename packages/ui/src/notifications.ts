@@ -73,6 +73,11 @@ export const NOTIFICATION_RULES: Readonly<Record<string, Rule>> = {
     severity: 'info',
     text: (d) => `A village rose to tier ${str(d['tier'])}`,
   },
+  'building.demolished': {
+    severity: 'info',
+    text: (d) => `Razed the ${shortId(d['def'])}`,
+    subject: (d) => str(d['building']),
+  },
   'kingdom.edictEnacted': {
     severity: 'info',
     text: (d) => `Edict enacted: ${shortId(d['edict'])}`,
@@ -80,6 +85,16 @@ export const NOTIFICATION_RULES: Readonly<Record<string, Rule>> = {
   'kingdom.edictRepealed': {
     severity: 'info',
     text: (d) => `Edict repealed: ${shortId(d['edict'])}`,
+  },
+  // ---- modding (M39; OQ-4): save↔installed mod-set reconciliation ----
+  'mods.reconciled': {
+    severity: 'attention',
+    text: (d) => str(d['summary']),
+  },
+  // ---- storage quota (roadmap M44; doc 11 §3/§4; Risk R6) ----
+  'storage.quotaTight': {
+    severity: 'attention',
+    text: (d) => str(d['summary']),
   },
 };
 
@@ -90,6 +105,7 @@ const REPEAT_THROTTLE_TICKS = 24 * 5; // same (type, subject) at most every 5 da
 export class NotificationQueue {
   private readonly log: Notification[] = [];
   private readonly lastShown = new Map<string, number>();
+  private readonly dismissed = new Set<number>(); // ids hidden from the toast view by the player
   private nextId = 1;
   private pauseRequested = false;
 
@@ -109,14 +125,23 @@ export class NotificationQueue {
       text: rule.text(data),
     };
     this.log.push(notification);
-    if (this.log.length > LOG_CAP) this.log.splice(0, this.log.length - LOG_CAP);
+    if (this.log.length > LOG_CAP) {
+      const removed = this.log.splice(0, this.log.length - LOG_CAP);
+      for (const n of removed) this.dismissed.delete(n.id); // don't leak ids for rolled-off entries
+    }
     if (rule.severity === 'urgent') this.pauseRequested = true;
     return notification;
   }
 
-  /** Newest-first toasts, capped for the screen. */
+  /** Player manually dismissed a toast (× button): hide it from `visible()`. The scrollback
+   * log (`all()`) keeps it — dismissing clears the on-screen toast, not the history. */
+  dismiss(id: number): void {
+    this.dismissed.add(id);
+  }
+
+  /** Newest-first toasts, capped for the screen; player-dismissed ones excluded. */
   visible(): readonly Notification[] {
-    return this.log.slice(-VISIBLE_CAP).reverse();
+    return this.log.filter((n) => !this.dismissed.has(n.id)).slice(-VISIBLE_CAP).reverse();
   }
 
   /** Full scrollback, newest first. */

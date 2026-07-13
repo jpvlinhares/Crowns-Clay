@@ -50,6 +50,14 @@ export class Camera2D {
     this.clampToWorld();
   }
 
+  /** Recentre on a world-pixel point (clamped to the map). Used to open the
+   * camera over the player's own village rather than the geometric map centre. */
+  centerOn(worldX: number, worldY: number): void {
+    this.x = worldX;
+    this.y = worldY;
+    this.clampToWorld();
+  }
+
   /** Pan by a screen-space delta (drag): world delta shrinks as zoom grows. */
   pan(dxScreen: number, dyScreen: number): void {
     this.x -= dxScreen / this.zoom;

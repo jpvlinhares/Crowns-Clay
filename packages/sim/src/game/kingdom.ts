@@ -192,6 +192,9 @@ export interface KingdomGameplayOptions {
    * bounded reading of "yields" that needed no changes to the shared, single `StatModifiers`
    * board (M22's own scoping note: that board is bound to kingdom 0 only). */
   readonly difficultyYieldOf?: (kingdomId: EntityId) => number;
+  /** GDD §17 (roadmap M40): gates `sandbox.*` privileged commands. Defaults false — opt-in at
+   * world creation, the same reasoning villages.ts's own `sandboxEnabled` param documents. */
+  readonly sandboxEnabled?: boolean;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -211,6 +214,7 @@ export function registerKingdomGameplay(
   const index = (id: number): number => id & 0x3fffff;
   const kingdomCount = options.kingdomCount ?? 1;
   const difficultyYieldOf = options.difficultyYieldOf ?? (() => 1);
+  const sandboxEnabled = options.sandboxEnabled ?? false;
   const VillageOwner: SoAComponent<{ kingdom: 'eid' }> | undefined =
     kingdomCount > 1 ? world.defineSoA('villageOwner', { kingdom: 'eid' }) : undefined;
 
@@ -382,6 +386,18 @@ export function registerKingdomGameplay(
     ctx.events.publish({ type: 'kingdom.appointed', tick: ctx.tick, data: { office, characterId: p.characterId } });
   });
 
+  // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
+  kernel.registerCommand<{ amount: number }>('sandbox.setTreasury', (ctx, p, command) => {
+    if (!sandboxEnabled) return reject(ctx, 'sandbox.setTreasury', 'sandbox mode is not enabled');
+    const kingdomId = kingdomForIssuer(command.issuer);
+    if (kingdomId === null) return reject(ctx, 'sandbox.setTreasury', 'no kingdom');
+    const amount = Number(p.amount);
+    if (!Number.isFinite(amount) || amount < 0) return reject(ctx, 'sandbox.setTreasury', 'amount must be a non-negative number');
+    const ki = index(kingdomId as number);
+    world.write(Kingdom).treasury[ki] = amount;
+    ctx.events.publish({ type: 'sandbox.treasurySet', tick: ctx.tick, data: { kingdom: kingdomId as number, amount } });
+  });
+
   // ---------------- daily roll-up (doc 08 slot 12) ----------------
   const rollup: SimSystem = {
     name: 'kingdom-rollup',
@@ -426,6 +442,14 @@ export function registerKingdomGameplay(
       for (const kingdomId of kingdomIds) {
         const ki = index(kingdomId as number);
         let taxes = 0;
+        // M42 legibility: every entry recorded THIS rollup, for the Kingdom panel's itemized
+        // ledger view (GDD §2: "Read the Ledger: full income/expense breakdown") — a small
+        // per-kingdom-per-day slice of `ledger`, not the whole unbounded log.
+        const ledgerDelta: LedgerEntry[] = [];
+        const record = (entry: LedgerEntry): void => {
+          ledger.record(entry);
+          ledgerDelta.push(entry);
+        };
         const taxYield = mods.mul('kingdom.taxYield') * difficultyYieldOf(kingdomId);
         world.query([Population, VillageCore]).forEach((vi) => {
           if (ownerOf !== null && (ownerOf.kingdom[vi] as number) !== (kingdomId as number)) return;
@@ -436,7 +460,7 @@ export function registerKingdomGameplay(
           if (take > 0) {
             k.treasury[ki] = (k.treasury[ki] as number) + take;
             taxes += take;
-            ledger.record({ tick: ctx.tick, kind: 'tax', amount: take, detail: names.tryGet(vi) ?? `village ${vi}` });
+            record({ tick: ctx.tick, kind: 'tax', amount: take, detail: names.tryGet(vi) ?? `village ${vi}` });
           }
           // the tax-pressure curve: happiness drifts with the rate (bounded)
           pop.happiness[vi] = Math.max(0, Math.min(100, happiness + rate.happiness));
@@ -462,7 +486,7 @@ export function registerKingdomGameplay(
             }
             k.treasury[ki] = (k.treasury[ki] as number) - cost;
             upkeepTotal += cost;
-            ledger.record({ tick: ctx.tick, kind: 'edict-upkeep', amount: -cost, detail: def.id });
+            record({ tick: ctx.tick, kind: 'edict-upkeep', amount: -cost, detail: def.id });
           }
           rebuildModifiers(); // lapses (and steward death below) change the board
         }
@@ -478,18 +502,23 @@ export function registerKingdomGameplay(
           }
           k.treasury[ki] = (k.treasury[ki] as number) - ADVISOR_SALARY;
           salaries += ADVISOR_SALARY;
-          ledger.record({ tick: ctx.tick, kind: 'advisor-salary', amount: -ADVISOR_SALARY, detail: office });
+          record({ tick: ctx.tick, kind: 'advisor-salary', amount: -ADVISOR_SALARY, detail: office });
         }
 
         ctx.events.publish({
           type: 'kingdom.rollup',
           tick: ctx.tick,
           data: {
+            // M47.6: which kingdom this roll-up belongs to (0 = player), so a multi-kingdom
+            // client can filter its HUD to its own treasury instead of showing whichever
+            // kingdom happened to roll up last. Additive — single-kingdom readers unchanged.
+            kingdomIndex: kingdomIds.indexOf(kingdomId),
             treasury: k.treasury[ki] as number,
             taxes,
             upkeep: upkeepTotal,
             salaries,
             net: taxes - upkeepTotal - salaries,
+            ledger: ledgerDelta,
           },
         });
       }

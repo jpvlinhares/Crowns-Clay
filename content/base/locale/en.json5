@@ -1,0 +1,118 @@
+// Base English locale table (roadmap M44; doc 10 §6; doc 06 "LocalizedText").
+// Flat key -> template map, loaded via @crowns/data's loadLocaleTable and
+// resolved through @crowns/core's Locale — NOT a def kind, so it skips the
+// id-based mod-merge pipeline entirely (see packages/data/src/locale.ts).
+// Keys mirror the content path that owns them: event.<pool>.<slug>.title /
+// .body / .choice.<choiceId>.
+{
+  "event.opportunity.traveling-merchant.title": "Traveling Merchant",
+  "event.opportunity.traveling-merchant.body": "A merchant caravan passes through, offering goods at a fair price.",
+  "event.opportunity.traveling-merchant.choice.buy-tools": "Trade wood for tools",
+  "event.opportunity.traveling-merchant.choice.decline": "Decline — keep the wood for building",
+
+  "event.opportunity.bountiful-harvest.title": "Bountiful Harvest",
+  "event.opportunity.bountiful-harvest.body": "The fields yield more than expected. Store the surplus or celebrate it.",
+  "event.opportunity.bountiful-harvest.choice.store": "Store the surplus grain",
+  "event.opportunity.bountiful-harvest.choice.feast": "Hold a feast to celebrate",
+
+  "event.opportunity.wandering-scholar.title": "Wandering Scholar",
+  "event.opportunity.wandering-scholar.body": "A learned traveler offers to share texts, for a price.",
+  "event.opportunity.wandering-scholar.choice.pay": "Pay for their knowledge",
+  "event.opportunity.wandering-scholar.choice.turn-away": "Turn them away",
+
+  "event.character.advisor-dispute.title": "Advisor Dispute",
+  "event.character.advisor-dispute.body": "Two of the court's advisors clash publicly over policy.",
+  "event.character.advisor-dispute.choice.mediate": "Mediate personally",
+  "event.character.advisor-dispute.choice.ignore": "Let them settle it themselves",
+
+  "event.character.local-hero.title": "A Local Hero",
+  "event.character.local-hero.body": "A villager's quiet acts of generosity have become the talk of the realm.",
+  "event.character.local-hero.choice.honor": "Honor them publicly",
+
+  "event.character.retirement.title": "Advisor Retirement",
+  "event.character.retirement.body": "One of the court's advisors asks to step down while still in good health.",
+  "event.character.retirement.choice.grant-pension": "Grant a modest pension",
+  "event.character.retirement.choice.accept": "Accept the retirement plainly",
+
+  "event.diplomatic.border-incident.title": "Border Incident",
+  "event.diplomatic.border-incident.body": "Herders from a neighbouring realm are caught grazing on disputed land.",
+  "event.diplomatic.border-incident.choice.apologize": "Apologize and let it go",
+  "event.diplomatic.border-incident.choice.expel": "Expel them by force",
+
+  "event.diplomatic.royal-envoy.title": "Royal Envoy",
+  "event.diplomatic.royal-envoy.body": "A neighbouring court sends an envoy bearing gifts and good will.",
+  "event.diplomatic.royal-envoy.choice.welcome": "Welcome them warmly",
+  "event.diplomatic.royal-envoy.choice.cool-reception": "Receive them coolly",
+
+  "event.diplomatic.trade-dispute.title": "Trade Dispute",
+  "event.diplomatic.trade-dispute.body": "Neighbouring merchants complain the corvée levies are disrupting trade routes.",
+  "event.diplomatic.trade-dispute.choice.concede": "Hear their complaint out",
+  "event.diplomatic.trade-dispute.choice.dismiss": "Dismiss the complaint",
+
+  "event.disaster.blight.title": "Crop Blight",
+  "event.disaster.blight.body": "A fungal blight spreads through the fields. Grain stores will suffer either way.",
+  "event.disaster.blight.choice.endure": "Endure it — let the harvest take the loss",
+  "event.disaster.blight.choice.burn-fields": "Burn the affected fields before it spreads further",
+
+  "event.disaster.storm.title": "Winter Storm",
+  "event.disaster.storm.body": "A brutal storm batters the village. Roofs and stores alike take damage.",
+  "event.disaster.storm.choice.shelter": "Shelter in place and wait it out",
+  "event.disaster.storm.choice.spend-reserves": "Spend timber reserves shoring up the worst-hit homes",
+
+  "event.disaster.fire.title": "Workshop Fire",
+  "event.disaster.fire.body": "An unattended forge sets a workshop ablaze. Discontent makes accidents like this more common.",
+  "event.disaster.fire.choice.let-burn": "Let it burn out — not worth the risk fighting it",
+  "event.disaster.fire.choice.bucket-line": "Organise a bucket line to save what's left",
+
+  "event.era.first-tech.title": "A New Age of Learning",
+  "event.era.first-tech.body": "The realm's first true innovation spreads through the villages.",
+  "event.era.first-tech.choice.celebrate": "Declare a day of celebration",
+
+  "event.era.prosperity.title": "An Age of Prosperity",
+  "event.era.prosperity.body": "The treasury swells beyond anything the realm has seen before.",
+  "event.era.prosperity.choice.public-works": "Fund public works",
+  "event.era.prosperity.choice.hoard": "Hoard the surplus",
+
+  "event.era.tercentenary.title": "A Village Come of Age",
+  "event.era.tercentenary.body": "The settlement has grown into a true village, with all the standing that implies.",
+  "event.era.tercentenary.choice.acknowledge": "Mark the occasion",
+
+  "event.unrest.grumbling.title": "Grumbling in the Streets",
+  "event.unrest.grumbling.body": "Discontent is spreading. Something needs to give.",
+  "event.unrest.grumbling.choice.address": "Address grievances publicly",
+  "event.unrest.grumbling.choice.crackdown": "Crack down on troublemakers",
+
+  "event.unrest.strike.title": "Workers' Strike",
+  "event.unrest.strike.body": "Laborers refuse to work until conditions improve.",
+  "event.unrest.strike.choice.concede": "Concede to their demands",
+  "event.unrest.strike.choice.wait-out": "Wait it out",
+
+  "event.unrest.rumor-mongering.title": "Rumor Mongering",
+  "event.unrest.rumor-mongering.body": "Wild rumors about the kingdom's leadership circulate among the discontented.",
+  "event.unrest.rumor-mongering.choice.counter": "Counter the rumors openly",
+  "event.unrest.rumor-mongering.choice.ignore": "Ignore it — it'll pass",
+
+  "event.tutorial.welcome.title": "A Word From Your Steward",
+  "event.tutorial.welcome.body": "\"Welcome, my liege. Firstholm is founded, but a village is not yet a kingdom. Open the Village and Build panels — grow your population, keep them fed, and the rest follows. I'll check in as things develop.\"",
+  "event.tutorial.welcome.choice.ack": "Lead on, Steward.",
+
+  "event.tutorial.economy.title": "The Granaries Are Full",
+  "event.tutorial.economy.body": "\"Well fed and growing — your farms are earning their keep. Once wood and stone flow steadily too, look to the Build panel's production chains: sawmills and workshops turn raw goods into finished ones worth more.\"",
+  "event.tutorial.economy.choice.ack": "Noted.",
+
+  "event.tutorial.happiness.title": "On Contentment",
+  "event.tutorial.happiness.body": "\"Mind your people's joy, my liege — the Village panel shows it plainly. A happy village pays more tax and grows faster; let happiness sink and both curdle. Hover any number you don't trust; I've made sure it explains itself.\"",
+  "event.tutorial.happiness.choice.ack": "I'll keep watch.",
+
+  "event.tutorial.tax.title": "The Weight of the Crown's Due",
+  "event.tutorial.tax.body": "\"The tax rate in the Village panel is your sharpest lever — and your riskiest. Raise it and the treasury swells today, but joy bleeds daily, and a punitive rate eventually taxes itself into poverty. Moderation compounds; greed doesn't.\"",
+  "event.tutorial.tax.choice.ack": "A fair warning.",
+
+  "event.tutorial.edicts.title": "Edicts of the Realm",
+  "event.tutorial.edicts.body": "\"The treasury can bear an edict now, if you'd enact one from the Kingdom panel — each is a standing bonus with a daily upkeep, plain in its ledger line. Hover one to see exactly what it changes; nothing in this court hides its numbers.\"",
+  "event.tutorial.edicts.choice.ack": "Show me the ledger.",
+
+  "event.tutorial.complete.title": "A Kingdom, Not Just a Village",
+  "event.tutorial.complete.body": "\"Tier two, my liege — fed, sheltered, and built up on your own judgment. That's a stable, growing kingdom by any Steward's reckoning. Everything from here is the same craft at a larger scale. Well governed.\"",
+  "event.tutorial.complete.choice.ack": "Onward.",
+}

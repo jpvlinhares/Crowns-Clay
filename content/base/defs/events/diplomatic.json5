@@ -2,6 +2,8 @@
 // between this event's kingdom and every OTHER kingdom it has contact with
 // (an optional hook, game/events.ts; inert — no-op — without one wired, same
 // pattern M23/M30/M31/M32 use for their own optional cross-module context).
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.diplomatic.border-incident",
@@ -12,19 +14,19 @@
     "weight": 2,
     "cooldownDays": 60,
     "text": {
-      "title": "Border Incident",
-      "body": "Herders from a neighbouring realm are caught grazing on disputed land.",
+      "title": "event.diplomatic.border-incident.title",
+      "body": "event.diplomatic.border-incident.body",
     },
     "choices": [
       {
         "id": "apologize",
-        "text": "Apologize and let it go",
+        "text": "event.diplomatic.border-incident.choice.apologize",
         "effects": [{ "opinionChange": { "delta": 5 } }],
         "aiScoreHints": { "diplomacyTrust": 0.6 },
       },
       {
         "id": "expel",
-        "text": "Expel them by force",
+        "text": "event.diplomatic.border-incident.choice.expel",
         "effects": [{ "opinionChange": { "delta": -10 } }],
         "aiScoreHints": { "aggression": 0.5 },
       },
@@ -40,13 +42,13 @@
     "weight": 2,
     "cooldownDays": 90,
     "text": {
-      "title": "Royal Envoy",
-      "body": "A neighbouring court sends an envoy bearing gifts and good will.",
+      "title": "event.diplomatic.royal-envoy.title",
+      "body": "event.diplomatic.royal-envoy.body",
     },
     "choices": [
       {
         "id": "welcome",
-        "text": "Welcome them warmly",
+        "text": "event.diplomatic.royal-envoy.choice.welcome",
         "effects": [
           { "opinionChange": { "delta": 8 } },
           { "modifier": { "stat": "village.happiness", "op": "add", "value": 2 } },
@@ -55,7 +57,7 @@
       },
       {
         "id": "cool-reception",
-        "text": "Receive them coolly",
+        "text": "event.diplomatic.royal-envoy.choice.cool-reception",
         "effects": [{ "opinionChange": { "delta": -2 } }],
         "aiScoreHints": { "riskTolerance": 0.3 },
       },
@@ -71,19 +73,19 @@
     "weight": 1,
     "cooldownDays": 90,
     "text": {
-      "title": "Trade Dispute",
-      "body": "Neighbouring merchants complain the corvée levies are disrupting trade routes.",
+      "title": "event.diplomatic.trade-dispute.title",
+      "body": "event.diplomatic.trade-dispute.body",
     },
     "choices": [
       {
         "id": "concede",
-        "text": "Hear their complaint out",
+        "text": "event.diplomatic.trade-dispute.choice.concede",
         "effects": [{ "opinionChange": { "delta": 3 } }],
         "aiScoreHints": { "diplomacyTrust": 0.5 },
       },
       {
         "id": "dismiss",
-        "text": "Dismiss the complaint",
+        "text": "event.diplomatic.trade-dispute.choice.dismiss",
         "effects": [{ "opinionChange": { "delta": -5 } }],
         "aiScoreHints": { "economy": 0.4 },
       },

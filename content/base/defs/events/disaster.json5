@@ -2,6 +2,8 @@
 // events — a real cost either way, never a free pass, matching the "events
 // nudge, never puppeteer" principle (choices apply through the same
 // grant/remove/modifier/opinion/command channels every other system uses).
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.disaster.blight",
@@ -12,19 +14,19 @@
     "weight": 3,
     "cooldownDays": 90,
     "text": {
-      "title": "Crop Blight",
-      "body": "A fungal blight spreads through the fields. Grain stores will suffer either way.",
+      "title": "event.disaster.blight.title",
+      "body": "event.disaster.blight.body",
     },
     "choices": [
       {
         "id": "endure",
-        "text": "Endure it — let the harvest take the loss",
+        "text": "event.disaster.blight.choice.endure",
         "effects": [{ "removeResource": { "resource": "base:resource.food", "amount": 20 } }],
         "aiScoreHints": { "riskTolerance": 0.6 },
       },
       {
         "id": "burn-fields",
-        "text": "Burn the affected fields before it spreads further",
+        "text": "event.disaster.blight.choice.burn-fields",
         "effects": [
           { "removeResource": { "resource": "base:resource.food", "amount": 10 } },
           { "modifier": { "stat": "village.happiness", "op": "add", "value": -3 } },
@@ -43,19 +45,19 @@
     "weight": 3,
     "cooldownDays": 60,
     "text": {
-      "title": "Winter Storm",
-      "body": "A brutal storm batters the village. Roofs and stores alike take damage.",
+      "title": "event.disaster.storm.title",
+      "body": "event.disaster.storm.body",
     },
     "choices": [
       {
         "id": "shelter",
-        "text": "Shelter in place and wait it out",
+        "text": "event.disaster.storm.choice.shelter",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": -5 } }],
         "aiScoreHints": { "riskTolerance": 0.3 },
       },
       {
         "id": "spend-reserves",
-        "text": "Spend timber reserves shoring up the worst-hit homes",
+        "text": "event.disaster.storm.choice.spend-reserves",
         "effects": [{ "removeResource": { "resource": "base:resource.wood", "amount": 30 } }],
         "aiScoreHints": { "economy": 0.6 },
       },
@@ -71,19 +73,19 @@
     "weight": 2,
     "cooldownDays": 120,
     "text": {
-      "title": "Workshop Fire",
-      "body": "An unattended forge sets a workshop ablaze. Discontent makes accidents like this more common.",
+      "title": "event.disaster.fire.title",
+      "body": "event.disaster.fire.body",
     },
     "choices": [
       {
         "id": "let-burn",
-        "text": "Let it burn out — not worth the risk fighting it",
+        "text": "event.disaster.fire.choice.let-burn",
         "effects": [{ "removeResource": { "resource": "base:resource.tools", "amount": 15 } }],
         "aiScoreHints": { "riskTolerance": 0.7 },
       },
       {
         "id": "bucket-line",
-        "text": "Organise a bucket line to save what's left",
+        "text": "event.disaster.fire.choice.bucket-line",
         "effects": [
           { "removeResource": { "resource": "base:resource.tools", "amount": 5 } },
           { "modifier": { "stat": "village.happiness", "op": "add", "value": 2 } },

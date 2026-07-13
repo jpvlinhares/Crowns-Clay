@@ -4,7 +4,10 @@
  * here is forward-compatible (they are additive fields).
  */
 
-export const MAP_TILES = { small: 256, medium: 384, large: 512 } as const;
+/** `stress` (M47; doc 11 §1's "Map size (Large) | 512×512 | stress 768×768" row) is not a
+ * player-selectable size — no world-creation UI exists to offer it — it exists purely so the
+ * worldgen stress ceiling has a real size to generate against (bench-worldgen.js). */
+export const MAP_TILES = { small: 256, medium: 384, large: 512, stress: 768 } as const;
 export type MapSize = keyof typeof MAP_TILES;
 
 export type LandmassStyle = 'continent' | 'archipelago' | 'highlands';
@@ -24,6 +27,7 @@ export const DEFAULT_PARAMS: { [S in MapSize]: WorldGenParams } = {
   small: { size: 'small', landmass: 'continent', seaLevel: 0.34, riverCount: 6, climateHarshness: 0.5 },
   medium: { size: 'medium', landmass: 'continent', seaLevel: 0.34, riverCount: 10, climateHarshness: 0.5 },
   large: { size: 'large', landmass: 'continent', seaLevel: 0.34, riverCount: 16, climateHarshness: 0.5 },
+  stress: { size: 'stress', landmass: 'continent', seaLevel: 0.34, riverCount: 24, climateHarshness: 0.5 },
 };
 
 /** Biome codes (u8). M8 binds these to data-driven TerrainDefs (doc 06 §9). */

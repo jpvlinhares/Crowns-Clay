@@ -126,6 +126,19 @@ Army(state) { id, kingdomId, name, commanderId?: Id<Character>,
 // ECS entity — combat has no state of its own beyond which two armies are
 // fighting and how many ticks have elapsed. Front/flank/reserve lines,
 // formation orders, and equipmentTier/experience/training stay inert.
+//
+// M45 delta (content/base/defs/units/core.json5, techs/warfare.json5): the roster completes
+// GDD §6's full 10-unit list — swordsman, crossbowman, knight, ram, and trebuchet added
+// alongside the original 5 (militia/spearman/archer/cavalry/catapult). Each new unit is gated
+// by a warfare tech that previously had an empty `unlocks` (Barracks Discipline, Siege Basics,
+// Tower Emplacements, Combined Arms); "Trebuchet Engineering" — which oddly only ever unlocked
+// the catapult — now also unlocks the trebuchet its name always implied. All five slot into the
+// EXISTING `class`/`counters` shape with zero code changes: `game/siege.ts`'s bombard bonus
+// already keys off `unitDef.class === 'siege'` generically, not a hardcoded catapult id, so ram
+// and trebuchet get siege behaviour for free. Still deliberately NOT built: the dedicated
+// archery-range/stables/siege-workshop buildings GDD §6 names — every unit still recruits at the
+// barracks, extending the SAME "v1 simplification" the original catapult's own comment already
+// flagged (M29), not a new gap this milestone introduced.
 ```
 
 ## §4. Village (state)
@@ -273,7 +286,11 @@ doc 07 §9's exact roster), content not code, validated at load like every other
 (`personalityValidator`, unique-id integrity check only — `planBiases` keys are `PlanArchetype`
 ids, a sim-layer concept `@crowns/data` doesn't see, same reasoning as event `command` effects).
 `favoredVictory` stays freeform tags (no `VictoryType` enum exists until M37) and
-`taunts`/`voiceSet` drop `LocalizedText` for flat strings (no locale system until M44) — both
+`taunts`/`voiceSet` drop `LocalizedText` for flat strings — the locale system landed at M44
+(`@crowns/core`'s `Locale`/`LocalizedText`, content/base/locale/en.json5), but `taunts`/`voiceSet`
+stay flat strings a milestone longer still: neither is rendered in any UI yet, so there's no real
+consumer to validate the key shape against (EventDef.text got converted at M44 precisely because
+it WAS already live, doc 06 §9/§13) — both
 the "ship the real shape once its dependency lands" pattern M32/M33 used. ai/personality.ts is
 the ONLY place this content touches AI behaviour: `perturbWeights` adds small seeded per-
 campaign jitter (doc 07 §9: "so two Warmongers differ"); `toPlannerWeights`/
@@ -410,7 +427,10 @@ EffectExpr = grant/remove resource | Modifier | spawn | opinionChange | startEve
 
 **M33 delta (packages/data/src/events.ts, game/events.ts):** ships 18 base events (3 per
 pool × 6 pools) — `EventDef.text` drops `LocalizedText` for a flat `{title, body}` pair (no
-locale system yet); `EffectExpr` implements grant/remove resource, an immediate one-time
+locale system yet; **M44 delta:** converted to real `LocalizedText` keys once the locale system
+landed — `text.title`/`text.body`/choice `text` are all locale keys now, resolved server-side
+in `packages/app/src/simPort.ts`'s catalog projection against `content/base/locale/en.json5`
+before the client ever sees them, doc 06 §13); `EffectExpr` implements grant/remove resource, an immediate one-time
 `modifier` nudge (targets the SAME closed `STAT_PATHS` vocabulary triggers read — `village.
 happiness`, `village.foodSecurity`, `village.tier`, `kingdom.treasury` — applied directly, NOT
 a persistent `StatModifiers` entry; a real timed-buff/expiry system is future work), `opinionChange`

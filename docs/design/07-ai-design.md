@@ -407,6 +407,34 @@ cheat, is the advantage.
   war frequency bands, and per-personality behavioural fingerprints (e.g., Warmonger initiates ≥2×
   wars of Builder) — regression-testing *character*, not just correctness.
 
+**M47.6 delta (doc 12 R1):** `composeMultiKingdom` is a THIN WRAPPER over the unified campaign
+composition (`packages/sim/src/campaign.ts`) now — the harness's flat terrain, historical stock,
+and inert victory tracker are pinned wrapper options, while the LIVE GAME composes the same
+function over real worldgen with content personalities, all five victory tracks, difficulty, and
+save/load. The M47.5 audit's "harness-only AI" finding is structurally closed: there is one
+composition, and the golden scenario `campaign-demo` + the AI harness tests both pin it.
+
+**M47.8 delta (doc 12 R1):** the M47.6 leftovers land, each campaign-default and wrapper-opt-out
+(the M22-M46 harness tests stay pinned to their recorded conditions):
+- **Multi-village AI** — every fog/war/discovery surface ranges over ALL of a kingdom's villages
+  via a plain event-maintained ownership index (guard-safe from any scope); settler-founded
+  villages inherit their source's banner (`SettlerGameplay.setFoundingOwner`, using kingdom.ts's
+  mutable-access-extension precedent).
+- **Beliefs consumed (§6, finally):** each AI kingdom carries a `KnowledgeModel` over rival
+  `armyStrength` — refreshed on CURRENT proximity contact, confidence-decaying otherwise, read
+  through `believedValue`'s deterministic noise. Stale beliefs now cause honest AI mistakes.
+- **Memory consumed (§7, finally):** `PunitiveRaid` is a real archetype scoring the heaviest
+  decayed grudge (`strongestGrudge`, normalised against the unprovoked-war memory weight), and
+  the military manager marches on the grudge-holder, not merely the nearest target.
+- **Occupation** (`game/occupation.ts`): an at-war army holding an UNDEFENDED non-castle village
+  for 5 consecutive days takes it — the conquest path plain villages never had (sieges remain
+  castles-only). Countdown state is hashed and saved like every relational class.
+- **Industry chain** (`industryNeed`, ai/needs.ts): the construction manager raises
+  wood→planks→tools itself; the 300-tool genesis warchest shrank to a 25-tool starter kit.
+- **Food-first jobs solver** (population.ts): the M46 Builder-starvation root fixed — food
+  production staffs before other production (haulers before food, so harvests actually reach
+  the stockpile — the first fix attempt starved the carts and the test caught it).
+
 **M24 scoping note:** ships as `packages/sim/src/ai/multiKingdom.test.ts` — a `.test.ts` file that
 runs on every `npm test`, not a new scheduled workflow. "Nightly" stays the testing-*tier* concept
 TDD §13's table already names (distinct from per-PR tiers); no `.github/workflows` cron exists in

@@ -10,11 +10,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DefinitionDatabase, BASE_CONTENT_FILES } from '@crowns/data';
+import { DefinitionDatabase, BASE_CONTENT_FILES, type ModManifestEntry } from '@crowns/data';
 import { Kernel } from './kernel.js';
 import { World } from './ecs.js';
 import { TICKS_PER_DAY } from './time.js';
-import { SaveManager, kernelSection, worldSection } from './persistence.js';
+import { SaveManager, kernelSection, worldSection, reconcileModManifest, modReconciliationHasFindings } from './persistence.js';
 import { registerVillageGameplay, type TerrainAccessor } from './game/villages.js';
 import { registerPopulationGameplay } from './game/population.js';
 import { registerEconomyGameplay } from './game/economy.js';
@@ -200,4 +200,52 @@ test('guards: wrong seed, wrong format, and missing sections refuse loudly', () 
   const missing = JSON.parse(JSON.stringify(save)) as typeof save;
   delete missing.sections['roads'];
   assert.throws(() => loaded.saves.hydrate(missing), /missing section 'roads'/);
+});
+
+// ---------------- mod-set embedding & reconciliation (M39; OQ-4) ----------------
+
+test('SaveManager: the active mod set travels in the header, never blocking hydrate', () => {
+  const r = makeRealm();
+  const manifest: ModManifestEntry[] = [{ modId: 'base', version: '0.1.0', hash: 123 }];
+  r.saves.setModManifest(manifest);
+  const save = r.saves.snapshot();
+  assert.deepEqual(save.header.modManifest, manifest);
+  assert.deepEqual(r.saves.getModManifest(), manifest);
+
+  // hydrating a session whose installed manifest DIFFERS from the save's still succeeds —
+  // reconciliation is a separate, informational step (OQ-4: best-effort, never blocking)
+  const loaded = makeRealm();
+  loaded.saves.setModManifest([{ modId: 'base', version: '9.9.9', hash: 999 }]);
+  assert.doesNotThrow(() => loaded.saves.hydrate(save));
+});
+
+test('reconcileModManifest: missing, added, version-changed, content-changed, and the clean case', () => {
+  const a: ModManifestEntry = { modId: 'a', version: '1.0.0', hash: 111 };
+  const b: ModManifestEntry = { modId: 'b', version: '1.0.0', hash: 222 };
+
+  const clean = reconcileModManifest([a, b], [a, b]);
+  assert.deepEqual(clean, { missing: [], added: [], versionChanged: [], contentChanged: [] });
+  assert.equal(modReconciliationHasFindings(clean), false);
+
+  const bGone = reconcileModManifest([a, b], [a]);
+  assert.deepEqual(bGone.missing, [b]);
+  assert.equal(modReconciliationHasFindings(bGone), true);
+
+  const cAdded: ModManifestEntry = { modId: 'c', version: '1.0.0', hash: 333 };
+  const added = reconcileModManifest([a], [a, cAdded]);
+  assert.deepEqual(added.added, [cAdded]);
+  assert.equal(modReconciliationHasFindings(added), false, 'a purely-additional mod is not a finding');
+
+  const bBumped: ModManifestEntry = { modId: 'b', version: '2.0.0', hash: 222 };
+  const versionChanged = reconcileModManifest([a, b], [a, bBumped]);
+  assert.deepEqual(versionChanged.versionChanged, [{ saved: b, installed: bBumped }]);
+
+  const bRebalanced: ModManifestEntry = { modId: 'b', version: '1.0.0', hash: 999 };
+  const contentChanged = reconcileModManifest([a, b], [a, bRebalanced]);
+  assert.deepEqual(contentChanged.contentChanged, [{ saved: b, installed: bRebalanced }]);
+
+  // pre-M39 saves have no modManifest at all — treated as empty, never crashes
+  const noBaseline = reconcileModManifest(undefined, [a, b]);
+  assert.deepEqual(noBaseline, { missing: [], added: [a, b], versionChanged: [], contentChanged: [] });
+  assert.equal(modReconciliationHasFindings(noBaseline), false);
 });

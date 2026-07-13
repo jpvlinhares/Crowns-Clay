@@ -1,5 +1,7 @@
 // Opportunity pool (M33; GDD App. A) — good-news events with a real trade-off,
 // so "always pick the biggest number" isn't a free strategy either.
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
 [
   {
     "id": "base:event.opportunity.traveling-merchant",
@@ -10,13 +12,13 @@
     "weight": 3,
     "cooldownDays": 45,
     "text": {
-      "title": "Traveling Merchant",
-      "body": "A merchant caravan passes through, offering goods at a fair price.",
+      "title": "event.opportunity.traveling-merchant.title",
+      "body": "event.opportunity.traveling-merchant.body",
     },
     "choices": [
       {
         "id": "buy-tools",
-        "text": "Trade wood for tools",
+        "text": "event.opportunity.traveling-merchant.choice.buy-tools",
         "requirements": { "stat": "village.foodSecurity", "gte": 0 },
         "effects": [
           { "removeResource": { "resource": "base:resource.wood", "amount": 20 } },
@@ -26,7 +28,7 @@
       },
       {
         "id": "decline",
-        "text": "Decline — keep the wood for building",
+        "text": "event.opportunity.traveling-merchant.choice.decline",
         "effects": [],
         "aiScoreHints": { "riskTolerance": 0.3 },
       },
@@ -42,19 +44,19 @@
     "weight": 2,
     "cooldownDays": 90,
     "text": {
-      "title": "Bountiful Harvest",
-      "body": "The fields yield more than expected. Store the surplus or celebrate it.",
+      "title": "event.opportunity.bountiful-harvest.title",
+      "body": "event.opportunity.bountiful-harvest.body",
     },
     "choices": [
       {
         "id": "store",
-        "text": "Store the surplus grain",
+        "text": "event.opportunity.bountiful-harvest.choice.store",
         "effects": [{ "grantResource": { "resource": "base:resource.food", "amount": 25 } }],
         "aiScoreHints": { "riskTolerance": 0.6 },
       },
       {
         "id": "feast",
-        "text": "Hold a feast to celebrate",
+        "text": "event.opportunity.bountiful-harvest.choice.feast",
         "effects": [{ "modifier": { "stat": "village.happiness", "op": "add", "value": 8 } }],
         "aiScoreHints": { "economy": 0.3 },
       },
@@ -70,13 +72,13 @@
     "weight": 2,
     "cooldownDays": 120,
     "text": {
-      "title": "Wandering Scholar",
-      "body": "A learned traveler offers to share texts, for a price.",
+      "title": "event.opportunity.wandering-scholar.title",
+      "body": "event.opportunity.wandering-scholar.body",
     },
     "choices": [
       {
         "id": "pay",
-        "text": "Pay for their knowledge",
+        "text": "event.opportunity.wandering-scholar.choice.pay",
         "requirements": { "stat": "kingdom.treasury", "gte": 20 },
         "effects": [
           { "modifier": { "stat": "kingdom.treasury", "op": "add", "value": -20 } },
@@ -86,7 +88,7 @@
       },
       {
         "id": "turn-away",
-        "text": "Turn them away",
+        "text": "event.opportunity.wandering-scholar.choice.turn-away",
         "effects": [],
         "aiScoreHints": { "riskTolerance": 0.4 },
       },
