@@ -1,8 +1,8 @@
 /**
  * Events engine (roadmap M33; GDD Appendix A; doc 06 §11; doc 08 §10;
- * doc 09 §4). Daily, `opportunity`/`character`/`diplomatic`/`unrest`/`era`
- * pools are evaluated per kingdom; weekly, `disaster` alone (doc 08 §10's
- * exact split). Each event's `weight` is a per-evaluation FIRE PROBABILITY
+ * doc 09 §4). Daily, `opportunity`/`character`/`diplomatic`/`unrest`/`era`/
+ * `tutorial` (M43 — additive vocabulary, same engine, doc 09 §8) pools are
+ * evaluated per kingdom; weekly, `disaster` alone (doc 08 §10's exact split). Each event's `weight` is a per-evaluation FIRE PROBABILITY
  * (`weight * BASE_EVENT_RATE`, small on purpose — a weight of 3 is a few
  * times a season, not a few times a day), scaled by `weightModifiers` and the
  * PACING GOVERNOR (`pacingMultiplier`, the "pacing governor bands" T
@@ -40,7 +40,7 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
 // ---------------------------------------------------------------- constants
 
-const DAILY_POOLS: readonly EventPool[] = ['opportunity', 'character', 'diplomatic', 'unrest', 'era'];
+const DAILY_POOLS: readonly EventPool[] = ['opportunity', 'character', 'diplomatic', 'unrest', 'era', 'tutorial'];
 const WEEKLY_POOLS: readonly EventPool[] = ['disaster'];
 const TICKS_PER_WEEK = TICKS_PER_DAY * 7;
 
@@ -222,6 +222,34 @@ export class EventState {
       }
     }
   }
+
+  /** Plain-JSON-safe snapshot (roadmap M43 — the first composition to save/load this state). */
+  save(): EventStateSave {
+    return {
+      lastFired: [...this.lastFired.entries()],
+      onceFired: [...this.onceFired],
+      seasonCount: [...this.seasonCount.entries()],
+      pending: [...this.pending.entries()],
+    };
+  }
+
+  restore(data: EventStateSave): void {
+    this.lastFired.clear();
+    for (const [key, tick] of data.lastFired) this.lastFired.set(key, tick);
+    this.onceFired.clear();
+    for (const code of data.onceFired) this.onceFired.add(code);
+    this.seasonCount.clear();
+    for (const [kingdomId, count] of data.seasonCount) this.seasonCount.set(kingdomId, count);
+    this.pending.clear();
+    for (const [kingdomId, list] of data.pending) this.pending.set(kingdomId, list);
+  }
+}
+
+export interface EventStateSave {
+  readonly lastFired: readonly (readonly [string, number])[];
+  readonly onceFired: readonly number[];
+  readonly seasonCount: readonly (readonly [number, number])[];
+  readonly pending: readonly (readonly [number, PendingEvent[]])[];
 }
 
 // ---------------------------------------------------------------- registrar

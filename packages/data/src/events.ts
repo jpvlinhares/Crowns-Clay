@@ -27,9 +27,13 @@
  * needs the Character system (M34); `startEvent` needs an event-chaining
  * scheduler this milestone doesn't build.
  */
+import type { LocalizedText } from '@crowns/core';
 import { v, type Validator } from './validate.js';
 
-export const EVENT_POOLS = ['disaster', 'opportunity', 'character', 'diplomatic', 'unrest', 'era'] as const;
+// 'tutorial' (M43): additive vocabulary growth (doc 09 §4/§8 — "the vocabulary is additive"),
+// not scripting — same EventDef shape, same DSL, evaluated by the exact same engine. Real
+// EventDefs, tagged 'tutorial' (content/base/defs/events/tutorial.json5), advisor-voiced.
+export const EVENT_POOLS = ['disaster', 'opportunity', 'character', 'diplomatic', 'unrest', 'era', 'tutorial'] as const;
 export type EventPool = (typeof EVENT_POOLS)[number];
 
 export const EVENT_SCOPES = ['kingdom', 'village', 'world'] as const;
@@ -187,7 +191,9 @@ export const effectValidator: Validator<EffectExpr> = (value, path, errors, file
 
 export interface EventChoice {
   readonly id: string;
-  readonly text: string;
+  /** M44: a locale KEY (doc 06 "LocalizedText"), not raw display text — resolved via
+   * `@crowns/core`'s `Locale.resolve()` at render time. */
+  readonly text: LocalizedText;
   readonly requirements?: PredicateExpr;
   readonly effects: readonly EffectExpr[];
   /** AI personality-axis scores for this choice (doc 06 §11) — e.g. `{ economy: 0.8 }`. */
@@ -209,7 +215,8 @@ export interface EventDef {
   readonly weightModifiers?: readonly WeightModifier[];
   readonly cooldownDays?: number;
   readonly once?: boolean;
-  readonly text: { readonly title: string; readonly body: string };
+  /** M44: locale KEYS, not raw display text (doc 06 "LocalizedText", doc 10 §6). */
+  readonly text: { readonly title: LocalizedText; readonly body: LocalizedText };
   readonly choices: readonly EventChoice[];
   readonly tags: readonly string[];
 }
@@ -231,13 +238,13 @@ const weightModifierValidator: Validator<WeightModifier> = v.object({
 const choiceValidator: Validator<EventChoice> = v.object(
   {
     id: v.string({ minLength: 1 }),
-    text: v.string({ minLength: 1 }),
+    text: v.localeKey(),
     requirements: predicateValidator,
     effects: v.array(effectValidator),
     aiScoreHints: numericRecordValidator,
   },
   { optional: ['requirements', 'aiScoreHints'] },
-) as Validator<EventChoice>;
+) as unknown as Validator<EventChoice>;
 
 export const eventValidator: Validator<EventDef> = v.object(
   {
@@ -250,9 +257,9 @@ export const eventValidator: Validator<EventDef> = v.object(
     weightModifiers: v.array(weightModifierValidator),
     cooldownDays: v.number({ min: 0 }),
     once: v.boolean(),
-    text: v.object({ title: v.string({ minLength: 1 }), body: v.string({ minLength: 1 }) }),
+    text: v.object({ title: v.localeKey(), body: v.localeKey() }),
     choices: v.array(choiceValidator, { minItems: 1 }),
     tags: v.array(v.string({ minLength: 1 })),
   },
   { optional: ['weightModifiers', 'cooldownDays', 'once'] },
-) as Validator<EventDef>;
+) as unknown as Validator<EventDef>;

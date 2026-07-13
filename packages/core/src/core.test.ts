@@ -7,6 +7,7 @@ import { Interner, EntityAllocator, entityIndex, entityGeneration, type EntityId
 import { clamp, lerp, remap, gridIndex, inBounds } from './math.js';
 import { iterSortedNumeric, StableMap } from './ordered.js';
 import { invariant, InvariantViolation } from './invariant.js';
+import { Locale, localeKey, formatMessage } from './locale.js';
 
 // ---------------- PRNG: determinism ----------------
 
@@ -179,4 +180,28 @@ test('ordered iteration is key-sorted regardless of insertion order', () => {
 test('invariant throws typed violations', () => {
   invariant(true, 'fine');
   assert.throws(() => invariant(false, 'boom'), (e: unknown) => e instanceof InvariantViolation);
+});
+
+// ---------------- localization (roadmap M44) ----------------
+
+test('formatMessage: placeholder interpolation and the plural subset', () => {
+  assert.equal(formatMessage('Hello, {name}!', { name: 'Steward' }), 'Hello, Steward!');
+  assert.equal(formatMessage('No {missing} here', {}), 'No {missing} here', 'unresolved placeholder left visible');
+  assert.equal(formatMessage('{n, plural, one{# villager} other{# villagers}}', { n: 1 }), '1 villager');
+  assert.equal(formatMessage('{n, plural, one{# villager} other{# villagers}}', { n: 5 }), '5 villagers');
+  assert.equal(formatMessage('{n, plural, one{# villager} other{# villagers}}', { n: 0 }), '0 villagers');
+  assert.equal(
+    formatMessage('{n, plural, one{# villager} other{# villagers}}', {}),
+    '{n, plural, one{# villager} other{# villagers}}',
+    'a non-numeric/missing plural variable is left verbatim, never thrown',
+  );
+});
+
+test('Locale: resolves keys, formats params, and fails VISIBLE (not silent) on a missing key', () => {
+  const locale = new Locale({ 'ui.greeting': 'Hello, {name}!', 'ui.plain': 'Plain text' }, 'en');
+  assert.equal(locale.localeId(), 'en');
+  assert.equal(locale.resolve(localeKey('ui.greeting'), { name: 'Firstholm' }), 'Hello, Firstholm!');
+  assert.equal(locale.resolve(localeKey('ui.plain')), 'Plain text');
+  assert.ok(locale.has(localeKey('ui.plain')) && !locale.has(localeKey('ui.nope')));
+  assert.equal(locale.resolve(localeKey('ui.nope')), 'ui.nope', 'missing key resolves to the key itself, visibly');
 });

@@ -9,13 +9,26 @@
  * which is what "victory & defeat" as a system means; whether the real
  * economy organically reaches these states is a separate balance concern
  * (M46), not this milestone's.
+ *
+ * M46 delta: ran it for real (`packages/tools/src/bench-balance.ts`, a new
+ * multi-seed/multi-difficulty harness). The emergent economy DOES reach
+ * these states — every run found a real victory (usually Prosperity, well
+ * inside the year cap) — but the harness also surfaced a genuine, unrelated
+ * AI bug on the way there: unconditional daily military recruitment
+ * (ai/military.ts) drained population faster than farms could replace it,
+ * famine-collapsing every AI kingdom within 5 years regardless of whether a
+ * war ever happened. Fixed with two recruit-time gates (a food-surplus ratio
+ * and a hard population floor — see military.ts's own module comment for
+ * why two, not one). A SECOND, deeper population-sustainability issue
+ * survived the fix — see README's M46 section for what's known about it and
+ * why it's flagged as future work rather than patched here.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TICKS_PER_DAY, TICKS_PER_YEAR } from '../time.js';
 import { composeMultiKingdom, type MultiKingdomComposition } from '../ai/multiKingdomHarness.js';
-import { registerVictoryGameplay, DEFAULT_YEAR_LIMIT, type VictoryGameplay, type VictoryOptions } from './victory.js';
+import { DEFAULT_YEAR_LIMIT, type VictoryGameplay, type VictoryOptions } from './victory.js';
 
 const STARTING_POPULATION = { children: 10, adults: 30, elders: 5 };
 
@@ -26,12 +39,9 @@ function makeRealm(kingdomCount: number, options: VictoryOptions, mapSize = 135)
     mapSize,
     aiFromIndex: kingdomCount, // no AI at all — every state change in these tests is deliberate
     startingPopulation: STARTING_POPULATION,
+    victory: options, // M47.6: the composition owns the tracker now (campaign.ts)
   });
-  const victoryGame: VictoryGameplay = registerVictoryGameplay(
-    composed.kernel, composed.world, composed.db, composed.game, composed.popGame, composed.kingdomGame,
-    { diplomacy: composed.diplomacyGame, research: composed.researchGame },
-    options,
-  );
+  const victoryGame: VictoryGameplay = composed.victoryGame;
   composed.kernel.step(); // tick 1: genesis (kingdoms + villages founded)
 
   const kingdomIds = composed.kingdomGame.kingdomEntities().map((e) => e as number);
@@ -171,7 +181,7 @@ test('legacy: completing the Grand Wonder chain (3 distinct wonders) wins', () =
 // ---------------------------------------------------------------- prosperity
 
 test('prosperity: sustained realm-wide happiness for the required years wins', () => {
-  const r = makeRealm(1, { enabled: ['prosperity'], prosperityYears: 1, prosperityHappiness: 70 });
+  const r = makeRealm(1, { enabled: ['prosperity'], prosperityYears: 1, prosperityHappiness: 70, prosperityPopulation: 0 }); // population gate off — this test proves STREAK logic (the M47.8 gate has its own check below)
   const [a] = r.kingdomIds;
   const vi = r.villageOf(0);
   const daysPerYear = TICKS_PER_YEAR / TICKS_PER_DAY;
@@ -186,7 +196,7 @@ test('prosperity: sustained realm-wide happiness for the required years wins', (
 });
 
 test('prosperity: a happiness dip resets the streak', () => {
-  const r = makeRealm(1, { enabled: ['prosperity'], prosperityYears: 1, prosperityHappiness: 70 });
+  const r = makeRealm(1, { enabled: ['prosperity'], prosperityYears: 1, prosperityHappiness: 70, prosperityPopulation: 0 }); // population gate off — this test proves STREAK logic (the M47.8 gate has its own check below)
   const vi = r.villageOf(0);
   const halfYear = Math.floor((TICKS_PER_YEAR / TICKS_PER_DAY) / 2);
   r.world.write(r.popGame.Population).happiness[vi] = 80;

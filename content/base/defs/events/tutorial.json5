@@ -1,0 +1,144 @@
+// Tutorial pool (roadmap M43; GDD Appendix A; Vision SC-1 "30-min competence").
+// Advisor-driven onboarding, authored ENTIRELY as ordinary EventDefs — the
+// same trigger/choice/effect DSL every other pool uses, no engine scripting
+// (doc 09 §4/§8, OQ-3 closed DSL-only). The Steward — the office GDD §2
+// already ties to the realm's day-to-day economy — narrates throughout.
+//
+// Ordering is soft, not scripted: each step's trigger is built ONLY from the
+// existing closed vocabulary (season/stat/hasEdict/chance), chosen so the
+// steps naturally land in a sensible order as a real campaign unfolds —
+// "behaviour emerges from systems and state, never hard-coded story beats"
+// (Vision Philosophy #1) applies to the tutorial too, not just to "real"
+// events. The final step's trigger — reaching village tier 2 — IS the SC-1
+// "stable, growing kingdom" signal itself, not a stand-in for it.
+//
+// M44: text/choice text are locale KEYS (content/base/locale/en.json5), not
+// raw display strings — see doc 06 "LocalizedText".
+[
+  {
+    "id": "base:event.tutorial.welcome",
+    "name": "A Word From Your Steward",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "stat": "kingdom.treasury", "gte": 0 }, // true from the first day
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.welcome.title",
+      "body": "event.tutorial.welcome.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.welcome.choice.ack",
+        "effects": [{ "grantResource": { "resource": "base:resource.wood", "amount": 15 } }],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.economy",
+    "name": "The Granaries Are Full",
+    "pool": "tutorial",
+    "scope": "village",
+    "trigger": { "stat": "village.foodSecurity", "gte": 0.8 },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.economy.title",
+      "body": "event.tutorial.economy.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.economy.choice.ack",
+        "effects": [{ "grantResource": { "resource": "base:resource.stone", "amount": 15 } }],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.happiness",
+    "name": "On Contentment",
+    "pool": "tutorial",
+    "scope": "village",
+    "trigger": { "season": "summer" },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.happiness.title",
+      "body": "event.tutorial.happiness.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.happiness.choice.ack",
+        "effects": [],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.tax",
+    "name": "The Weight of the Crown's Due",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "season": "autumn" },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.tax.title",
+      "body": "event.tutorial.tax.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.tax.choice.ack",
+        "effects": [{ "grantResource": { "resource": "base:resource.food", "amount": 20 } }],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.edicts",
+    "name": "Edicts of the Realm",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "all": [{ "season": "winter" }, { "stat": "kingdom.treasury", "gte": 20 }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.edicts.title",
+      "body": "event.tutorial.edicts.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.edicts.choice.ack",
+        "effects": [],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.complete",
+    "name": "A Kingdom, Not Just a Village",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "stat": "village.tier", "gte": 2 },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.complete.title",
+      "body": "event.tutorial.complete.body",
+    },
+    "choices": [
+      {
+        "id": "ack",
+        "text": "event.tutorial.complete.choice.ack",
+        "effects": [{ "grantResource": { "resource": "base:resource.tools", "amount": 10 } }],
+      },
+    ],
+    "tags": ["tutorial"],
+  },
+]

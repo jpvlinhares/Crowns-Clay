@@ -18,8 +18,10 @@ import {
   type ReplayScenario,
   type ScheduledCommand,
 } from '@crowns/sim';
+import type { CampaignSettings } from '@crowns/protocol';
 import { composeWanderers } from './wanderers.js';
 import { composeTerra } from './terra.js';
+import { composeCampaignForApp } from './simPort.js';
 
 // ---------------------------------------------------------------- scenario 1
 
@@ -74,7 +76,34 @@ export const terraDemo: ReplayScenario = {
   },
 };
 
-export const scenarios: readonly ReplayScenario[] = [calendarBaseline, wanderers, terraDemo];
+// ---------------------------------------------------------------- scenario 4
+
+/** The new-game screen's default settings — pinned here so the golden scenario
+ * and the app's "Begin campaign" button compose the identical session (M47.6). */
+export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
+  mapSize: 'medium',
+  kingdomCount: 4,
+  difficulty: 'fair',
+};
+
+/**
+ * The UNIFIED campaign (M47.6; doc 12 revision R1): real worldgen, 4 kingdoms
+ * (player + 3 content-personality AI), the full economy/war/diplomacy/research/
+ * events/victory stack, composed through the exact same code path the browser
+ * worker uses (`composeCampaignForApp`). This golden pins the game the player
+ * actually plays — the M47.5 audit's central demand.
+ */
+export const campaignDemo: ReplayScenario = {
+  name: 'campaign-demo',
+  seed: 0xca47a1,
+  ticks: 3000,
+  hashEvery: 100,
+  build(): Kernel {
+    return composeCampaignForApp(this.seed, DEFAULT_CAMPAIGN_SETTINGS).kernel;
+  },
+};
+
+export const scenarios: readonly ReplayScenario[] = [calendarBaseline, wanderers, terraDemo, campaignDemo];
 
 export function scenarioByName(name: string): ReplayScenario | undefined {
   return scenarios.find((s) => s.name === name);

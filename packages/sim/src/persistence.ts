@@ -18,7 +18,8 @@
  * module produces and consumes plain JSON-safe objects.
  */
 import { invariant } from '@crowns/core';
-import { GAME_VERSION } from '@crowns/data';
+import { GAME_VERSION, type ModManifestEntry } from '@crowns/data';
+import type { CampaignSettings } from '@crowns/protocol';
 import type { Kernel } from './kernel.js';
 import type { World } from './ecs.js';
 
@@ -40,6 +41,21 @@ export interface CampaignSaveHeader {
   readonly gameVersion: string;
   readonly seed: number;
   readonly tick: number;
+  /** The mod set active when this save was written (doc 06 §13, doc 09 §5). */
+  readonly modManifest: readonly ModManifestEntry[];
+  /** GDD §17 sandbox mode (roadmap M40) — excludes this save from achievements/chronicle. */
+  readonly sandbox: boolean;
+  /** Chronicle-locking hard mode (doc 06 §13) — recorded, not yet enforced (doc 14 OQ-8). */
+  readonly ironman: boolean;
+  /** M47.6: new-game options (map size, kingdoms, difficulty, victory toggles). The load path
+   * recomposes the session FROM this before hydrating — the kernel's restoreState demands an
+   * identical composition. Absent on pre-M47.6 saves and terra-composition saves. */
+  readonly campaign?: CampaignSettings;
+}
+
+export interface SandboxFlags {
+  readonly sandbox: boolean;
+  readonly ironman: boolean;
 }
 
 export interface CampaignSave {
@@ -51,8 +67,39 @@ export class SaveManager {
   private readonly sections: SaveSection[] = [];
   private readonly migrations = new Map<string, Map<number, Migration>>();
   private readonly afterLoadHooks: (() => void)[] = [];
+  private modManifest: readonly ModManifestEntry[] = [];
+  private sandboxFlags: SandboxFlags = { sandbox: false, ironman: false };
+  private campaignSettings: CampaignSettings | undefined;
 
   constructor(private readonly kernel: Kernel) {}
+
+  /** The composition's active mod set (doc 09 §5) — embedded in every save from here on. */
+  setModManifest(manifest: readonly ModManifestEntry[]): void {
+    this.modManifest = manifest;
+  }
+
+  getModManifest(): readonly ModManifestEntry[] {
+    return this.modManifest;
+  }
+
+  /** GDD §17 (roadmap M40) — embedded in every save from here on. */
+  setSandboxFlags(flags: SandboxFlags): void {
+    this.sandboxFlags = flags;
+  }
+
+  getSandboxFlags(): SandboxFlags {
+    return this.sandboxFlags;
+  }
+
+  /** M47.6: the new-game options this session was composed from — round-tripped through the
+   * header so a load can recompose the identical session (the T objective, doc 12 R1). */
+  setCampaignSettings(settings: CampaignSettings): void {
+    this.campaignSettings = settings;
+  }
+
+  getCampaignSettings(): CampaignSettings | undefined {
+    return this.campaignSettings;
+  }
 
   register(section: SaveSection): void {
     invariant(!this.sections.some((s) => s.key === section.key), `duplicate save section '${section.key}'`);
@@ -83,6 +130,10 @@ export class SaveManager {
         gameVersion: GAME_VERSION,
         seed: this.kernel.seed,
         tick: this.kernel.currentTick,
+        modManifest: this.modManifest,
+        sandbox: this.sandboxFlags.sandbox,
+        ironman: this.sandboxFlags.ironman,
+        ...(this.campaignSettings !== undefined ? { campaign: this.campaignSettings } : {}),
       },
       sections,
     };
@@ -122,6 +173,50 @@ export class SaveManager {
     for (const hook of this.afterLoadHooks) hook();
     return report;
   }
+}
+
+// ---------------------------------------------------------------- mod reconciliation (OQ-4)
+
+export interface ModReconciliationReport {
+  /** In the save, not currently installed. */
+  readonly missing: readonly ModManifestEntry[];
+  /** Installed now, was not present in the save. */
+  readonly added: readonly ModManifestEntry[];
+  /** Same id, `version` differs. */
+  readonly versionChanged: readonly { readonly saved: ModManifestEntry; readonly installed: ModManifestEntry }[];
+  /** Same id and version, but content `hash` differs — a rebalance in place. */
+  readonly contentChanged: readonly { readonly saved: ModManifestEntry; readonly installed: ModManifestEntry }[];
+}
+
+/**
+ * Pure comparison of a save's embedded mod set against what's installed now
+ * (doc 09 §7, OQ-4 — ratified: best-effort load + report, never blocking here).
+ * `saved` may be `undefined` for pre-M39 saves (no modManifest in the header);
+ * treated as an empty set — every installed mod reports as `added`, nothing
+ * reports as `missing`/`changed`, since there's no baseline to compare against.
+ */
+export function reconcileModManifest(
+  saved: readonly ModManifestEntry[] | undefined,
+  installed: readonly ModManifestEntry[],
+): ModReconciliationReport {
+  const savedById = new Map((saved ?? []).map((m) => [m.modId, m]));
+  const installedById = new Map(installed.map((m) => [m.modId, m]));
+  const missing: ModManifestEntry[] = [];
+  const versionChanged: { saved: ModManifestEntry; installed: ModManifestEntry }[] = [];
+  const contentChanged: { saved: ModManifestEntry; installed: ModManifestEntry }[] = [];
+  for (const s of savedById.values()) {
+    const i = installedById.get(s.modId);
+    if (i === undefined) missing.push(s);
+    else if (i.version !== s.version) versionChanged.push({ saved: s, installed: i });
+    else if (i.hash !== s.hash) contentChanged.push({ saved: s, installed: i });
+  }
+  const added = [...installedById.values()].filter((i) => !savedById.has(i.modId));
+  return { missing, added, versionChanged, contentChanged };
+}
+
+/** True if a reconciliation report found anything worth telling the player about. */
+export function modReconciliationHasFindings(report: ModReconciliationReport): boolean {
+  return report.missing.length > 0 || report.versionChanged.length > 0 || report.contentChanged.length > 0;
 }
 
 // ---------------------------------------------------------------- stock sections

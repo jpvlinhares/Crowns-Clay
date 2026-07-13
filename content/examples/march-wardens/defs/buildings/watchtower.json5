@@ -1,0 +1,16 @@
+// New content (doc 03 "Buildings"): a frontier watchtower, placeable on open
+// ground, garrisoning defenders without training them.
+[
+  {
+    "id": "frontier:building.watchtower",
+    "name": "Watchtower",
+    "category": "military",
+    "footprint": { "w": 1, "h": 1 },
+    "cost": { "base:resource.stone": 20, "base:resource.wood": 10 },
+    "buildTicks": 48,
+    "terrainTags": ["open"],
+    "defense": { "hp": 180, "armor": 4, "kind": "tower" },
+    "military": { "garrisonCap": 6 },
+    "tags": ["frontier:march"],
+  },
+]

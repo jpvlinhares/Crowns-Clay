@@ -1,0 +1,12 @@
+// Patch (doc 04): touches 'base:terrain.forest' — the SAME def
+// example:autumn-realm already patches — but different fields (defenseBonus,
+// a distinct tag), so both patches compose cleanly, in load order.
+[
+  {
+    "patch": "base:terrain.forest",
+    "ops": [
+      { "set": "defenseBonus", "value": 0.2 },
+      { "mergeAppend": "tags", "value": ["frontier:watched"] },
+    ],
+  },
+]

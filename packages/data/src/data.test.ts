@@ -107,3 +107,66 @@ test('validation failures are fatal and readable', () => {
       /\.colors\.base: expected #rrggbb/.test(e.message),
   );
 });
+
+// ---------------- audio: loudness lints (roadmap M41 T objective) ----------------
+
+test('audio: the loudness-lint gate rejects a cue/playlist gain outside the safe band', () => {
+  const files = {
+    'mod.json5': `{ "id": "x", "name": "X", "version": "1.0.0", "gameVersion": ">=0.1" }`,
+    'defs/cues/bad.json5': `[{ "id": "x:cue.a", "name": "A", "event": "village.founded",
+      "bus": "worldSfx", "gain": 0.99, "waveform": "sine", "frequencyHz": 440,
+      "durationMs": 200, "placeholder": true, "tags": [] }]`,
+    'defs/playlists/bad.json5': `[{ "id": "x:playlist.a", "name": "A", "tension": "calm",
+      "gain": 0.0, "trackIds": ["t"], "placeholder": true, "tags": [] }]`,
+  };
+  assert.throws(
+    () => DefinitionDatabase.load(files),
+    (e: unknown) =>
+      e instanceof Error &&
+      /x:defs\/cues\/bad\.json5 \.gain: 0\.99 above maximum 0\.85/.test(e.message) &&
+      /x:defs\/playlists\/bad\.json5 \.gain: 0 below minimum 0\.05/.test(e.message),
+  );
+});
+
+test('audio: base content ships cues/playlists wired to real events, all within the loudness-lint band', async () => {
+  const { LOUDNESS_MIN_GAIN, LOUDNESS_MAX_GAIN } = await import('./audio.js');
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  assert.ok(db.audioCues.size > 0, 'base ships at least one SFX cue');
+  assert.ok(db.musicPlaylists.size > 0, 'base ships at least one music playlist');
+  for (const cue of db.audioCues.values()) {
+    assert.ok(
+      cue.gain >= LOUDNESS_MIN_GAIN && cue.gain <= LOUDNESS_MAX_GAIN,
+      `${cue.id} gain ${cue.gain} outside the loudness-lint band`,
+    );
+    assert.ok(cue.event.length > 0, `${cue.id} must map to a real GameEvent type`);
+  }
+  for (const playlist of db.musicPlaylists.values()) {
+    assert.ok(
+      playlist.gain >= LOUDNESS_MIN_GAIN && playlist.gain <= LOUDNESS_MAX_GAIN,
+      `${playlist.id} gain ${playlist.gain} outside the loudness-lint band`,
+    );
+  }
+  // every tension state has at least a universal (no era/season) playlist — never a silent gap
+  for (const tension of ['calm', 'tense', 'combat'] as const) {
+    assert.ok(
+      [...db.musicPlaylists.values()].some((p) => p.tension === tension && p.era === undefined && p.season === undefined),
+      `no universal playlist for tension '${tension}'`,
+    );
+  }
+});
+
+// ---------------- tutorial content (roadmap M43) ----------------
+
+test('tutorial: base content ships exactly 6 once-only steps in the tutorial pool, ending at village.tier ≥ 2', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const tutorial = [...db.events.values()].filter((e) => e.pool === 'tutorial');
+  assert.equal(tutorial.length, 6);
+  for (const step of tutorial) {
+    assert.ok(step.tags.includes('tutorial'), `${step.id} should carry the 'tutorial' tag too`);
+    assert.equal(step.once, true, `${step.id} must be once:true — a tutorial step repeating is a bug`);
+    assert.ok(step.choices.length >= 1, `${step.id} needs at least one choice (doc 09 §4 EventChoice)`);
+    for (const choice of step.choices) assert.ok(choice.text.length > 0);
+  }
+  const completion = db.events.get('base:event.tutorial.complete');
+  assert.deepEqual(completion?.trigger, { stat: 'village.tier', gte: 2 }, "the SC-1 completion signal is real progress, not a stand-in");
+});

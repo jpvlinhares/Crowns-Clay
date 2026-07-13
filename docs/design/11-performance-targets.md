@@ -18,6 +18,17 @@
 | Named characters | 400 | 600 |
 | Active haul jobs | 1,200 | 2,000 |
 
+**M47 verification status** (roadmap "stress ceilings" line): AI kingdoms (12, `bench-balance.js
+--kingdoms 12`) and active haul jobs (2,000, `bench-haul.js 100 20`) both run clean, well inside
+the sim-tick budget (§2). Map size (768×768, new `stress` `MapSize`, `bench-worldgen.js`)
+generates in 535 ms — no crash, no budget concern. **Not independently stress-tested this
+milestone:** villages (80), concurrent units (3,000), named characters (600) — each needs either
+a purpose-built large-scale scenario (no `bench-war-max`/`bench-ai-8k`/`bench-late-campaign` tool
+named below exists yet either) or many decades of organic AI play to reach naturally; the M47
+crash-triage campaigns (100 seeds × 25 years, 4 kingdoms) exercise real but moderate counts of
+all three, not their stress ceilings specifically. Flagged as a real gap, not silently assumed
+fine.
+
 ## §2. Frame Rate & Simulation Throughput (on P1)
 
 | Metric | Target |
@@ -65,6 +76,15 @@
 - Benchmark scenes are **saves in the test corpus** (deterministic — TDD §5): `bench-econ-max`,
   `bench-war-max`, `bench-ai-8k`, `bench-late-campaign`. Nightly CI fails on >10% regression vs.
   rolling baseline; per-system tick-cost telemetry on the debug HUD keeps costs visible daily.
+  **M47.9 delta — made true, with two honest divergences from the sentence above:**
+  `bench-war-max`/`bench-ai-8k`/`bench-late-campaign` exist now
+  (`packages/tools/src/bench-scenes.ts`) and run as a CI job (`benchmarks`, ci.yml) on every PR,
+  gating on §2's ABSOLUTE sim budgets (mean tick ≤10 ms, AI share ≤30%) over the unified
+  campaign composition. Divergences: (1) they are deterministic composed scenes, not corpus
+  saves, and the gate is absolute-budget, not regression-vs-rolling-baseline (no baseline store
+  exists — a 1.x improvement, not silently claimed); (2) `bench-econ-max` remains unbuilt, and
+  war-max fields the armies the real AI raises under its own recruit gates, not §1's
+  2,000-unit stress ceiling (§1's M47 note already flags that gap).
 - Every roadmap phase gate (doc 12) includes “targets §2–§4 green at current content scale”; scale
   ceilings themselves are phased in (they are meaningless before content exists).
 - Budget governance: any system exceeding its share for 2 consecutive nightly runs opens a

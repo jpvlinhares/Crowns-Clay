@@ -6,6 +6,11 @@
  * v1 stat paths are the ones the sim actually consumes (typos are validation
  * errors, not silent no-ops); the set grows as systems land (tech M32 reuses
  * this shape).
+ *
+ * M45 delta (content/base/defs/edicts/core.json5): roster grew from 3 to 5 —
+ * `kingdom.taxYield`/`kingdom.researchYield` existed in this vocabulary since
+ * M32 but had no edict actually using either; Merchant Charters and
+ * Scholarly Endowment close that gap (every wired target now has ≥1 edict).
  */
 import { v, type Validator } from './validate.js';
 

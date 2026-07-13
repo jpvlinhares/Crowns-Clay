@@ -274,8 +274,15 @@ export class VillageOps {
       type: 'village.founded',
       tick: ctx.tick,
       // settler-founded villages carry their party's cohorts (M15);
-      // absent → the composition's starting population applies
-      data: { village: village as number, name, x, y, ...(settlers !== undefined ? { settlers } : {}) },
+      // absent → the composition's starting population applies.
+      // M47.6: the owning kingdom rides on the event so subscribers (victory.ts's
+      // defeat bookkeeping) never need an ECS read inside another system's
+      // access-guarded scope — the exact hazard castles.ts's own doc describes.
+      data: {
+        village: village as number, name, x, y,
+        ...(settlers !== undefined ? { settlers } : {}),
+        ...(owner !== undefined ? { kingdom: owner.kingdomId as number } : {}),
+      },
     });
     void placed;
     return village;
@@ -395,6 +402,10 @@ export function registerVillageGameplay(
   db: DefinitionDatabase,
   terrain: TerrainAccessor,
   startingStock: Readonly<Record<string, number>>,
+  /** GDD §17 (roadmap M40): gates `sandbox.*` privileged commands. Defaults false so every
+   * existing composition/test (issuer 0 or otherwise) is unaffected — sandbox editing must be
+   * opted into at world creation, not merely available because a command type is registered. */
+  sandboxEnabled = false,
 ): VillageGameplay {
   const comps = defineVillageComponents(world);
   const ops = new VillageOps(world, comps, db, terrain);
@@ -415,6 +426,35 @@ export function registerVillageGameplay(
   kernel.registerCommand<{ buildingId: number }>('village.demolish', (ctx, p) => {
     const result = ops.demolish(ctx, p.buildingId | 0);
     if (typeof result === 'string') rejected(ctx, 'village.demolish', result);
+  });
+
+  // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
+  // A privileged command, same bus as every player order — kept in the input
+  // log, so a sandbox campaign still replays deterministically (GDD §17
+  // "Internal mechanics"). Building/unit spawning is deliberately NOT a
+  // separate bypass here: granting resources then issuing the ordinary
+  // `village.build` achieves the same "spawn a building" outcome through the
+  // one already-validated placement rulebook, rather than a second one.
+  kernel.registerCommand<{ villageId: number; resource: string; amount: number }>('sandbox.grantResource', (ctx, p) => {
+    if (!sandboxEnabled) return rejected(ctx, 'sandbox.grantResource', 'sandbox mode is not enabled');
+    const village = p.villageId as EntityId;
+    if (!world.isAlive(village) || !world.has(village, comps.VillageCore)) {
+      return rejected(ctx, 'sandbox.grantResource', 'no such village');
+    }
+    if (!db.resources.has(String(p.resource))) {
+      return rejected(ctx, 'sandbox.grantResource', `unknown resource '${String(p.resource)}'`);
+    }
+    const amount = Number(p.amount);
+    if (!(amount > 0)) return rejected(ctx, 'sandbox.grantResource', 'amount must be a positive number');
+    const stock = world.readObj(comps.Stockpile).tryGet((village as number) & 0x3fffff);
+    if (stock === undefined) return rejected(ctx, 'sandbox.grantResource', 'village has no stockpile');
+    const code = ops.resourceCode(String(p.resource)) as number;
+    stock.set(code, (stock.get(code) ?? 0) + amount);
+    ctx.events.publish({
+      type: 'sandbox.resourceGranted',
+      tick: ctx.tick,
+      data: { village: p.villageId, resource: String(p.resource), amount },
+    });
   });
 
   kernel.registerSystem(constructionSystem(world, comps, ops, settings));

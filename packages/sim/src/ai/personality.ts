@@ -59,6 +59,7 @@ export function toPlannerWeights(
     diplomacyTrust: weights.diplomacyTrust,
     aggression: weights.aggression,
     tech: weights.tech,
+    grudgeRetention: weights.grudgeRetention, // M47.8: PunitiveRaid's decay axis rides along
     planBiases: def.planBiases,
   };
 }

@@ -38,6 +38,17 @@ The formal ≥90% measurement is still M32–M33's job (content breadth: tech tr
 hasn't landed), so the decision stays DSL-first and open only in the sense of "not yet load-bearing
 data" — not reopened.
 
+**M39 due-date check — CLOSED, DSL-only ships at 1.0:** the formal measurement M28 deferred to
+M32–M33 is in: 10 def kinds now exist (terrain, overlays, resources, buildings, edicts, units,
+techs, events, traits, personalities — `packages/data/src/mods.ts`'s `TERRAIN_KINDS`), spanning
+every content-breadth milestone through M38 (72 techs across 4 branches/3 eras, 18 events across
+all 6 pools with a fuzzed Predicates & Effects DSL, character traits, 7 tuned AI personalities,
+victory/difficulty tuning) — 100% expressed in JSON5/DSL, well clear of the ≥90% bar, and still zero
+`scripts/` directory anywhere in the repo. Per the recommendation's own trigger ("adopt QuickJS-in-
+WASM… otherwise"), the "otherwise" branch fires: **DSL-only is confirmed for 1.0.** No scripting
+sandbox is built this milestone (or planned pre-1.0). §8's "script API v2" stays exactly what it
+already was — a genuine POST-1.0 candidate, not a deferred M39 task.
+
 ### OQ-4 — Save↔mod reconciliation policy (Due: M39)
 When a save's mod set differs from installed mods (missing, changed version, rebalanced defs): block,
 best-effort load with report, or per-change interactive resolution?
@@ -45,6 +56,17 @@ best-effort load with report, or per-change interactive resolution?
 best-effort risks corrupted campaigns and support noise; interactive resolution is ideal but costly.
 **Recommendation:** best-effort with a mandatory reconciliation report + automatic pre-load backup
 export; hard-block only on missing def *kinds* or failed referential integrity.
+
+**M39 delta — CHECKPOINT PASSED:** the recommendation is implemented exactly as written.
+`reconcileModManifest` (`packages/sim/src/persistence.ts`) is a pure comparison — never a gate —
+between a save's embedded `modManifest` and the currently-installed set; `SaveManager.hydrate`
+loads regardless of what it finds. The "hard-block" half was never a NEW mechanism to build: it's
+the pre-existing content-validation fatal-error path (doc 09 §3) that already refuses to start a
+campaign on a missing def kind or broken referential integrity, independent of save/mod
+reconciliation entirely. The "automatic pre-load backup export" is real
+(`packages/app/src/simPort.ts`'s `loadFromPayload`): the moment reconciliation finds anything
+(`missing`/`versionChanged`/`contentChanged`), the untouched save payload downloads as a `.crown`
+file before hydrate ever runs.
 
 ### OQ-5 — Frozen rivers passable in winter (Due: M26)
 **Trade-offs:** pro — superb strategic texture (winter invasions, seasonal defence planning), cheap

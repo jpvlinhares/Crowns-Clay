@@ -1,4 +1,7 @@
-# 12 — Development Roadmap (48 Milestones)
+# 12 — Development Roadmap (48 Milestones + Integration Revision)
+
+> **Revision R1 (M47.5 audit, 2026-07-11):** Phase 7 is split by four inserted integration
+> milestones (M47.6–M47.9) before M48. See the change record at the end of this document.
 
 **Conventions applying to every milestone (stated once, binding always):**
 
@@ -105,7 +108,27 @@
 | M45 | Content complete | full building/unit/tech/event rosters, final art integration waves | zero `TEMP_`/placeholder in release profile |
 | M46 | Balance campaign | telemetry-free tuning via harness stats + structured playtests; economy/war/victory pacing | all Vision SC pass internally |
 | M47 | Hardening | stress ceilings (doc 11 §1 stress column), save-corpus torture, crash triage to zero-known-blockers | 100 seeded full campaigns crash-free |
-| M48 | Release candidate → 1.0 | freeze, release notes, mod docs final, launch build | external RC playtest: SC-1..6 verified; ship |
+| M47.5 | Architecture, design & release audit | formal internal release review of M1–M47 against the design set; verdict: Not Ready — integration gap between the playable composition (`composeTerra`) and the harness-only Phase 3–5 systems | audit delivered; roadmap revision R1 ratified |
+
+### Phase 7-INT — Integration (M47.6–M47.9, inserted by revision R1)
+
+The M47.5 audit found every Phase 3–5 system verified only in `composeMultiKingdom` (flat fake
+terrain, one village per kingdom, never player-reachable) while the playable game remained the
+Phase 2 economy sandbox on a hardcoded seed. This phase assembles the real game before M48
+freezes it. The M12 playability rule is tightened for these milestones: a system counts as done
+only when it is **in the unified campaign composition with a player surface**, not merely
+harness-green.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M47.6 | Unified campaign composition & new game | one `composeCampaign(options)` wiring the full stack — multi-kingdom + fair placement on REAL worldgen terrain, fog/scouting, diplomacy, military/combat/castles/sieges, research, events, victory/defeat, difficulty; `composeMultiKingdom` becomes a thin wrapper over it; new-game screen (seed, map size, kingdom count, difficulty preset, victory toggles, sandbox) replaces the hardcoded seed; golden fixtures intentionally re-recorded (`campaign` scenario joins/replaces `terra-demo`) | full campaign boots headless AND in browser; save→load→resave hash-identical on the unified composition; new-game options round-trip into the save header |
+| M47.7 | Player UI for the dark systems | minimum viable panels on the existing `PanelHost` framework for diplomacy (opinion, deals, war/peace), military (recruit, armies, stances, siege surface), research (tree, active pick), and victory/defeat flow (tracks, `victory.approaching`, end-of-campaign screen); battle-report presentation honoring auto-resolve parity — no player-facing action may require the debug injector | hands-on walkthrough entirely injector-free: declare war → move army → win a siege → complete a research → reach a victory or defeat screen |
+| M47.8 | AI & balance on the real game | jobs-solver food-first priority (closes the M46 Builder-starvation defect); multi-village AI kingdoms (fog/war-target/scouting plumbing drops the one-village assumption, `ExpandSettle` executes in campaigns, free-tools genesis crutch removed via one AI-built production chain); knowledge-model army-strength beliefs wired into the planner (or descoped by written ADR); memory consumed by one plan archetype (`PunitiveRaid`) | bench-balance matrix (seeds × all 4 difficulties) on the unified composition: no kingdom starves at peace; wars start AND end; ≥2 victory types reached organically inside the year cap |
+| M47.9 | Recertification & truth pass | crash triage (100 seeds) rerun on the unified composition; `bench-war-max`/`bench-ai-8k`/`bench-late-campaign` built and the doc 11 §6 CI benchmark gate made real; README status-table honesty pass (caveats carried in the table itself); ADRs recorded: characters (M34) cut from 1.0, knowledge-model scope, harness-first decision retrospective; design-doc reconciliation | 100 campaigns crash-free on the unified composition; all three benchmark scenes green vs. doc 11 §2 at current content scale |
+
+| M | Milestone | Goal / Key work | T |
+|---|---|---|---|
+| M48 | Release candidate → 1.0 | freeze, release notes, mod docs final, launch build — **entry gate: M47.6–M47.9 complete**; SC-1..6 verified against the unified campaign composition, not the sandbox | external RC playtest: SC-1..6 verified; ship |
 
 ---
 
@@ -117,3 +140,31 @@
   `DEBT(Mxx)` tag and CI counts them — the count must not grow across a phase.
 - Open-question due dates: OQ-1,2 by M12 · OQ-5,10 by M26 · OQ-3 by M28 · OQ-6,7,8,9 by M32 ·
   OQ-4 by M39 (doc 14).
+
+---
+
+## Change Record (doc 00 freeze rules)
+
+**R1 — Integration phase inserted before M48 (ratified 2026-07-11, from the M47.5 audit).**
+
+- **Change:** four milestones (M47.6–M47.9, "Phase 7-INT") inserted between M47 and M48; M48
+  gains an explicit entry gate (Phase 7-INT complete; SC-1..6 verified against the unified
+  composition). Characters (M34's `game/characters.ts`) is cut from the 1.0 composition by ADR
+  in M47.9 — code retained behind its module boundary for 1.x.
+- **Why:** the M47.5 audit found the roadmap's letter satisfied while its substance was not:
+  every Phase 3–5 system was verified only in a standalone harness (`composeMultiKingdom` — flat
+  synthetic terrain, one village per kingdom, no player surface), while the playable game
+  (`composeTerra`) remained the Phase 2 economy sandbox on a hardcoded seed with no rivals, war,
+  diplomacy, research, victory, or new-game flow. Freezing at M48 would ship a vertical slice,
+  not the designed game (Vision USP-1).
+- **Affected documents:** this doc (12); README status table (honesty pass, M47.9); doc 11 §6
+  (benchmark CI claim becomes true at M47.9); doc 13 (R1/R2/R8 realization risk reduced; no new
+  risks added); docs 02/07 unchanged (no design change — this is integration of designed systems).
+- **Affected milestones:** M48 deferred until M47.6–M47.9 complete. No completed milestone is
+  reopened; their harness-level verification stands and is *recertified* at campaign level in
+  M47.8/M47.9.
+- **Risk impact:** adds ~4 milestones of schedule (accepted). Reduces the critical release risks
+  named in the audit: integration shortfall (certain → addressed), unproven emergent balance on
+  real terrain (R-B), unmeasured full-composition performance (R-C), UI scope owned by no
+  milestone (R-D). Golden fixtures will be intentionally re-recorded at M47.6 per TDD §13's
+  existing policy.

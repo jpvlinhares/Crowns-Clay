@@ -1,6 +1,10 @@
 // Core edicts (M16, GDD §2): Modifier bundles with daily gold upkeep. Enact
 // via `kingdom.enactEdict` (at most 3 active — stacking cap); an edict whose
 // upkeep the treasury cannot pay LAPSES at the daily roll-up.
+// M45: two more edicts round out the roster to 5 — `kingdom.taxYield` and
+// `kingdom.researchYield` (edicts.ts's own closed MODIFIER_TARGETS vocabulary)
+// previously had no edict actually using either; now every mechanically-wired
+// modifier target has at least one.
 [
   {
     "id": "base:edict.harvest-festival",
@@ -23,5 +27,19 @@
     "name": "Grain Reserves",
     "upkeep": 4,
     "modifiers": [{ "target": "village.spoilage", "op": "mul", "value": 0.5 }],
+  },
+  {
+    // open the roads to foreign traders — more gold in, no happiness cost
+    "id": "base:edict.merchant-charters",
+    "name": "Merchant Charters",
+    "upkeep": 5,
+    "modifiers": [{ "target": "kingdom.taxYield", "op": "mul", "value": 1.15 }],
+  },
+  {
+    // patronage for the Scholar's office (M32) — a pure research-pace lever
+    "id": "base:edict.scholarly-endowment",
+    "name": "Scholarly Endowment",
+    "upkeep": 6,
+    "modifiers": [{ "target": "kingdom.researchYield", "op": "mul", "value": 1.25 }],
   },
 ]

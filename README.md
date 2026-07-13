@@ -46,7 +46,35 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M35 — Diplomacy v2 (alliances, joint wars, vassalage, reputation, memory/grudges) | ✅ |
 | M36 — Personalities (7 archetypes tuned, perturbation, legibility) | ✅ |
 | M37 — Victory & defeat (all 5 victory tracks, contestability broadcasts, defeat flow) | ✅ |
-| M38 — Difficulty system (capability tiers, labelled modifiers, presets) | ✅ this commit — **Phase 5 complete: depth** |
+| M38 — Difficulty system (capability tiers, labelled modifiers, presets) | ✅ — **Phase 5 complete: depth** |
+| M39 — Modding v1 complete (save↔mod reconciliation, in-game Mods screen, modding docs site) | ✅ — **Phase 6 begins: product** |
+| M40 — Sandbox mode & editor (privileged commands, editor palette reusing M9, sandbox/ironman save flagging) | ✅ |
+| M41 — Audio & music (cue tables, music director, mixing, placeholder purge plan) | ✅ |
+| M42 — UI/UX pass 2 (tooltips/ledgers everywhere, keybinds, accessibility) | ✅ |
+| M43 — Tutorial & onboarding (advisor-driven tutorial as event content, no engine scripting) | ✅ |
+| M44 — Localization & PWA polish (locale extraction, pseudo-locale CI, service worker, quota UX) | ✅ — **Phase 6 complete: product** |
+| M45 — Content complete (full building/unit/tech/event rosters, final art integration waves) | ✅ — **Phase 7 begins: ship** |
+| M46 — Balance campaign (telemetry-free tuning via harness stats; economy/war/victory pacing) | ✅ |
+| M47 — Hardening (stress ceilings, save-corpus torture, crash triage to zero-known-blockers) | ✅ |
+| M47.5 — Architecture, design & release audit (roadmap revision R1 ratified) | ✅ |
+| M47.6 — Unified campaign composition & new-game screen (`composeCampaign` on real worldgen) | ✅ — **Phase 7-INT: integration begins** |
+| M47.7 — Player UI for diplomacy / military / research / victory (no injector-only actions) | ✅ |
+| M47.8 — AI & balance on the real game (food-first jobs solver, multi-village AI, beliefs wired) | ✅ this commit |
+| M47.9 — Recertification & truth pass (campaign crash triage, benchmark CI gate, ADRs) | ✅ this commit — **Phase 7-INT complete** |
+| M48 — Release candidate → 1.0 | ⬜ entry gate OPEN (doc 12 R1: SC-1..6 verified against the unified composition) |
+
+> **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
+> finding — the unified campaign (`composeCampaign`) IS the playable game now: real worldgen,
+> multi-kingdom AI with content personalities, war/diplomacy/research/victory with player
+> panels, save/load, new-game screen, all pinned by the `campaign-demo` golden and the
+> `--real` balance/crash harnesses. **Still-true caveats for M48:** no art assets or asset
+> pipeline (doc 10 §1–§5 unbuilt; the audio release lint correctly fails on 12 placeholders);
+> characters (M34) are CUT from 1.0 by ADR-1 (doc 15); the knowledge model ships
+> army-strength-beliefs-only by ADR-2; castles/sieges have AI conduct but no player build-UI
+> beyond the shared build palette's wall pieces; doc 11 §1's hard stress ceilings (80 villages,
+> 3,000 units, 600 characters) and `bench-econ-max` remain unverified/unbuilt; the benchmark CI
+> gate is absolute-budget, not regression-vs-baseline. M42's "six systems without UI" is now
+> two by design (characters — cut; sandbox editor — capped at the debug palette per GDD §17).
 
 ## Layout (TDD §3)
 
@@ -58,6 +86,7 @@ packages/
   protocol   command & snapshot message types                        (core, data)
   render     WebGL renderer                                          (core, protocol)
   ui         HTML views/HUD                                          (core, protocol)
+  audio      music director, mixing, cue playback                    (core, protocol)
   app        composition root, worker wiring                         (all)
   tools      dev/debug/asset/mod tooling                             (all)
 ```
@@ -114,6 +143,674 @@ node packages/tools/dist/bench-ecs.js 100000 100   # [entities] [iterations]
 Reference result (CI-class hardware): a Position+Velocity integration pass over 100k entities in
 ~1.5 ms — the game's design ceiling is 2,000 units (doc 11 §1), so hot-loop headroom is ~50×.
 `world.hash()` is dev/CI-harness-only cost and is sampled, never per-tick in release.
+
+### Tutorial & onboarding (M43)
+
+The roadmap line reads as content-only ("advisor-driven tutorial as event content, no engine
+scripting"), but scoping it surfaced two real, unclaimed prerequisites first: the M33 events
+engine had never been composed into the actual playable game (`registerEventGameplay` only ever
+ran inside the AI-vs-AI test harness, `packages/sim/src/ai/multiKingdomHarness.ts` — confirmed by
+grep, zero call sites in `packages/app`), and no event-choice dialog UI existed anywhere (doc 05
+§7 names "Event dialogs" as a distinct panel type; nothing had ever built one). Both were
+genuinely M43's to close, not silently assumed away.
+
+**Events, live in the game for the first time:** `registerEventGameplay(kernel, world, db, game,
+popGame, kingdomGame)` is now wired into `packages/app/src/terra.ts`, with no diplomacy/research
+hooks — both are OPTIONAL by the module's own design (`hasTech` always false, `opinionChange` a
+no-op), the same graceful-degradation shape `victory.ts`'s `VictoryDeps` already established.
+`EventState` gained its first-ever `save()`/`restore()` (previously only `fold()` for hashing
+existed — nothing had ever needed to survive a save/load before) and a new `events` save section;
+verified live — save mid-dialog, reload, load, and the exact same pending dialog reappears.
+Wiring a whole new daily+weekly system in from tick 1 changes RNG consumption from the first tick,
+so `terra-demo`'s golden replay and the save corpus fixture were both re-recorded — intentional,
+called out here as the repo's own policy requires.
+
+**"No engine scripting" held to the letter, not just the spirit:** the tutorial is 6 ordinary
+`EventDef`s (`content/base/defs/events/tutorial.json5`) running through the EXACT SAME
+`evaluatePredicate`/`applyEffect` engine every other pool uses — zero new predicate/effect kinds,
+zero `scripts/hooks.js` (still unbuilt, still correctly out of scope per OQ-3's closed DSL-only
+decision). The one addition, a `'tutorial'` entry in `EVENT_POOLS`/`DAILY_POOLS`, is vocabulary
+growth doc 09 §8 explicitly reserves ("the vocabulary is additive... land later without a
+rewrite"), not a new mechanism — confirmed harmless to the AI harness by running it directly
+(8-kingdom 50-year survival, the 7-archetype fingerprint test, and the M33 harness's own
+determinism check all still pass with the new pool in place — AI kingdoms fire and auto-answer
+tutorial events same as any other, no special-casing needed).
+
+**Ordering is emergent, not scripted** — Vision Philosophy #1 ("behaviour emerges from systems and
+state, never hard-coded story beats") applies to the tutorial too: each step's trigger uses only
+the existing closed vocabulary (`season`/`stat`/`chance`/`all`), chosen so the six land in a
+sensible order as a real campaign unfolds — welcome (day 1) → economy check-in (`village.
+foodSecurity ≥ 0.8`) → happiness/tax/edicts (season-paced through the first year) → **completion,
+triggered by `village.tier ≥ 2`** — the SC-1 "stable, growing kingdom" signal itself, not a
+stand-in for it. The Steward narrates throughout (GDD §2's existing office, not an invented
+persona — the GDD names no tutorial-specific advisor, so reusing the one already tied to the
+realm's day-to-day economy was the least invented choice available).
+
+**The first event-choice dialog UI** (`packages/app/index.html`'s `#event-dialog-backdrop`,
+`main.ts`'s `showNextEventDialog`): a modal (`role="dialog" aria-modal="true"`, M42's ARIA
+precedent) fed by a small FIFO queue — `event.fired` (live) and a new `pendingEvents` field on
+`snapshotFull`'s `kingdom` block (recovered via `EventGameplay.pendingChoices`) both feed it the
+same way, so a dialog interrupted by a reload is never silently lost. Opening one auto-pauses
+(GDD §1's urgent-pause tier, same "never rushed" pillar tooltips already serve) — resuming is
+deliberate, not automatic. `UICatalog` gained an `events` projection (id → title/body/choice text)
+mirroring the exact `buildings`/`edicts` pattern M18 established, so `@crowns/ui` still never
+imports `@crowns/data` directly.
+
+**The T objective — "new-player playtest ≥80% completion"** can't recruit a human tester from
+here, so it's proven the way this project's playtest T-objectives always have been: a real sim
+integration test (`packages/sim/src/game/events.test.ts`) drives the actual engine through all 6
+steps in sequence — welcome, force `foodSecurity` healthy, let season advance naturally through
+summer/autumn/winter, fund the treasury, force `village.tier` to 2 — and asserts every step fires
+exactly once (`once: true` honored) and every fired step gets resolved, proving the full sequence
+is mechanically completable end-to-end; then a hands-on browser walkthrough confirmed the same
+sequence renders and resolves correctly for a real player, including the reload-recovery path.
+
+### Recertification & truth pass (M47.9) — Phase 7-INT complete
+
+Every M47-era certificate re-earned against the UNIFIED composition, plus the truth debts the
+M47.5 audit named. **Crash triage:** the first 100-seed real-composition run FAILED — 11/100
+campaigns died at tick 1 ("too close to another village center"): fairPlacement's "sectors are
+naturally far apart" assumption never actually enforced GDD §13's own "minimum pairwise
+distance", and crowded small maps converged two sectors' picks. Fixed from both ends (the
+solver now rejects candidates inside `VILLAGE_MIN_SPACING`; genesis falls back to
+`bestSiteNear` instead of throwing) — rerun: **100/100 campaigns crash-free** (4 kingdoms ×
+25y × all four difficulties, 1609s); all committed fixtures verified byte-identical through
+the fix. **Benchmark scenes** (doc 11 §6's named-but-fictional tools, finally real):
+`bench-scenes.ts` runs war-max / ai-8k / late-campaign on the shipping composition and gates a
+new CI job (`benchmarks`, ci.yml) on doc 11 §2's absolute budgets — measured: war-max 0.086
+ms/tick mean (budget 10) · AI share 8.4% (budget 30%); ai-8k 0.181 ms / 11.6%; late-campaign
+(20 organic years, then a measured year) 0.124 ms / 6.7%. Honest divergences recorded in doc
+11 §6's M47.9 delta: absolute budgets rather than regression-vs-baseline, `bench-econ-max`
+still unbuilt, war-max fields real-AI army sizes, not the 2,000-unit stress ceiling. **ADRs**
+(new doc 15): ADR-1 cuts Characters (M34) from 1.0 (zero consumers; advisors are the 1.0
+character surface); ADR-2 scopes the knowledge model to army-strength beliefs at 1.0; ADR-3
+records the harness-first retrospective and binds the new rule — a gameplay milestone is done
+when it's IN the shipping composition with a player surface. Final recertification on the
+closing code: 398/398 tests, lint clean, all goldens + corpus byte-stable, balance matrix
+green on all three R1 T objectives. **Phase 7-INT is complete; M48's entry gate is open.**
+
+### AI & balance on the real game (M47.8)
+
+The real-composition balance matrix (`bench-balance.js --real` — 2-kingdom duels AND 4-kingdom
+fields × all 4 difficulties × seeds, on real worldgen with content personalities) drove this
+whole milestone, and it earned its keep by failing loudly, three times, before passing:
+
+**First run: zero wars ever, six peacetime starvations, Prosperity auto-won year 10 in all 8
+runs.** Root causes, each fixed and re-verified: (1) start sites sit beyond scout range, so no
+kingdom ever DISCOVERED another — closed with GDD §13's own "history seeding" (courts know their
+neighbours' capitals from day one; later villages stay fog-hidden); (2) `foodNeed` trusted
+DECLARED farm capacity while real-terrain biome modifiers made realized output lower — villages
+"satisfied" the need on paper while starving (the M46 open finding, finally root-caused). The fix
+took three iterations, each caught by a probe: security-EMA awareness alone → a 50-farm panic
+pileup whose construction sites consumed every adult as builders; + pending-site capacity →
+stable, until (3) population crossing exactly 30 let the M46 recruit floor pass and the AI gutted
+10 of its 14 ADULTS for one spearman (the floor counted heads, not the workforce; the surplus
+check was nameplate too) — recruit now requires 12 adults remaining AND a healthy realized
+security EMA; (4) Prosperity's threshold (70) exactly equalled the fed-only happiness baseline,
+so its streak began on day 1 of every campaign and no other track could ever fire — now 80
+happiness + 15 years + a 60-head realm (prosperity means a GROWN realm, not subsistence
+stability). **Final matrix: 16/16 campaigns, zero peacetime starvation, 19/19 wars ended, and
+THREE victory types organically (conquest, prosperity, chronicle) — the R1 T objectives hold.**
+
+The systems behind it (each campaign-default, harness-wrapper-opt-out so M22-M46 tests stay
+pinned): **multi-village AI** (fog/war/discovery over ALL owned villages via a plain
+event-maintained ownership index; settler-founded villages inherit their source's banner);
+**occupation** (`game/occupation.ts` — an at-war army holding an undefended non-castle village 5
+days takes it; the conquest path plain villages never had; hashed + saved state); **beliefs
+consumed** (doc 07 §6: per-AI `KnowledgeModel` over rival strength, contact-refreshed,
+confidence-decayed, deterministic noise — stale beliefs now cause honest mistakes); **grudges
+consumed** (doc 07 §7: `PunitiveRaid` archetype scores the heaviest decayed memory and marches on
+whoever wronged it); **industry chain** (`industryNeed` — the AI raises wood→planks→tools itself;
+the 300-tool genesis warchest is now a 25-tool starter kit); **food-first jobs solver**
+(builders → haulers → food → other production; the first fix attempt put food before haulers and
+starved the carts — the famine test caught it). `crash-triage --real` gained the same real-
+composition mode for M47.9. Fixtures: campaign-demo/campaign-tick500 re-recorded (intentional,
+three times, once per behavioural fix); terra fixtures byte-identical throughout.
+
+### Player UI for the dark systems (M47.7)
+
+The M42 audit's named gap — six implemented systems with no player surface — closes for four of
+them: **Diplomacy 🤝, Military ⚔, Research 📜, Victory 🏆** are real `PanelHost` panels now
+(keybinds D/A/R/Y), fed by a new player-scoped, fog-gated projection (`PlayerPanels`,
+`packages/protocol`) the worker emits on every day boundary, after every executed player command,
+and on request — an undiscovered kingdom shows existence only, and "Known for…" personality tags
+(doc 07 §9's legibility promise, finally rendered) appear only once scouted. Every action is an
+ordinary command draft, exactly what the debug injector always sent — recruit (barracks-gated),
+muster army, assign units, **march via armed map click** (mirrors the M18 build-arming pattern;
+Esc cancels), besiege via clicking the target castle's buildings, assault/lift, gift/insult/
+pacts/alliance/war/peace with tooltip'd consequences, and research selection. A **war report**
+log renders battle/siege/war/peace events in the Military panel. **Campaign end screen**: victory
+(yours or a rival's, named) and last-village defeat both raise a pausing modal with "Keep
+playing" (GDD §16's sandbox-respecting ending). The new-game screen gained **Year limit** —
+short Chronicle campaigns are now a product feature AND the injector-free path to a real end
+screen. Victory grew live `tracksOf` progress (same math as the daily tracker, computed on
+read) shown as percentages with the 80% contestability threshold tooltip'd. T objective
+(`packages/app/src/warPanels.test.ts`): a port-driven session — the browser's exact transport —
+picks research, builds a barracks, recruits militia, musters/assigns/marches an army (position
+asserted to actually change), confirms diplomacy is fog-rejected toward unscouted rivals, and
+runs a 1-year Chronicle campaign to a real declared winner; plus a hands-on browser walkthrough
+of the same loop. **Honest scope:** siege UI is exercised against AI castles only when one
+exists (AI builds walls under MilitaryBuildup); villages without defensive works still cannot be
+occupied at all — a real conquest-path gap chartered to M47.8, not a UI omission. Characters and
+sandbox-editor palettes remain debug-only pending the M47.9 ADR (characters are proposed CUT
+from 1.0).
+
+### Unified campaign composition & new-game screen (M47.6)
+
+The M47.5 audit's central fix: ONE composition — `composeCampaign` (`packages/sim/src/campaign.ts`)
+— wires the FULL game (real worldgen + fair placement, economy→siege stack, fog/scouting,
+diplomacy, research, events, victory & defeat, difficulty, per-kingdom content-personality AI,
+and save/load), and both the harness AND the live game are now thin consumers of it.
+`composeMultiKingdom` pins the historical harness conditions (flat terrain, inert victory, no
+calendar) as wrapper options — all 295 pre-existing sim tests, including the 8-kingdom/50-year
+survival run, pass unchanged, which works because the kernel forks each system's PRNG by name, so
+the appended systems (calendar, victory-tracker) never perturb existing streams. **New-game
+screen** (`index.html`/`main.ts`): seed, map size, kingdoms (1–8), difficulty preset, victory
+toggles, sandbox — the hardcoded `SEED` is gone; `?quickstart=terra|campaign` keeps the pinned
+CI seeds. **Save/load grew real teeth:** every hash-contributing relational state gained a
+section (research/victory/combat/siege/fog were previously unserialized — fog loss was invisible
+to `stateHash` but would silently lobotomize loaded AI), the save header embeds the new-game
+settings, and the load path recomposes from the header. Proven by `campaign.test.ts`'s strongest
+check — a loaded session tracks the uninterrupted original hash-for-hash for 20 days — plus a
+third corpus entry (`campaign-tick500-v1`) and a fourth golden scenario (`campaign-demo`, which
+also rides the cross-engine browser-harness determinism CI for free). **Two real bugs surfaced
+and fixed on the way:** victory.ts's event subscribers did ECS reads inside OTHER systems'
+access-guarded scopes (crashed the moment a settler founded a village with the tracker attached —
+the owner now rides on the `village.founded` event, and wonder completions drain through the
+tracker's own unscoped update), and `bench-balance`/`crash-triage` were updated to use the
+composition's own tracker instead of double-registering. Verified in-browser end-to-end: new
+game → 4 kingdoms on real terrain → tutorial fires → save → load recovers the same campaign
+(header-driven recomposition) mid-dialog. Fixture re-records: `campaign-demo` and
+`campaign-tick500-v1` are NEW; terra/wanderers/calendar fixtures re-recorded byte-identical
+(composition untouched). Inherited v1 gaps chartered to M47.8, not hidden: one village per AI
+kingdom, free starting tools for AI, truth-based sensing.
+
+### Architecture, design & release audit (M47.5)
+
+A formal internal release review of M1–M47 against the full design set (docs 01–14), conducted as
+a studio-director audit rather than an implementation milestone. **Verdict: Not Ready for Release
+— roadmap revised before M48** (doc 12, revision R1). The engine-side verdict is strong
+(determinism, boundaries, testing, modding, docs all at or above target); the release blocker is
+a single structural finding: every Phase 3–5 system — multi-kingdom, war, diplomacy, research,
+victory, difficulty, the entire "simulated rivals" USP — is verified only in the standalone AI
+harness and is absent from the playable composition (`composeTerra`), which remains the Phase 2
+economy sandbox on a hardcoded seed. Secondary findings: `ai/brain.ts` (knowledge model) and
+`game/characters.ts` have zero non-test consumers; combat is a single-aggregate-line v1; the
+doc 11 §6 benchmark CI gate is documented but unbuilt; the status table above previously carried
+no caveats (now fixed). Full findings, scorecard, and risk register are in the audit report
+delivered with this milestone; the actionable output is **Phase 7-INT (M47.6–M47.9)** in doc 12 —
+unify the composition on real worldgen with a new-game screen, give the dark systems player UI,
+fix the known balance defects on the real game, then recertify crash/benchmark/doc claims before
+M48 freezes 1.0.
+
+### Hardening (M47)
+
+Three roadmap threads — stress ceilings, save-corpus torture, crash triage — with the T objective
+("100 seeded full campaigns crash-free") doing double duty as the crash-triage deliverable itself.
+
+**Crash triage, 100/100 clean.** A new tool, `packages/tools/src/crash-triage.ts` (`npm run
+crash-triage -- [--seeds N] [--years N] [--kingdoms N]`), reuses M46's harness shape but tuned for
+BREADTH: 100 distinct seeds, spread evenly across all four `DifficultyLevel`s, four kingdoms each
+with a rotating spread of aggressive/peaceful/trusting/wary personality profiles, 25 years —
+enough to exercise construction, recruitment, research, diplomacy, and (when a war catches fire)
+sieges, without the full 40-100 year runtime M46's own balance runs use. All 100 completed without
+a single uncaught exception, ~313 s total. "Crash" here is read at its narrowest, most literal:
+an exception during `kernel.step()` — this tool doesn't judge pacing or balance, M46 already did.
+
+**Save-corpus torture.** The corpus had exactly one entry and one verification shape (load, resume
+100 ticks, check the hash) — proves a save survives ONE load, not that it's stable under repeated
+real-world "save, quit, relaunch, load" use. `save-corpus.ts` gained `tortureCorpusEntry` (`npm run
+save-corpus:torture`): chains N independent save→load round trips end to end, each cycle
+re-saving from the FRESHLY LOADED session rather than the original, so a latent load-then-resave
+defect would compound instead of hiding behind a single clean pass. Also added a SECOND corpus
+entry, `terra-sandbox-v1` — composed with sandbox flags on, a genuinely different code path
+(`SaveManager.setSandboxFlags`, M40) the original entry never touched. Both entries: verify clean,
+and hold hash-stable across 5 torture cycles (500 ticks) each.
+
+**Stress ceilings (doc 11 §1), partially verified, honestly scoped.** AI kingdoms (12 — a genuine
+first: earlier balance-harness runs only ever went to 4) and active haul jobs (2,000, via
+`bench-haul.js`'s existing CLI args) both run clean, comfortably inside the sim-tick budget. Map
+size stress (768×768) needed a real, if small, code change: `worldgen/types.ts`'s `MapSize` union
+only ever named small/medium/large — a `stress` entry was added (not player-selectable, no
+world-creation UI exists to offer it; it exists purely so `bench-worldgen.js` has a size to
+generate against) — 768² generates in 535 ms, no crash, no budget concern. **NOT independently
+stress-tested:** villages (80), concurrent units (3,000), named characters (600) — each would need
+either a purpose-built large-scale scenario or many decades of organic play to reach naturally,
+and doc 11 §6's own named nightly benchmarks for exactly this (`bench-war-max`, `bench-ai-8k`,
+`bench-late-campaign`) don't exist as tools yet either — a pre-existing gap this milestone didn't
+create and didn't have the remaining budget to close. Flagged in doc 11 §1 directly rather than
+silently assumed fine.
+
+Build/lint/all 393 tests (392 + the new torture test)/golden replays/save corpus all green
+throughout. Nothing here is browser-observable (pure sim/tools code, no UI surface), so no
+in-browser check was run.
+
+### Balance campaign (M46)
+
+"Telemetry-free tuning via harness stats" (doc 01 §9: no player telemetry beyond opt-in local
+diagnostics) meant building the thing that had never existed: a way to run a REAL, emergent,
+multi-year AI economy and see what actually happens, rather than the engineered/forced-state
+tests `victory.test.ts` always used ("whether the real economy organically reaches these states
+is a separate balance concern (M46), not this milestone's" — that module's own words, quoted back
+at it now that it's done).
+
+**Difficulty presets, wired into a real composition for the first time.** M38 shipped four
+`DifficultyPreset`s (Story/Fair/Hard/Brutal) with real hooks into the planner, scouting,
+diplomacy, and kingdom-yield systems — but grepping the codebase found NOTHING actually applied
+one: not `terra.ts` (the single-player composition), not the M24 nightly harness, nowhere. SC-2
+("full campaign completable at every difficulty") was consequently untestable — there was no
+"every difficulty" to run. `multiKingdomHarness.ts` now accepts an optional campaign-wide
+`difficulty: DifficultyPreset`, threaded into the four levers that already had somewhere to
+attach (appraisal noise/period, scouting radius, joint-war coordination, labelled yield). Left
+genuinely OPTIONAL rather than defaulted to `FAIR_PRESET` — the first attempt defaulted it and
+silently broke two existing tests (`multiKingdom.test.ts`'s 50-year survival, `difficulty.test.ts`'s
+own T objective), because FAIR_PRESET's own doc claim ("every multiplier at its M19-M37 neutral
+value") turns out not to match the actual code defaults (real `appraisalNoise` default is 0, not
+FAIR's 0.12; real `jointWarCoordination` default is `'on'`, not FAIR's `'limited'`) — a real,
+previously-invisible inconsistency this milestone's own tooling surfaced by being the first code
+ever to exercise it, documented in `multiKingdomHarness.ts` rather than quietly patched over by
+renumbering FAIR_PRESET (its Story>Fair>Hard>Brutal noise ordering is a deliberate, self-consistent
+design — the mismatch is the doc claim, not the numbers). `knowledgeHalfLifeMultiplier` stays
+unwired: `ai/brain.ts`'s sensor/confidence model was never part of this harness to begin with, a
+pre-existing gap this milestone didn't create and isn't the one to close either.
+
+**The balance harness itself** (`packages/tools/src/bench-balance.ts`, `npm run` has no shortcut
+yet — invoke directly: `node packages/tools/dist/bench-balance.js [--years N] [--kingdoms N]
+[--seeds N]`): runs one full AI-vs-AI campaign per (seed × difficulty), with the REAL
+`VictoryGameplay` tracker attached (not engineered), and reports what happened — crash/no-crash,
+which track won and in what year, kingdoms eliminated, final population/treasury spread. Required
+exporting `composeMultiKingdom`/`registerVictoryGameplay`/the difficulty presets from `@crowns/sim`'s
+public index for the first time (they'd only ever been reached via test-only relative imports).
+
+**What the harness found, first run: total population collapse, every kingdom, every difficulty,
+within 5 years — zero wars ever declared.** Not a war-economy problem; a peacetime one. Traced
+with ad hoc instrumentation (event counts, per-checkpoint population/building snapshots) to
+`ai/military.ts`: once the strategic planner favours `MilitaryBuildup` (driven by the `aggression`
+weight alone — it needs no rival in sight), the manager submitted an unconditional
+`army.recruitUnit` order EVERY DAY, forever, with no check on whether the village could still feed
+itself. Recruiting costs `UnitDef.popCost` adults PERMANENTLY (10 for a spearman) — against a
+starting population of ~45, two or three recruits is most of the adult workforce, and the farms
+they used to staff never get replaced. **Fixed** with two gates before a recruit order is
+submitted: a food-surplus ratio (production capacity ≥1.3× need) and a hard population floor
+(recruiting must leave ≥20 behind) — two, not one, because the first alone wasn't enough: it
+checks DECLARED recipe capacity (`ai/needs.ts`'s `productionCapacity`), not realized output after
+workforce staffing, so a village could still pass the ratio check, recruit anyway, and then watch
+its now-thinner workforce under-produce what the nominal number promised. Verified with the same
+ad hoc instrumentation: a single-kingdom run that previously collapsed 45→4 by year 5 now holds
+stable at 25 through the full 5 years tested; the full 4-kingdom mixed-personality matrix now
+regularly reaches a real Prosperity victory around year 10, at every difficulty, instead of an
+empty Chronicle fallback at the year cap.
+
+**A second, deeper issue survived the fix, honestly flagged rather than chased into this
+milestone's remaining time:** in the SAME 4-kingdom matrix, the two economy-leaning ("Builder")
+kingdoms still eventually starve out over 10-20 years even with recruiting fully gated off (traced
+directly — zero wars, zero recruits, zero settler dispatches for those kingdoms in the run that
+showed it). Leading hypothesis, from reading `population.ts`'s own module doc ("hourly: jobs
+solver — builders first, then production BY STABLE ORDER," not by need): the workforce allocator
+has no concept of "feed the village first" — as a kingdom accumulates buildings (a `TechRace`-
+favouring kingdom's construction manager was observed queuing 200+ times over the run that
+starved), non-food production can end up competing for labour with zero priority given to farms,
+and nothing currently protects food security the way M46's OWN military fix now protects it from
+recruitment. This needs its own investigation (most likely a jobs-solver priority change, a larger
+and riskier piece of economy.ts than a two-line recruit gate) — recorded here, in `victory.test.ts`'s
+module doc, and in `ai/military.ts`'s own comments so the next session doesn't have to
+re-derive it from scratch.
+
+**SC-2, honestly scored:** better, not solved. Every difficulty now reaches a real victory well
+inside the year cap in the harness (the literal "completable... without crashes" holds — nothing
+throws, nothing hangs). But a 4-kingdom campaign where two kingdoms starve to zero population is a
+soft-lock in spirit even where the kernel keeps running and a technicality-victory still fires —
+calling SC-2 "passes" outright would overclaim what was actually verified.
+
+Build/lint/all 392 tests/golden replays/save corpus stayed green throughout (the harness-exercised
+code paths — `ai/military.ts`, `multiKingdomHarness.ts`, `game/victory.ts`'s new public export —
+have no existing dedicated unit tests of their own yet; the verification here was the harness runs
+themselves, not `node --test`). Nothing here is browser-observable (pure sim/AI/tools code, no UI
+surface touches military recruitment or difficulty selection yet), so no in-browser check was run.
+
+### Content complete (M45)
+
+The roadmap line ("full building/unit/tech/event rosters, final art integration waves") names two
+very different kinds of work, and only one of them was buildable this milestone. **Art integration
+has zero infrastructure to integrate into** — confirmed at M44's research pass and unchanged since:
+no atlas packer, no icon rasterizer, no art-src pipeline exist anywhere in the repo (doc 10's whole
+§1-§5), and no actual art assets exist to wave in — there's no artist producing sprites in this
+process. Calling that "done" would be dishonest; it stays an open gap, same posture doc 10's M44
+delta already took with the service-worker cache-key story.
+
+**What WAS real, buildable "content complete" work: closing the actual roster gaps against the
+GDD.** A quick audit (`grep`-counting unique ids per content kind) found buildings (22) and techs
+(72, already within M32's own 60-80 target) essentially complete, but the unit roster was thin:
+GDD §6 names 10 unit types (militia, spearman, swordsman, archer, crossbowman, cavalry, knight,
+ram, catapult, trebuchet); only 5 existed. The other 5 — swordsman, crossbowman, knight, ram,
+trebuchet — are added now (`content/base/defs/units/core.json5`), each gated behind a warfare tech
+that (per a second audit, grepping for empty `unlocks` blocks) had previously unlocked NOTHING:
+Barracks Discipline, Siege Basics, Tower Emplacements, Combined Arms. "Trebuchet Engineering" had
+an even odder gap — a tech with that exact name unlocked only the catapult; it now unlocks the
+trebuchet too. All five slot into the existing `class`/`counters`/`cost` shape with **zero sim
+code changes**: confirmed by grep that `game/siege.ts`'s bombard bonus keys off `unitDef.class ===
+'siege'` generically, not a hardcoded catapult id, so the two new siege units get real siege
+behaviour for free. Deliberately did NOT build the archery-range/stables/siege-workshop buildings
+GDD §6 also names — every unit still recruits at the barracks, the same "v1 simplification" the
+original catapult's own M29 comment already flagged, not a new corner cut this milestone.
+
+Edicts got a smaller, more surgical fix: `edicts.ts`'s `MODIFIER_TARGETS` has named 5 stat paths
+since M32, but only 3 of them had any edict actually using them — `kingdom.taxYield` and
+`kingdom.researchYield` sat completely unused. Two new edicts (Merchant Charters, Scholarly
+Endowment) close that, rather than inventing new mechanism for the GDD's other example edicts
+("Conscription", "Open Borders") that don't map onto anything the closed vocabulary already
+expresses — extending that vocabulary (and wiring the sim to consume a new stat path) is real
+scope, deliberately left for whenever those systems actually need it, not manufactured here to
+pad a roster.
+
+**The T objective — "zero TEMP_/placeholder in release profile"** is where this milestone's
+honesty matters most. M41 already built the actual gate (`packages/tools/src/audio-lint.js
+--release`) with exactly this exit condition in mind (its own module doc says so verbatim: "in
+`--release` mode it becomes the M45 exit gate"). Run now: **12 placeholder audio assets still
+exist (9 cues + 3 playlists), and `--release` mode correctly fails with exit code 1.** That's not
+a bug — no real audio has been produced (there's no sound designer in this process either), so the
+gate SHOULD fail; a passing gate would mean either the mechanism is broken or someone quietly
+deleted the placeholder flag without replacing the asset. The mechanism itself is verified
+correct and will do its job the moment real audio lands, whenever that is (M46-M48, or post-1.0).
+Reporting this as "done" would defeat the entire point of building a lint for it.
+
+Build/lint/all 392 tests/golden replays/save corpus/all three benchmarks stayed green throughout —
+this was purely additive content plus one doc/comment pass, no sim or presentation code touched,
+so no fixture re-recording was needed and there was nothing to verify in-browser (military
+recruitment has no player-facing UI yet — command-injector only, per M27's own scoping note — so
+the new units are exercised only through the same automated DAG-validation/referential-integrity/
+AI-harness tests that already covered the existing roster).
+
+### Localization & PWA polish (M44)
+
+Two independent roadmap threads, both starting from zero infrastructure (confirmed by exhaustive
+grep before writing anything: no i18n table anywhere, no manifest/service-worker file anywhere).
+Both landed as **infrastructure + a proof-of-concept slice**, not exhaustive coverage — this
+codebase's established pattern for milestones with an unbounded surface (M39's mod docs shipped
+one sample mod, not a library of them; M41 shipped placeholder audio, not final tracks).
+
+**Locale core (`packages/core/src/locale.ts`):** `LocalizedText` is a branded string (same
+nominal-typing trick `EntityId`/`InternedId` already use) — a locale KEY, never raw display text,
+so an unconverted literal where a key is expected is a compile error. `formatMessage` is a real
+ICU MessageFormat SUBSET: `{placeholder}` interpolation and `{var, plural, one{} other{}}` only
+(English's two categories) — not gender, not the other CLDR plural categories. `Locale.resolve`
+fails VISIBLE on a missing key (returns the key itself), matching the DSL evaluator's own "never
+throw on bad content" discipline (`game/events.ts`) — a missing translation reads as an odd string
+in the UI, never a blank or a crash.
+
+**`EventDef.text`/choice text converted for real** (doc 06 §11's M33 delta explicitly deferred
+this): `content/base/defs/events/*.json5` now hold locale KEYS
+(`event.<pool>.<slug>.title`/`.body`/`.choice.<id>`), and `content/base/locale/en.json5` holds the
+actual English. Resolution happens server-side, in `simPort.ts`'s catalog projection — the exact
+"sim worker projects `DefinitionDatabase` once" shape `buildings`/`edicts` already use — so the
+`UICatalog` the client receives has always been plain display strings; nothing downstream of that
+projection changed. A curated ~10-key slice of `main.ts` UI-chrome strings (edict buttons, ledger
+labels) converts through a SECOND table (`packages/app/src/locale/en.ts`) the same way, proving
+one `Locale` class serves both content and hand-written presentation code.
+
+**Tooling (`packages/tools/src/locale-*.ts`, `npm run locale:pack` / `locale:pseudo`):** a
+translator-pack extractor (merges both English tables into a sorted key/english/context list) and
+an en-XA pseudo-locale generator (accented + ~30% expansion, doc 10 §6) that carefully preserves
+`{placeholder}`/plural syntax untouched — verified by unit test that a pseudo-localized template
+still resolves correctly through the real `formatMessage`. `?locale=en-XA` on the running app
+swaps BOTH tables end-to-end (verified in-browser: tutorial dialog and the Upgrade-tier button
+both render the accented/expanded text with no overflow at this content length). A new
+`no-restricted-syntax` ESLint rule bans raw `.textContent =`/`.innerText =` literals (2+ letters)
+in `@crowns/ui` — that package turned out to already be clean (its one literal, `'×'`, is a glyph
+the regex correctly ignores), so this is a guardrail against regression, not a fix for a violation.
+
+**Honest gaps:** `main.ts`'s other ~250 literal strings aren't covered by any lint or locale table
+— the curated slice proves the mechanism, it isn't a translation of the app. Mod-layer locale
+merging (doc 09 §6) doesn't exist; only the base locale loads. `AIPersonalityDef.taunts`/
+`voiceSet` stay flat strings (doc 06 §7) — still not rendered anywhere, so still not worth
+converting. The CI en-XA screenshot step proves the pseudo-locale renders; it doesn't pixel-diff
+against a committed baseline (no such tooling exists yet — a real open question, not silently
+dropped).
+
+**PWA shell (`packages/app/public/{manifest.webmanifest,icon.svg,sw.js}`):** hand-rolled, no
+Workbox — the same zero-dependency-by-default posture as the JSON5 parser and combinator
+validators. `sw.js` is cache-first over same-origin GETs with a versioned `CACHE_NAME` (a bump
+swaps the whole cache atomically — "update = new SW + cache swap on next launch," doc 03 §9,
+verbatim). Vite's `publicDir` was `false`; re-enabled pointing at `packages/app/public` so these
+ship in `dist-web` unmodified. Verified in-browser: registers, takes control, and the shell (plus
+every module the dev session actually requested) lands in the cache. A new CI job,
+`pwa-offline-coldstart` (`.github/workflows/ci.yml`), is the real proof: build → serve → visit
+online (populate the cache) → `context.setOffline(true)` → reload → assert the shell still
+renders. Not keyed by content-manifest hashes yet (doc 10's asset pipeline — atlas packer,
+transcode, manifest — hasn't landed; this is the pragmatic slice ahead of it).
+
+**Quota UX (`packages/app/src/saveStore.ts`, doc 11 §3/§4, Risk R6):** `estimateStorage`/
+`requestPersistence`/`isStorageTight`/`pruneAutosaveRing` implement the risk register's own
+mitigation list verbatim — `persist()` requested once per session, quota checked at the same
+cadence as the autosave scheduler (every season boundary), the R6 tripwire (quota <2×usage)
+narrows the autosave ring from `AUTOSAVE_RING`(3) down to 1 and fires a ONE-SHOT
+`storageAdvisory` protocol message the client turns into a toast pointing at the existing export
+button (⇩) — never a second time per session, so it can't nag. Risk R6 is now marked "mitigated as
+designed" in doc 13, not just "planned."
+
+**Phase 6 gate (doc 12's global rule — benchmarks green, save corpus loads, AI harness green,
+design-doc reconciliation, open questions due resolved):** `bench-ecs`/`bench-worldgen`/
+`bench-haul` all comfortably inside doc 11 budgets (haul: 0.6 ms/tick average against a 10 ms
+ceiling); save corpus and all 392 unit/system tests green; the AI harness ran clean as part of
+that same suite; OQ-4 (the only open question due this phase) was already resolved at M39; docs
+above are this milestone's reconciliation pass. **Phase 6 — Product is complete.**
+
+### UI/UX pass 2 (M42)
+
+The formal "legibility audit" doc 13's R10 pre-named this milestone for, run against the ACTUAL
+gap between what the sim can do and what the player could see: a repo-wide grep found zero
+tooltip mechanism (only sparse, mouse-only, unstyleable native `title=`), zero ARIA/focus
+management anywhere, a 3-shortcut ad-hoc keybind surface with no legend, and — the real finding —
+6 of ~10 implemented gameplay systems (military, diplomacy, siege, research, characters, events)
+still have no player UI at all, only the M9 debug injector. This pass closes the tooltip/ledger/
+keybind/accessibility gaps on the systems that already have panels (village/build/kingdom/mods —
+exactly what the SC-1 "30-min competence" playtest exercises); it does NOT add new panels for
+military/diplomacy/siege/research/characters/events — that's real, multi-milestone scope no
+roadmap line past M42 currently claims, called out explicitly rather than silently skipped.
+
+**Tooltips everywhere** (`packages/ui/src/tooltip.ts`, doc 01 §3 "legible depth... every number
+inspectable via tooltips"): one delegated `TooltipController` — `mouseover`/`mouseout` AND
+`focusin`/`focusout` listeners bound once on `document` — replaces native `title=` app-wide via a
+`data-tooltip` attribute convention. Delegation means panels that `body.replaceChildren()` and
+rebuild on every store change (`panels.ts`'s own standing doc comment) never need to re-wire
+anything. Applied to: village tier/joy/food/goods rows, the tax-rate select (self-defeating-curve
+warning), the upgrade button (live progress against `TIER2_REQUIREMENTS`, imported from
+`@crowns/sim` so it can't drift from the real thresholds), every build-palette button (category,
+footprint, tier — and WHY a locked one is locked), and every edict row (full modifier breakdown —
+`CatalogEdict` gained a `modifiers` field so "no hidden modifiers" is literally true for edicts
+now, not just asserted). Verifying this in-browser surfaced a real bug: a naive scroll-hide
+listener fired when the browser auto-scrolled a newly-focused element into view, dismissing a
+keyboard tooltip almost as soon as it appeared — fixed to reposition instead of hide.
+
+**Ledgers everywhere**: `kingdom.rollup`'s daily roll-up system (`packages/sim/src/game/
+kingdom.ts`) now attaches every `LedgerEntry` it records THAT rollup as a `ledger` delta on the
+event — `KingdomLedger.entries()` already existed (M16) but nothing ever surfaced it. `UIStore`
+gained a capped (`LEDGER_LOG_CAP` = 100, same bound `NotificationQueue`'s own log already uses)
+scrollback buffer, rendered as a real itemized income/expense list in the Kingdom panel — GDD §2's
+"Read the Ledger: full income/expense breakdown" literally, for the first time.
+
+**Keybinds**: the 3 scattered, inconsistently-guarded `keydown` listeners this file had (one of
+them — space/digit speed control — had NO text-entry guard at all, meaning typing digits into the
+debug injector's JSON textarea also changed game speed) are now one `KEYBINDS` table + one
+listener, which fixed that latent bug for free. New panel-toggle binds (`V`/`B`/`K`/`M`) and a
+`?`-triggered help overlay (a genuine 5th `PanelHost` panel) double the table as its own
+documentation — discoverability IS legibility (doc 01 §3). Space is explicitly NOT hijacked when
+a `<button>`/`<select>` has focus, since that's its native activate/open key — global shortcuts
+must yield to a focused control's own key handling, not fight it.
+
+**Accessibility** (doc 05 §9 "accessibility hooks: full keyboard operability"): every icon-only
+button gets a real `aria-label` (not just `title`, which many screen readers don't reliably expose
+as the accessible name); toggle buttons (`speed`, `audio mute`, every panel) get `aria-pressed`;
+every panel is a named `role="region"`; the toast host is `aria-live="polite"` with urgent toasts
+individually `role="alert"` for assertive announcement; locked build buttons use `aria-disabled`
+rather than native `disabled` — native `disabled` suppresses BOTH mouse and focus events in most
+browsers, which would have made the "why is this locked" tooltip unreachable for the exact case
+it matters most; `:focus-visible` styling makes keyboard focus visible for the first time anywhere
+in the app. Full keyboard operability of the MAP itself (placing a building by keyboard, not
+click) stays explicitly out of scope — the help overlay says so outright rather than pretending.
+
+The T objective — **UX playtest vs. Vision SC-1** — can't recruit a human tester from here, so it's
+proven the way this project's "playtest" T-objectives have been throughout: a real, hands-on
+browser walkthrough of the early-game loop (found → build → tax → edict → ledger → keybind help),
+checked for console errors and correct ARIA/focus/tooltip behavior at every step. SC-1's own
+wording ("unaided (tutorialised)") acknowledges the tutorial itself is M43 — this pass is the UI
+half of that bar, not the whole of it.
+
+### Audio & music (M41)
+
+The engine gains sound — a genuinely new subsystem: `@crowns/audio`, the ninth workspace package,
+bound by the exact same "speaks only `@crowns/protocol`" boundary `render`/`ui` already live under
+(`eslint.config.js`). Before this milestone the codebase had zero audio anywhere (not even a
+scaffold — grep for `audio`/`music`/`sfx`/`cue` across 40 prior milestones turns up one doc-comment
+anticipating it as a future Event Bus subscriber, `packages/protocol/src/events.ts`).
+
+**Cue table & playlists are real content** (`packages/data/src/audio.ts`, doc 10 §3): `AudioCueDef`
+(GameEvent type → a synthesized SFX blip) and `MusicPlaylistDef` (tension state, optionally
+era/season-scoped, per doc 10's "playlist defs per era/season/tension state") join `TERRAIN_KINDS`
+the same mechanical way every content-adding milestone since M32 has (new validator, new
+`DefinitionDatabase` map, new integrity check, new `content/base/defs/` folder) — moddable for free,
+doc 09's whole point. `gain` (normalized 0..1) is the **loudness-lint gate**: a v1 stand-in for doc
+10's −16 LUFS build target, enforced at content load like every other numeric field AND by a
+dedicated test (`packages/data/src/data.test.ts`) asserting the whole shipped roster — 9 cues, 3
+playlists — sits inside the safe band, the roadmap's own "loudness lints" T objective by name.
+
+**Tension state is pure and fully unit-tested** (`packages/audio/src/tension.ts`, doc 05 §8: "tension
+from war/unrest events with hysteresis"): a single `heat` scalar rises on weighted war/unrest
+GameEvents (`siege.begun`, `battle.resolved`, `diplomacy.warDeclared`, `village.starving`, …) and
+decays linearly over elapsed ticks; `TensionState` (`calm`/`tense`/`combat`) only changes when heat
+crosses a band's `enter` threshold going up or the SAME band's lower `exit` threshold going down —
+the hysteresis margin doc 05 §8 asks for. Zero `AudioContext`, zero timers — the roadmap's "tension-
+state transitions" T objective is 8 dedicated Node tests, including the flap-proofing case
+(heat parked between a band's exit and enter thresholds must not bounce state) and a large-decay
+case (must cascade through each intermediate band's own exit check, never skip straight to calm).
+
+**Mixing & playback** (`packages/audio/src/{mixer,synth,audioDirector}.ts`, doc 05 §8): a real Web
+Audio graph — three independently-volumed `GainNode` buses (music/worldSfx/uiSfx) under one master
+mute gain. `synth.ts` is the placeholder generator doc 10 §3 asks for ("synthesised blips per cue
+category ... generated bank") — but generated at RUNTIME rather than checked in as files, since no
+binary asset pipeline exists yet for ANY content kind (not even sprites — doc 10 §1's own generator
+is unbuilt); this keeps the "swap a placeholder for final art is a file swap, zero code change"
+doctrine intact with zero binary assets and zero determinism risk (audio never touches sim state —
+TDD §3). `AudioDirector.push(event)` is the audio-side mirror of `NotificationQueue.push` — wired
+into `packages/app/src/main.ts`'s existing `ticked` event loop beside `notifications.push`, one line,
+no new plumbing.
+
+**Placeholder purge plan**: `node packages/tools/dist/audio-lint.js [--release]`
+(`packages/tools/src/audio-lint.ts`) scans the merged content for `placeholder: true` cues/playlists
+— warns in dev (today: all 12, honestly), fails in `--release` mode. This is the literal doc 10 §3
+"build warns if TEMP_ assets remain at release profile" mechanism, ready to be M45's exit gate
+("zero TEMP_/placeholder in release profile", doc 12) the moment real audio ships.
+
+**Deliberately out of scope**: positional attenuation from camera distance (doc 05 §8) — every cue
+plays at its authored gain regardless of distance, a real addition once world SFX cues exist in
+numbers where it'd matter, not a rewrite. A real Asset Manager (doc 05 §12) stays unbuilt — nothing
+needs one until real binary audio (or sprite) assets actually ship.
+
+### Sandbox mode & editor (M40)
+
+The toybox GDD §17 promises, built strictly on top of what's already in the live single-kingdom
+demo — no new subsystem, no bypassed rulebook. **World-creation toggle:** since no "new game"
+screen exists yet (the demo seed itself isn't player-chosen either), `?sandbox=1&ironman=1` on the
+URL is today's world-creation surface (`packages/app/src/main.ts`), threaded through
+`ToSimMessage.init`'s new `sandbox?: {ironman?}` field into `composeTerra`'s new `SandboxOptions`
+param (`packages/app/src/terra.ts`) — a real, if minimal, front end for the flag; the mechanism
+underneath doesn't care how it's set. **Privileged commands** (GDD §17: "kept in the input log →
+still deterministic and save-compatible") are ordinary `kernel.registerCommand` entries gated by a
+`sandboxEnabled` flag threaded into `registerVillageGameplay`/`registerKingdomGameplay` as a new
+optional parameter (defaults `false` — every existing composition and test is untouched): `sandbox.
+grantResource` (villages.ts, tops up a village's stockpile — the Stockpile object-component
+mutation `reserveCost` already established), `sandbox.setTreasury` (kingdom.ts, writes `Kingdom.
+treasury` directly via the existing `kingdomForIssuer` resolver), and `sandbox.editTerrain`
+(terra.ts — the only module with `worldDef` in scope — a **land-only** biome repaint, Ocean/Coast
+excluded in both directions so `worldDef.stats.landFraction` never needs touching; `biomeCounts`
+bookkeeping updates in place, which the M8 `worldgen` hash source already reads live, so an edit
+folds into replay hashes with zero new hash source). Off-sandbox, every `sandbox.*` command still
+rejects by name through the same `village.rejected` convention every other domain uses — privilege
+is enforced at the command handler, not just hidden in the UI (this codebase's long-standing "no
+cheating, one rulebook" bar, same reasoning M11's placement validator states).
+
+**Editor palette "reuses M9"** literally: no new panel. `simPort.ts`'s `debug op:'commands'`
+handler now filters `sandbox.*` out of the injector's vocabulary entirely when the session isn't
+sandboxed (a doomed-to-reject command shouldn't even be listed), and a small `🧪 SANDBOX EDITOR`
+badge appears in the M9 debug panel when it is (`index.html`'s `#dbg-sandbox-badge`) — the entire
+UI-effort footprint GDD §17's own "capped" instruction asks for. `sandbox.editTerrain` piggybacks
+the renderer's existing M8 `ChunkTracker.invalidateTile` for the visual rebake — no new rendering
+path.
+
+**Save flagging** (doc 06 §13, finally real): `CampaignSaveHeader` gains `sandbox`/`ironman`
+booleans, `SaveManager.setSandboxFlags`/`getSandboxFlags` mirroring M39's `modManifest` plumbing
+exactly. `ironman` is recorded, not yet enforced — no mid-campaign difficulty-change command exists
+to lock (doc 14 OQ-8's own M38 note already flagged this as unbuilt; M40 doesn't change that).
+
+**Deliberately NOT wired this milestone** (none of it is named in the roadmap's M40 line, and each
+would be real scope of its own): victory/defeat tracking (`game/victory.ts`, built M37, tested
+standalone, still never composed into the live single-kingdom demo — GDD §17's "disables defeat
+and (optionally) victory" stays aspirational until that composition gap closes, a PRE-EXISTING gap
+this milestone didn't create and isn't chartered to fix); "spawn units" (Military isn't wired into
+`composeTerra` either — no barracks in the demo); "trigger any event" (Events isn't wired in);
+"possess an AI kingdom" (no second kingdom exists in a single-kingdom composition — meaningless
+without M22's `kingdomCount > 1` AND a UI for it). "Spawn a building" needs no new command at all:
+`sandbox.grantResource` then the ordinary `village.build` achieves it through the one
+already-validated placement rulebook, deliberately not a second bypass path.
+
+The T objective — **editor ops replay deterministically** — is proven the same way every other
+milestone's determinism claim is: `packages/app/src/sandbox.test.ts` runs an identical sandboxed
+session twice, submitting the same `sandbox.grantResource`/`sandbox.setTreasury`/`sandbox.
+editTerrain` sequence, and asserts `kernel.stateHash()` matches exactly — plus coverage that the
+vocabulary is hidden and every command rejects outside a sandboxed session in the first place.
+
+### Modding v1 complete (M39) — Phase 6 begins: product
+
+Modding closes the loop from "the base game is Mod Zero" (doc 09 §0) to a third party actually
+being able to ship one. Three real gaps, all that was left after M10's loader/patch/override
+pipeline: an in-game **Mods screen** (`packages/app/src/main.ts`'s 🧩 panel), **save↔mod
+reconciliation** (OQ-4), and a **modding docs site** (`docs/modding/`) written for third-party
+authors rather than engine contributors.
+
+**Mods screen:** lists every mod bundled with the current build (base + `content/examples/*`),
+lets the player check/uncheck and ↑/↓-reorder, and Apply recomposes the campaign at the same seed
+(`ToSimMessage.setMods` → `composeTerra`'s new `ModSelection` param → `DefinitionDatabase.loadMods`)
+— then renders the SAME `LoadReport` `mod-check.js` has always printed (order, disabled-with-
+reasons, overrides-with-winner, patched-by) live in the panel. A real "installed mod library"
+(IndexedDB import, File System Access folders) stays the doc 09 §8 Post-1.0 candidate it always
+was — this milestone proves ordering/conflicts/reconciliation end-to-end against the mods actually
+compiled into a build, which is the whole mechanism a library would sit on top of later.
+
+**Save↔mod reconciliation (OQ-4 — ratified recommendation, shipped as written):**
+`packages/data/src/mods.ts`'s `LoadReport` gained a `manifest: {modId, version, hash}[]` (hash =
+`fnv1a32` over every enabled layer's sorted file contents — catches a rebalance that edits a def
+without bumping `version`), embedded in every save's header
+(`packages/sim/src/persistence.ts`'s `SaveManager.setModManifest`, doc 06 §13's `modManifest`
+field, finally real). `reconcileModManifest` is a PURE comparison (missing / added / versionChanged
+/ contentChanged) — best-effort, never a gate: `SaveManager.hydrate` doesn't consult it, doesn't
+block. The ratified "hard-block only on missing def kinds or failed referential integrity" was
+never a new mechanism to write — it's the pre-existing content-validation fatal path (doc 09 §3)
+that already refuses a broken campaign, entirely independent of mod-set reconciliation. The
+"automatic pre-load backup export": `simPort.ts`'s `loadFromPayload` downloads the untouched save
+payload the instant reconciliation finds anything, before hydrate runs.
+
+**Docs site (`docs/modding/`):** six documents (getting started, manifest reference, a full field
+table per def kind, patches vs. overrides, load order & the Mods screen, validation &
+troubleshooting) aimed at someone who has never opened this repo's engine source. Writing it
+surfaced a real bug in the ORIGINAL design doc: doc 09 §6's own patch example (`cost.resources.
+base:stone`) doesn't match the shipped `BuildingDef.cost` shape (a flat `Record`, doc 06 §2) — and
+the patch op's dot-path navigation can't address a map key containing a `.`, which every content id
+does. Doc 09 is corrected; the modding docs document the real limitation instead of the aspirational
+example.
+
+**The T objective — sample third-party mod built from docs alone:**
+`content/examples/march-wardens/` was authored using ONLY `docs/modding/*` (no engine source
+read while writing it) — a new building def (proving "add content" works) plus a patch to
+`base:terrain.forest` that lands on the exact def `example:autumn-realm` already patches, on
+purpose, with `loadAfter` declaring the ordering: `packages/data/src/mods.test.ts` proves both
+mods' patches compose (`patched base:terrain.forest by example:autumn-realm, frontier:march-
+wardens`) rather than one silently overwriting the other — real evidence the conflicts/ordering
+system a third party actually depends on works, not just a loader unit test.
+
+**Scripting (OQ-3), closed:** the formal ≥90%-expressiveness measurement M28 deferred to M32–M33
+is done — all 10 def kinds, every content-breadth milestone through M38 (72 techs, 18 events
+across all 6 pools, traits, 7 personalities), 100% JSON5/DSL, zero `scripts/` directory anywhere.
+DSL-only is confirmed for 1.0; no scripting sandbox is built or planned pre-1.0 (doc 14 OQ-3).
 
 ### Difficulty system (M38) — Phase 5 complete: depth
 

@@ -59,7 +59,15 @@ function handleFromSim(message: FromSimMessage): void {
   }
 }
 
-send({ kind: 'init', seed });
+// M47.6 (doc 12 R1 T objective "full campaign boots headless AND in browser"):
+// `--campaign` boots the unified multi-kingdom composition through the exact
+// worker code path (createSession → composeCampaignForApp), default settings.
+const CAMPAIGN = process.argv.includes('--campaign');
+send({
+  kind: 'init',
+  seed,
+  ...(CAMPAIGN ? { campaign: { mapSize: 'medium' as const, kingdomCount: 4, difficulty: 'fair' as const } } : {}),
+});
 send({ kind: 'submit', drafts: [{ type: 'demo.hello', issuer: 1, payload: {} }] }); // exercises rejection path
 send({ kind: 'step', ticks: days * TICKS_PER_DAY });
 send({ kind: 'requestHash' });

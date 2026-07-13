@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { satisfies, parseVersion, compareVersions } from './semver.js';
-import { resolveLoadOrder, loadModLayers, type ModManifest, type ModSource } from './mods.js';
+import { resolveLoadOrder, loadModLayers, parseModManifestPreview, type ModManifest, type ModSource } from './mods.js';
 import { DefinitionDatabase, TERRAIN_KINDS } from './terrain.js';
 import { BASE_CONTENT_FILES } from './generated/base-content.js';
 
@@ -183,6 +183,65 @@ test('loadModLayers: generic kinds API round-trips', () => {
   const { defs } = loadModLayers([{ files: BASE_CONTENT_FILES }], TERRAIN_KINDS);
   assert.equal((defs.get('terrain') as Map<string, unknown>).size, 10);
   assert.equal((defs.get('overlay') as Map<string, unknown>).size, 2);
+});
+
+// ---------------- manifest (M39; doc 09 §5 save embedding) ----------------
+
+test('manifest: one entry per enabled layer, in order, with a stable content hash', () => {
+  const patcher = modFiles('tint', {
+    'patches/forest.json5': `[{ "patch": "base:terrain.forest", "ops": [{ "set": "defenseBonus", "value": 0.3 }] }]`,
+  });
+  const { report } = DefinitionDatabase.loadMods([{ files: BASE_CONTENT_FILES }, patcher]);
+  assert.deepEqual(report.manifest.map((m) => m.modId), ['base', 'tint']);
+  const tint = report.manifest.find((m) => m.modId === 'tint');
+  assert.equal(tint?.version, '1.0.0');
+  assert.equal(typeof tint?.hash, 'number');
+
+  // same files, same hash — content hashing is deterministic, not run-order dependent
+  const { report: again } = DefinitionDatabase.loadMods([{ files: BASE_CONTENT_FILES }, patcher]);
+  assert.equal(again.manifest.find((m) => m.modId === 'tint')?.hash, tint?.hash);
+
+  // editing a file (a "rebalance" that doesn't bump version) changes the hash
+  const rebalanced = modFiles('tint', {
+    'patches/forest.json5': `[{ "patch": "base:terrain.forest", "ops": [{ "set": "defenseBonus", "value": 0.9 }] }]`,
+  });
+  const { report: changed } = DefinitionDatabase.loadMods([{ files: BASE_CONTENT_FILES }, rebalanced]);
+  assert.notEqual(changed.manifest.find((m) => m.modId === 'tint')?.hash, tint?.hash);
+});
+
+test('parseModManifestPreview: identifies a mod without running the full pipeline; null on garbage', () => {
+  const preview = parseModManifestPreview(modFiles('preview-me', {}).files);
+  assert.deepEqual(preview, { id: 'preview-me', name: 'preview-me', version: '1.0.0', tags: [] });
+  assert.equal(parseModManifestPreview({}), null, 'no mod.json5');
+  assert.equal(parseModManifestPreview({ 'mod.json5': '{ not json5 ]' }), null, 'malformed');
+});
+
+// ---------------- shipped sample third-party mod (M39 T objective) ----------------
+
+test('example mod: march-wardens (third-party, authored from docs/modding/* alone) stacks with autumn-realm', async () => {
+  const { EXAMPLE_MOD_FILES } = await import('./generated/base-content.js');
+  const autumn = EXAMPLE_MOD_FILES['autumn-realm'];
+  const wardens = EXAMPLE_MOD_FILES['march-wardens'];
+  assert.ok(autumn !== undefined && wardens !== undefined, 'both example mods embedded');
+  const { db, report } = DefinitionDatabase.loadMods([
+    { files: BASE_CONTENT_FILES },
+    { files: autumn },
+    { files: wardens },
+  ]);
+  assert.deepEqual(report.order, ['base', 'example:autumn-realm', 'frontier:march-wardens'], 'loadAfter honored');
+  assert.equal(report.disabled.length, 0);
+
+  // new content (doc 03): a building neither base nor autumn-realm defines
+  assert.ok(db.buildings.has('frontier:building.watchtower'));
+
+  // both third-party mods patch the SAME def, different fields — composes, doesn't collide (doc 04/05)
+  const forestPatchers = report.patched.find((p) => p.defId === 'base:terrain.forest');
+  assert.deepEqual(forestPatchers?.by, ['example:autumn-realm', 'frontier:march-wardens']);
+  const forest = db.terrainById.get('base:terrain.forest');
+  assert.equal(forest?.defenseBonus, 0.2, "march-wardens' patch applied");
+  assert.ok(forest?.tags.includes('example:autumnal') && forest.tags.includes('frontier:watched'), 'both patches’ tags present');
+
+  assert.equal(report.manifest.length, 3);
 });
 
 // ---------------- shipped example mod stays loadable (living documentation) ----------------

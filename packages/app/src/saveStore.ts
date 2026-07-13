@@ -57,3 +57,52 @@ export async function listSlots(): Promise<string[]> {
 export async function deleteSlot(slot: string): Promise<void> {
   await withStore('readwrite', (s) => s.delete(slot));
 }
+
+// ---------------------------------------------------------------- quota (roadmap M44; doc 11 §3/§4)
+
+export interface StorageEstimate {
+  readonly usageBytes: number;
+  readonly quotaBytes: number;
+}
+
+/** `null` when the Storage API (or `estimate()`) isn't available — older browsers, or a worker
+ * context without it — never throws; callers treat `null` as "can't tell, don't advise." */
+export async function estimateStorage(): Promise<StorageEstimate | null> {
+  if (typeof navigator === 'undefined' || navigator.storage?.estimate === undefined) return null;
+  const { usage, quota } = await navigator.storage.estimate();
+  if (usage === undefined || quota === undefined) return null;
+  return { usageBytes: usage, quotaBytes: quota };
+}
+
+/** Best-effort request for durable (non-evictable) storage — browsers may grant or deny silently
+ * per their own heuristics (engagement, install state); `false` covers both "denied" and
+ * "unsupported," which callers don't need to tell apart (doc 11 §4 mitigation list). */
+export async function requestPersistence(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || navigator.storage?.persist === undefined) return false;
+  return navigator.storage.persist();
+}
+
+/** Risk R6's tripwire, verbatim: "quota estimate <2× current footprint." Remaining headroom
+ * (quota − usage) smaller than the footprint already consumed means growth has nowhere near
+ * double left to go before eviction risk becomes real. */
+export function isStorageTight(estimate: StorageEstimate): boolean {
+  return estimate.quotaBytes < estimate.usageBytes * 2;
+}
+
+/** Pure predicate: which of `slots` fall outside a ring narrowed to `maxSlots` — numbered
+ * autosave slots only (`autosave-N`), manual/named slots are never touched. Split out from
+ * `pruneAutosaveRing` so the selection logic is unit-testable without a real IndexedDB. */
+export function slotsToPrune(slots: readonly string[], maxSlots: number): string[] {
+  return slots.filter((slot) => {
+    const match = /^autosave-(\d+)$/.exec(slot);
+    return match !== null && Number(match[1]) >= maxSlots;
+  });
+}
+
+/** Shrinks the autosave ring to `maxSlots` by deleting any numbered slot at or beyond it — the
+ * "managed ring" doc 11 §3 calls for, upgrading AUTOSAVE_RING's fixed round-robin overwrite into
+ * one that actively narrows under real storage pressure instead of just holding steady at 3. */
+export async function pruneAutosaveRing(maxSlots: number): Promise<void> {
+  const doomed = slotsToPrune(await listSlots(), maxSlots);
+  await Promise.all(doomed.map((slot) => deleteSlot(slot)));
+}

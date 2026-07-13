@@ -1,0 +1,36 @@
+// Music playlists (roadmap M41; doc 10 §3): one per tension state, era/season
+// omitted (any) — a v1 simplification, same "nominal value" precedent M23's
+// pactValue and M37's prestige weights already use; era/season-scoped
+// playlists are additive later (doc 09 §8), not a rewrite. `trackIds` name
+// @crowns/audio's generative placeholder patterns, not real files — doc 10
+// §3's "4 royalty-free temp tracks, tagged TEMP_" stands in for as
+// `placeholder: true` (see cues/core.json5's module note for why).
+[
+  {
+    "id": "base:playlist.calm",
+    "name": "Calm",
+    "tension": "calm",
+    "gain": 0.35,
+    "trackIds": ["pastoral-a", "pastoral-b"],
+    "placeholder": true,
+    "tags": ["ambient"],
+  },
+  {
+    "id": "base:playlist.tense",
+    "name": "Tense",
+    "tension": "tense",
+    "gain": 0.4,
+    "trackIds": ["unease-a"],
+    "placeholder": true,
+    "tags": ["ambient"],
+  },
+  {
+    "id": "base:playlist.combat",
+    "name": "Combat",
+    "tension": "combat",
+    "gain": 0.5,
+    "trackIds": ["war-drums-a"],
+    "placeholder": true,
+    "tags": ["combat"],
+  },
+]

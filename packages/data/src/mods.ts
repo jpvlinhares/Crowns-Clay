@@ -11,6 +11,7 @@
  * problems in the merged result are FATAL with mod-prefixed file paths — a
  * broken content set must never half-load into a campaign (doc 09 §3).
  */
+import { fnv1a32 } from '@crowns/core';
 import { parseJson5Subset, v, formatErrors, type ValidationError, type Validator } from './validate.js';
 import { satisfies } from './semver.js';
 
@@ -128,6 +129,16 @@ export interface DefKindSpec<T> {
 
 // ---------------------------------------------------------------- loading
 
+/** Per-layer identity for save embedding & reconciliation (doc 09 §5, OQ-4). */
+export interface ModManifestEntry {
+  readonly modId: string;
+  readonly version: string;
+  /** fnv1a32 over every enabled layer file's contents, sorted by path — a
+   *  cheap content fingerprint that changes when a rebalance edits a def
+   *  without bumping `version` (doc 06 §13's `hash` field). */
+  readonly hash: number;
+}
+
 export interface LoadReport {
   /** Final enabled layer order. */
   readonly order: string[];
@@ -135,6 +146,30 @@ export interface LoadReport {
   /** Def ids provided by ≥2 layers, with the winning layer (doc 09 §6). */
   readonly overrides: { readonly defId: string; readonly layers: string[]; readonly winner: string }[];
   readonly patched: { readonly defId: string; readonly by: string[] }[];
+  /** Identity of every enabled layer, in `order` — embedded in saves (doc 09 §5). */
+  readonly manifest: ModManifestEntry[];
+}
+
+/**
+ * Preview a mod's identity (id/name/version/tags) without running the full
+ * enablement/order/merge pipeline — for a Mods screen listing candidates
+ * before they're selected (roadmap M39). Returns null on a missing or
+ * malformed manifest rather than throwing: a listing UI shows it disabled,
+ * loadModLayers still reports the precise reason if the mod is enabled.
+ */
+export function parseModManifestPreview(
+  files: Readonly<Record<string, string>>,
+): { readonly id: string; readonly name: string; readonly version: string; readonly tags: readonly string[] } | null {
+  const raw = files['mod.json5'];
+  if (raw === undefined) return null;
+  try {
+    const errors: ValidationError[] = [];
+    const manifest = manifestValidator(parseJson5Subset('mod.json5', raw), '', errors, 'mod.json5');
+    if (errors.length > 0) return null;
+    return { id: manifest.id, name: manifest.name, version: manifest.version, tags: manifest.tags ?? [] };
+  } catch {
+    return null;
+  }
 }
 
 interface RawDef {
@@ -363,6 +398,12 @@ export function loadModLayers<TKinds extends readonly DefKindSpec<unknown>[]>(
       if (raw.patchedBy.length > 0) patched.push({ defId, by: [...raw.patchedBy] });
     }
   }
+  const manifestById = new Map(manifests.map((m) => [m.id, m]));
+  const manifest: ModManifestEntry[] = order.map((id) => {
+    const files = (sourceById.get(id) as ModSource).files;
+    const content = Object.keys(files).sort().map((path) => `${path}\n${files[path] as string}`).join(' ');
+    return { modId: id, version: (manifestById.get(id) as ModManifest).version, hash: fnv1a32(content) };
+  });
   return {
     defs,
     report: {
@@ -373,6 +414,7 @@ export function loadModLayers<TKinds extends readonly DefKindSpec<unknown>[]>(
       ],
       overrides,
       patched,
+      manifest,
     },
   };
 }

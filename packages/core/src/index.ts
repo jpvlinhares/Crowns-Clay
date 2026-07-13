@@ -11,3 +11,11 @@ export {
 export { clamp, lerp, remap, manhattan, chebyshev, gridIndex, inBounds, type Point } from './math.js';
 export { iterSortedNumeric, iterSortedLex, StableMap } from './ordered.js';
 export { invariant, InvariantViolation } from './invariant.js';
+export {
+  Locale,
+  localeKey,
+  formatMessage,
+  type LocalizedText,
+  type LocaleTable,
+  type FormatParams,
+} from './locale.js';

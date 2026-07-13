@@ -57,6 +57,8 @@ export interface PersonalityWeights {
   readonly aggression?: number; // 0..1
   /** How readily this kingdom invests in research over other priorities (M32); optional, defaults to 0.5. */
   readonly tech?: number; // 0..1
+  /** How slowly grudges fade (M47.8; doc 07 §7 `grudgeRetention`); optional, defaults to 0.5. */
+  readonly grudgeRetention?: number; // 0..1
   /** Per-`PlanArchetype.id` utility multiplier (M36; ai/personality.ts's `toPlannerWeights`
    * carries an `AIPersonalityDef.planBiases` here) — optional, defaults to 1 (no change) for
    * every archetype, so every pre-M36 caller's behaviour is untouched. */
@@ -83,6 +85,7 @@ export interface Considerations {
   readonly militaryStrength: number; // 0..1: own committed troops, normalised (M30)
   readonly relativeAdvantage: number; // 0..1: own strength vs. the strongest known rival's (M30); 0 if none known
   readonly researchOpportunity: number; // 0..1: how much of the tech tree is left to research (M32)
+  readonly grievance: number; // 0..1: heaviest decayed grudge held (M47.8; doc 07 §7) — 0 without diplomacy memory
 }
 
 const CRISIS_FOOD_SECURITY = 0.6;
@@ -100,6 +103,9 @@ export interface AiDiplomacyContext {
   /** Dense kingdom index (0..n-1) for a target — the `targetKingdom` field diplomacy.ts's
    * commands expect. */
   kingdomIndexOf(target: EntityId): number;
+  /** M47.8 (doc 07 §7, finally CONSUMED): the heaviest decayed grudge this kingdom holds —
+   * fuels `PunitiveRaid`. Optional and additive; omitted ⇒ grievance stays 0 (inert). */
+  strongestGrudge?(): { readonly target: EntityId; readonly weight: number } | null;
 }
 
 /** Military context (M30) a planner reads to score `MilitaryBuildup`/`ConquestWar` — optional
@@ -188,6 +194,8 @@ export function computeConsiderations(
     militaryStrength,
     relativeAdvantage,
     researchOpportunity,
+    // inert default 0: no diplomacy memory wired in ⇒ nothing to avenge (M20-M46 tests unchanged)
+    grievance: clamp01(diplomacy?.strongestGrudge?.()?.weight ?? 0),
   };
 }
 
@@ -248,8 +256,17 @@ const techRace: PlanArchetype = {
   utility: (c, w) => clamp01((w.tech ?? 0.5) * c.researchOpportunity * c.economyStrength),
 };
 
+/** M47.8 (doc 07 §7 "PunitiveRaid targets whoever wronged us" — memory finally consumed):
+ * fires on a real, decayed grudge, discounted while too weak to act on it. Inert (`grievance`
+ * always 0) without a diplomacy context exposing `strongestGrudge` — every pre-M47.8 test
+ * unchanged. Target selection is the military manager's job (`grudgeTarget`), like ConquestWar. */
+const punitiveRaid: PlanArchetype = {
+  id: 'PunitiveRaid',
+  utility: (c, w) => clamp01((w.aggression ?? 0.5) * c.grievance * (0.3 + 0.7 * c.militaryStrength)),
+};
+
 export const DEFAULT_PLAN_ARCHETYPES: readonly PlanArchetype[] = [
-  developHeartland, expandSettle, recover, forgeAlliance, militaryBuildup, conquestWar, techRace,
+  developHeartland, expandSettle, recover, forgeAlliance, militaryBuildup, conquestWar, techRace, punitiveRaid,
 ];
 
 // ---------------------------------------------------------------- construction bridge

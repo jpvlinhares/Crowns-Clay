@@ -110,6 +110,24 @@ export class SiegeState {
       fold(s.assaultEngagementArmy);
     }
   }
+
+  /** Save/restore (M47.6): `begin()` re-links both index maps, then the mutable
+   * progress fields are copied over — same shape as CombatState's own pair. */
+  save(): { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number }[] {
+    return this.all().map((s) => ({ ...s }));
+  }
+
+  restore(data: readonly { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number }[]): void {
+    this.byCastle.clear();
+    this.byArmy.clear();
+    for (const d of data) {
+      const s = this.begin(d.castle, d.attackerArmy, d.attackerKingdom);
+      s.targetBuilding = d.targetBuilding;
+      s.breaches = d.breaches;
+      s.daysStarving = d.daysStarving;
+      s.assaultEngagementArmy = d.assaultEngagementArmy;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- gameplay

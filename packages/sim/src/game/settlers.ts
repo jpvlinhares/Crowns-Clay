@@ -116,12 +116,26 @@ export type SettlerPartyComponent = SoAComponent<{
   progress: 'f64';
 }>;
 
+/** M47.8: the owner a settler-founded village inherits from its source village. */
+export interface FoundingOwner {
+  readonly component: SoAComponent<{ kingdom: 'eid' }>;
+  readonly kingdomId: EntityId;
+}
+export type FoundingOwnerResolver = (sourceVillageIndex: number) => FoundingOwner | undefined;
+
 export interface SettlerGameplay {
   readonly SettlerParty: SettlerPartyComponent;
   readonly SettlerCargo: ObjectComponent<Map<number, number>>;
   readonly SettlerName: ObjectComponent<string>;
   /** Total people across every village and walking party (conservation tests). */
   totalPopulation(): number;
+  /**
+   * M47.8 (doc 12 R1 "multi-village AI"): settler-founded villages inherit their source's
+   * OWNER. The kingdom module registers after this one, so ownership arrives as a late-bound
+   * hook plus a mutable access extension — the exact `registerCharacterExtension` precedent
+   * kingdom.ts documents (a later module extends an earlier system's declared writes).
+   */
+  setFoundingOwner(resolver: FoundingOwnerResolver, ownerComponent: SoAComponent<{ kingdom: 'eid' }>): void;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -231,16 +245,21 @@ export function registerSettlerGameplay(
   );
 
   // ---------------- movement: parties walk, found or return ----------------
+  // M47.8: `moveWrites` stays a LIVE array reference — setFoundingOwner appends the
+  // late-defined VillageOwner component so founding-with-owner passes the access guard
+  // (same mutable-declaration mechanism as kingdom.ts's registerCharacterExtension).
+  let foundingOwner: FoundingOwnerResolver | null = null;
+  const moveWrites = [
+    SettlerParty, SettlerCargo, SettlerName, Position, logi.HaulerPath,
+    // arrival founding spawns a village + centre and fires subscriptions:
+    VillageCore, VillageName, Stockpile, BuildingCore,
+    Population, econ.StockLimits, econ.BuildingInventory,
+  ];
   const movement: SimSystem = {
     name: 'settler-move',
     period: 1,
     access: {
-      writes: [
-        SettlerParty, SettlerCargo, SettlerName, Position, logi.HaulerPath,
-        // arrival founding spawns a village + centre and fires subscriptions:
-        VillageCore, VillageName, Stockpile, BuildingCore,
-        Population, econ.StockLimits, econ.BuildingInventory,
-      ],
+      writes: moveWrites,
     },
     update(ctx: TickContext): void {
       const s = world.write(SettlerParty);
@@ -297,7 +316,13 @@ export function registerSettlerGameplay(
           return;
         }
 
-        // at the target: found through the ONE rulebook — validated again
+        // at the target: found through the ONE rulebook — validated again.
+        // M47.8: the new village flies its source's banner (owner resolved NOW, not at
+        // dispatch — if the source fell mid-march, the party founds unowned, a refugee
+        // village; doc 08 §5's migration rules can adopt it later).
+        const owner = world.isAlive(s.source[pi] as unknown as EntityId)
+          ? foundingOwner?.(index(s.source[pi] as number))
+          : undefined;
         const founded = game.ops.found(
           ctx,
           s.targetX[pi] as number,
@@ -305,6 +330,7 @@ export function registerSettlerGameplay(
           names.tryGet(pi) ?? 'Newholm',
           cargo,
           party_,
+          owner,
         );
         if (typeof founded === 'string') {
           // site lost en route: turn the party around
@@ -386,6 +412,10 @@ export function registerSettlerGameplay(
     SettlerParty,
     SettlerCargo,
     SettlerName,
+    setFoundingOwner(resolver: FoundingOwnerResolver, ownerComponent: SoAComponent<{ kingdom: 'eid' }>): void {
+      foundingOwner = resolver;
+      if (!moveWrites.some((c) => c === (ownerComponent as unknown))) moveWrites.push(ownerComponent as never);
+    },
     totalPopulation(): number {
       let total = 0;
       const pop = world.read(Population);

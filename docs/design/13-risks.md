@@ -12,6 +12,10 @@ logs + "why?" inspector from day one; AI harness with behavioural fingerprints b
 so every later system lands on a regression net; capability tiers mean the competence bar is Fair,
 not Brutal; template-based castle/settlement planning avoids open-ended solvers (doc 07 §5).
 **Tripwire:** harness survival/growth stats trending down two nights running blocks feature merges.
+**M47.8/M47.9 status:** the real-composition matrix (`bench-balance --real`) is now the live
+mitigation — it caught three shipping-composition AI failures (no discovery, nameplate-fed
+starvation, a degenerate victory race) invisible to every flat-terrain test, and now gates the
+R1 T objectives (no peacetime starvation · wars start and end · ≥2 organic victory types).
 
 ## R2 — Simulation performance at scale (L: M · I: H)
 
@@ -52,6 +56,11 @@ Quota ceilings; Safari eviction of "unused" origin data can delete saves.
 pruning; aggressive, friendly **export-to-file UX** (single-file saves, doc 06 §13) surfaced at
 season autosaves and ironman; docs set expectation that file export is the durable copy.
 **Tripwire:** quota estimate <2× current footprint triggers in-game advisory.
+**M44 status: mitigated as designed.** `saveStore.ts`'s `isStorageTight`/`estimateStorage`/
+`requestPersistence`/`pruneAutosaveRing` implement the tripwire, persistence request, and ring
+narrowing; `simPort.ts` checks at every autosave and fires a one-shot `storageAdvisory` the client
+turns into a toast pointing at the export button. Not yet built: a dedicated settings/storage
+screen (today it's advisory-only, no player-initiated "check my storage" affordance).
 
 ## R7 — Determinism drift across browsers/updates (L: M · I: H)
 
@@ -84,3 +93,17 @@ Grand-strategy UIs sink teams; illegible UI voids the "legibility" pillar.
 a dedicated second pass with a formal legibility audit (M42); inspector-first development means
 every datum already has a surface before bespoke UI exists.
 **Tripwire:** UX playtest failures against Vision SC-1.
+
+**M42 delta:** the second pass landed — tooltips (`packages/ui/src/tooltip.ts`), an itemized
+ledger view, a centralized+documented keybind table, and a first accessibility pass (ARIA labels,
+`aria-pressed`, `aria-live` toasts, `:focus-visible`) — see README's M42 section for the full
+list. Scoped to the panels SC-1's early-game loop actually exercises (village/build/kingdom/mods);
+military/diplomacy/siege/research/characters/events remain debug-injector-only — a real, named gap
+this pass didn't create and wasn't chartered to close (no later roadmap milestone claims it either
+— worth a design-owner decision, not a silent assumption).
+
+**M47.7 delta (doc 12 R1):** the design-owner decision arrived — R1's M47.7 chartered exactly
+this gap, and four of the six systems now have real player panels (Diplomacy/Military/Research/
+Victory, plus siege actions inside Military, a war-report log, and a campaign end screen), fed
+by a fog-gated `PlayerPanels` projection. Events got their dialog at M43. Characters remain
+debug-only pending M47.9's ADR (proposed: cut from 1.0).

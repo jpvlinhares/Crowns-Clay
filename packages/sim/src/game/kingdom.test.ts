@@ -34,7 +34,7 @@ const plain: TerrainAccessor = {
   movementCostAt: () => 1,
 };
 
-function makeKingdom(options: { seed?: number; farms?: number; houses?: number; food?: number } = {}) {
+function makeKingdom(options: { seed?: number; farms?: number; houses?: number; food?: number; sandboxEnabled?: boolean } = {}) {
   const kernel = new Kernel(options.seed ?? 31);
   const world = new World(512);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
@@ -45,7 +45,9 @@ function makeKingdom(options: { seed?: number; farms?: number; houses?: number; 
   const econ = registerEconomyGameplay(kernel, world, db, game, mods);
   const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
   const logi = registerLogisticsGameplay(kernel, world, db, game, popGame, econ, Position);
-  const kingdom = registerKingdomGameplay(kernel, world, db, game, popGame, econ, mods);
+  const kingdom = registerKingdomGameplay(kernel, world, db, game, popGame, econ, mods, {
+    ...(options.sandboxEnabled !== undefined ? { sandboxEnabled: options.sandboxEnabled } : {}),
+  });
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
 
@@ -137,6 +139,37 @@ test('ledger: the treasury reconciles to the coin through a turbulent season', (
   for (const e of k.kingdom.ledger.entries()) {
     assert.ok(e.kind === 'tax' ? e.amount > 0 : e.amount < 0, `${e.kind} signed`);
   }
+});
+
+// ---------------- itemized ledger delta (roadmap M42; GDD §2 "full income/expense breakdown") ----------------
+
+test('kingdom.rollup carries the exact ledger entries recorded that day, summing to net', () => {
+  const k = makeKingdom({ farms: 3, houses: 8 });
+  k.days(10);
+  let advisor = -1;
+  k.world.query([k.kingdom.Character]).forEach((_i, entity) => {
+    if (advisor < 0) advisor = entity as number;
+  });
+  k.submit('kingdom.appoint', { office: 'steward', characterId: advisor });
+  k.submit('kingdom.enactEdict', { edict: 'base:edict.harvest-festival' });
+  k.days(5);
+
+  const rollups = k.events.filter((e) => e.type === 'kingdom.rollup');
+  assert.ok(rollups.length > 0);
+  for (const r of rollups) {
+    const data = r.data as { taxes: number; upkeep: number; salaries: number; net: number; ledger: { kind: string; amount: number }[] };
+    assert.ok(Array.isArray(data.ledger), 'every rollup carries a ledger delta array');
+    const sum = data.ledger.reduce((total, e) => total + e.amount, 0);
+    assert.ok(Math.abs(sum - data.net) < 1e-9, `ledger delta sums to net: ${sum} vs ${data.net}`);
+    // matches the kind-specific totals exactly, not just the net
+    const byKind = (kind: string): number => data.ledger.filter((e) => e.kind === kind).reduce((t, e) => t + e.amount, 0);
+    assert.ok(Math.abs(byKind('tax') - data.taxes) < 1e-9);
+    assert.ok(Math.abs(-byKind('edict-upkeep') - data.upkeep) < 1e-9);
+    assert.ok(Math.abs(-byKind('advisor-salary') - data.salaries) < 1e-9);
+  }
+  // the full log (never trimmed) contains every one of those daily deltas, in order
+  const allDeltaEntries = rollups.flatMap((r) => (r.data as { ledger: unknown[] }).ledger);
+  assert.equal(k.kingdom.ledger.entries().length, allDeltaEntries.length);
 });
 
 // ---------------- the tax curve (GDD §2: high tax forever is self-defeating) ----------------
@@ -271,6 +304,24 @@ test('advisors: a steward multiplies the take, draws a salary, and dies in offic
   k.submit('kingdom.appoint', { office: 'archmage', characterId: candidates[0] });
   assert.ok(k.rejections.some((m) => m.includes("unknown office 'archmage'")));
   assert.deepEqual([...OFFICES], ['steward', 'marshal', 'chancellor', 'scholar']);
+});
+
+// ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
+
+test('sandbox.setTreasury: rejected outside a sandboxed session', () => {
+  const k = makeKingdom({ sandboxEnabled: false });
+  k.submit('sandbox.setTreasury', { amount: 5000 });
+  assert.ok(k.rejections.some((m) => m.includes('sandbox.setTreasury') && m.includes('sandbox mode is not enabled')));
+  assert.notEqual(k.kingdom.treasury(), 5000);
+});
+
+test('sandbox.setTreasury: sets the treasury directly, rejects a negative/non-finite amount', () => {
+  const k = makeKingdom({ sandboxEnabled: true });
+  k.submit('sandbox.setTreasury', { amount: 12345 });
+  assert.equal(k.kingdom.treasury(), 12345);
+  k.submit('sandbox.setTreasury', { amount: -1 });
+  assert.ok(k.rejections.some((m) => m.includes('non-negative')));
+  assert.equal(k.kingdom.treasury(), 12345, 'a rejected command leaves state untouched');
 });
 
 // ---------------- determinism ----------------

@@ -111,6 +111,21 @@ export class CombatState {
       fold(Math.round(e.casualtyMultiplier * 1000));
     }
   }
+
+  /** Save/restore (M47.6): engagements are plain data — `all()`'s sorted order is the
+   * serialization order, and `begin()` rebuilds the shared-object identity both army
+   * keys point at, so a restored state is indistinguishable from the original. */
+  save(): { armyA: number; armyB: number; ticks: number; casualtyMultiplier: number }[] {
+    return this.all().map((e) => ({ armyA: e.armyA, armyB: e.armyB, ticks: e.ticks, casualtyMultiplier: e.casualtyMultiplier }));
+  }
+
+  restore(data: readonly { armyA: number; armyB: number; ticks: number; casualtyMultiplier: number }[]): void {
+    this.byArmy.clear();
+    for (const d of data) {
+      const e = this.begin(d.armyA, d.armyB, d.casualtyMultiplier);
+      e.ticks = d.ticks;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- gameplay

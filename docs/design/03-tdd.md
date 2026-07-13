@@ -70,13 +70,20 @@ Enforced by package structure and lint rules (dependency direction is checked in
 @game/protocol    command & snapshot message types        (core, data)
 @game/render      renderer, camera, effects               (core, protocol)
 @game/ui          views, HUD, menus                       (core, protocol)
+@game/audio       music director, mixing, cue playback    (core, protocol)   — M41
 @game/app         composition root, worker wiring         (all)
 @game/tools       dev/debug/asset/mod tooling             (all)
 ```
 
-**Hard rules:** `sim` never imports `render`/`ui`/DOM APIs; `render`/`ui` never import `sim`
-internals — both sides speak only `protocol`. Content values (numbers, names, effects) live only in
-`data`-validated definition files, never in code (the "Mod Zero" rule).
+**Hard rules:** `sim` never imports `render`/`ui`/`audio`/DOM APIs; `render`/`ui`/`audio` never
+import `sim` internals — all three speak only `protocol`. Content values (numbers, names, effects)
+live only in `data`-validated definition files, never in code (the "Mod Zero" rule).
+
+**M41 delta:** `Audio Engine`'s subsystem-table row above (main thread) is a real package now,
+`@crowns/audio` — the same `core, protocol`-only boundary `render`/`ui` already established, not a
+new exception. `Asset Manager`'s row stays unbuilt (doc 05 §12) — audio's placeholder assets are
+synthesized at runtime (`packages/data/src/audio.ts`'s module doc explains why), so nothing needed
+one yet; a real Asset Manager is still whatever milestone first ships authored binary assets.
 
 ## §4. Data Flow
 
@@ -167,10 +174,22 @@ Load: header → version check → MigrationChain(v_old→…→v_now) → valid
   *(M17 delta: versions live per SECTION — kernel/world/roads — with per-section MigrationChains;
   per-component versions ride inside the world section. Compression/chunked blobs deferred until
   save sizes demand them; the quota strategy lands with PWA polish, M44.)*
+  *(M47.6 delta, doc 12 R1: the unified campaign (`packages/sim/src/campaign.ts`) registers a
+  section for EVERY hash-contributing relational state — kernel/world/roads/events/diplomacy/
+  research/victory/combat/siege/fog — plus afterLoad rebuilds of derived state (occupancy, castle
+  defence graphs, kingdom→village bindings). The save header now embeds `campaign:
+  CampaignSettings` (new-game options); the load path recomposes FROM the header before
+  hydrating, so a save fully describes its own session. Proven by campaign.test.ts's
+  loaded-vs-uninterrupted 20-day divergence check and the `campaign-tick500-v1` corpus entry.)*
 - **Autosave without stall:** serialization runs in the sim worker between ticks, sliced across
   frames; compression via native `CompressionStream`. Target: doc 11 (§ save/load).
 - **Quota strategy:** monitor `navigator.storage.estimate()`; warn, prune autosave ring, and prompt
   file export before quota pressure (Risk R6). `persist()` requested to resist eviction.
+  *(M44 delta, packages/app/src/saveStore.ts/simPort.ts: shipped as designed — `persist()` requested
+  once at session start; `estimate()` checked at the same cadence as the autosave scheduler itself
+  (every season boundary); the R6 tripwire (`isStorageTight`: quota < 2×usage) narrows the autosave
+  ring to 1 slot and sends a one-shot `storageAdvisory` message the client turns into a toast
+  pointing at the existing export button.)*
 
 ## §9. Networking Considerations (offline title)
 
@@ -180,6 +199,14 @@ Load: header → version check → MigrationChain(v_old→…→v_now) → valid
 - No gameplay code may assume a local user (`issuer` field on every command).
 - PWA service worker handles offline asset caching and version updates (update = new SW + cache
   swap on next launch; saves are never stored in caches).
+  *(M44 delta: `packages/app/public/sw.js` — hand-rolled. NETWORK-FIRST for navigations/the HTML
+  shell (so a new deploy's freshly-hashed JS is picked up immediately when online; cache is the
+  offline fallback), CACHE-FIRST for the build-hashed assets it points at. `CACHE_NAME` version
+  bump = the "new SW + cache swap" story. The SW registers in PRODUCTION ONLY — under `npm run dev`
+  the app instead unregisters any existing SW and clears its caches on load, so a cache-first shell
+  can never serve stale dev code (the "my change didn't show up" trap). CI's `pwa-offline-coldstart`
+  job (ci.yml) proves an online-then-offline reload actually renders the shell, not just that the
+  file exists.)*
 - Explicitly deferred: netcode, matchmaking, server authority, cheating concerns.
 
 ## §10. Performance & Memory Management

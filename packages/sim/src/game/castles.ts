@@ -110,6 +110,10 @@ export interface CastleGameplay {
   readonly Fortification: FortificationComponent;
   defenseGraphOf(villageId: number): DefenseGraph;
   isCastle(villageId: number): boolean;
+  /** Rebuild every village's defence graph from components (M47.6): the graph is DERIVED state
+   * (event-driven dirty rebuilds during play), so after save hydration it must be recomputed —
+   * same afterLoad shape as `VillageGameplay.ops.rebuildDerived`. */
+  rebuildDerived(): void;
 }
 
 export function registerCastleGameplay(kernel: Kernel, world: World, db: DefinitionDatabase, game: VillageGameplay): CastleGameplay {
@@ -202,6 +206,10 @@ export function registerCastleGameplay(kernel: Kernel, world: World, db: Definit
     },
     isCastle(villageId: number): boolean {
       return (world.read(VillageCore).isCastle[index(villageId)] as number) === 1;
+    },
+    rebuildDerived(): void {
+      graphs.clear();
+      world.query([VillageCore]).forEach((vi) => rebuild(vi));
     },
   };
 }

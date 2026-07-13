@@ -17,6 +17,7 @@ import { techValidator, ERA_ORDER, type TechDef } from './techs.js';
 import { eventValidator, type EventDef, type EffectExpr, type PredicateExpr } from './events.js';
 import { traitValidator, type TraitDef } from './traits.js';
 import { personalityValidator, type AIPersonalityDef } from './personalities.js';
+import { audioCueValidator, musicPlaylistValidator, type AudioCueDef, type MusicPlaylistDef } from './audio.js';
 
 export interface TerrainDef {
   readonly id: string;
@@ -65,6 +66,8 @@ export class DefinitionDatabase {
     readonly events: ReadonlyMap<string, EventDef>,
     readonly traits: ReadonlyMap<string, TraitDef>,
     readonly personalities: ReadonlyMap<string, AIPersonalityDef>,
+    readonly audioCues: ReadonlyMap<string, AudioCueDef>,
+    readonly musicPlaylists: ReadonlyMap<string, MusicPlaylistDef>,
   ) {}
 
   /** Load a single-mod content set (convenience; delegates to the mod loader). */
@@ -88,8 +91,12 @@ export class DefinitionDatabase {
     const events = [...(defs.get('event') as Map<string, unknown>).values()] as EventDef[];
     const traits = [...(defs.get('trait') as Map<string, unknown>).values()] as TraitDef[];
     const personalities = [...(defs.get('personality') as Map<string, unknown>).values()] as AIPersonalityDef[];
+    const audioCues = [...(defs.get('audioCue') as Map<string, unknown>).values()] as AudioCueDef[];
+    const musicPlaylists = [...(defs.get('musicPlaylist') as Map<string, unknown>).values()] as MusicPlaylistDef[];
     return {
-      db: DefinitionDatabase.fromValidated(terrain, overlays, resources, buildings, edicts, units, techs, events, traits, personalities),
+      db: DefinitionDatabase.fromValidated(
+        terrain, overlays, resources, buildings, edicts, units, techs, events, traits, personalities, audioCues, musicPlaylists,
+      ),
       report,
     };
   }
@@ -106,6 +113,8 @@ export class DefinitionDatabase {
     events: readonly EventDef[] = [],
     traits: readonly TraitDef[] = [],
     personalities: readonly AIPersonalityDef[] = [],
+    audioCues: readonly AudioCueDef[] = [],
+    musicPlaylists: readonly MusicPlaylistDef[] = [],
   ): DefinitionDatabase {
     // referential integrity: unique ids, exact biome coverage, overlay kinds
     const byId = new Map<string, TerrainDef>();
@@ -292,8 +301,28 @@ export class DefinitionDatabase {
     }
     const personalityMap = new Map(personalities.map((p) => [p.id, p]));
 
+    // M41: cues/playlists are self-contained (no cross-kind references — `trackIds` name
+    // @crowns/audio synthesis patterns, a presentation-layer concept this package doesn't see,
+    // same reasoning M36's personality `planBiases` keys already used) — unique-id checks only.
+    const cueSeen = new Set<string>();
+    for (const c of audioCues) {
+      if (cueSeen.has(c.id)) integrity.push(`duplicate audio cue id '${c.id}'`);
+      cueSeen.add(c.id);
+    }
+    const playlistSeen = new Set<string>();
+    for (const p of musicPlaylists) {
+      if (playlistSeen.has(p.id)) integrity.push(`duplicate music playlist id '${p.id}'`);
+      playlistSeen.add(p.id);
+    }
+    if (integrity.length > 0) {
+      throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
+    }
+    const audioCueMap = new Map(audioCues.map((c) => [c.id, c]));
+    const musicPlaylistMap = new Map(musicPlaylists.map((p) => [p.id, p]));
+
     return new DefinitionDatabase(
       byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap, traitMap, personalityMap,
+      audioCueMap, musicPlaylistMap,
     );
   }
 }
@@ -310,4 +339,6 @@ export const TERRAIN_KINDS: readonly DefKindSpec<unknown>[] = [
   { kind: 'event', pathPrefix: 'defs/events/', validator: eventValidator as Validator<unknown> },
   { kind: 'trait', pathPrefix: 'defs/traits/', validator: traitValidator as Validator<unknown> },
   { kind: 'personality', pathPrefix: 'defs/personalities/', validator: personalityValidator as Validator<unknown> },
+  { kind: 'audioCue', pathPrefix: 'defs/cues/', validator: audioCueValidator as Validator<unknown> },
+  { kind: 'musicPlaylist', pathPrefix: 'defs/playlists/', validator: musicPlaylistValidator as Validator<unknown> },
 ];

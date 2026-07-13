@@ -1,0 +1,16 @@
+// Sample third-party mod (roadmap M39 T objective): authored using ONLY
+// docs/modding/* — no engine source consulted while writing this content.
+// Demonstrates a genuinely NEW def (a building, doc 03) alongside a PATCH
+// (doc 04) that lands on the same target ('base:terrain.forest') autumn-realm
+// already patches, on purpose — proves two independent third-party mods can
+// both touch one def without colliding, and that the conflicts report (doc
+// 05) surfaces it correctly.
+{
+  "id": "frontier:march-wardens",
+  "name": "March Wardens",
+  "version": "1.0.0",
+  "gameVersion": ">=0.1 <1.0",
+  "loadAfter": ["base", "example:autumn-realm"],
+  "tags": ["example", "military"],
+  "authors": ["A Third-Party Author"],
+}

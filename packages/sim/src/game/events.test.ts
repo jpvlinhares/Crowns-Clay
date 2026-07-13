@@ -285,6 +285,61 @@ test('event.choose: a grantResource/removeResource effect actually moves the vil
   assert.ok(Math.abs((stockAfter.get(toolsCode) ?? 0) - (toolsBefore + 8)) < 1e-9);
 });
 
+// ---------------------------------------------------------------- tutorial (roadmap M43)
+
+test('tutorial: all 6 steps are reachable and resolvable in sequence through the real engine, ending at village.tier 2', () => {
+  const k = makeKingdom({ seed: 9 });
+  const vi = k.villageId & 0x3fffff;
+
+  const waitForPending = (eventId: string, maxTries: number): { eventId: string; choiceIds: readonly string[] } => {
+    let tries = 0;
+    let target: { eventId: string; choiceIds: readonly string[] } | undefined;
+    while (target === undefined && tries < maxTries) {
+      k.kernel.step();
+      tries++;
+      target = k.eventGame.pendingChoices(k.kingdomId as never).find((e) => e.eventId === eventId);
+    }
+    assert.ok(target !== undefined, `expected '${eventId}' to fire within ${maxTries} ticks`);
+    return target as { eventId: string; choiceIds: readonly string[] };
+  };
+  const resolve = (eventId: string, choiceId: string): void => {
+    k.submit('event.choose', 1, { eventId, choiceId });
+  };
+
+  // 1. welcome — trigger is unconditionally true from day 1
+  resolve('base:event.tutorial.welcome', waitForPending('base:event.tutorial.welcome', 5000).choiceIds[0] as string);
+
+  // 2. economy — force foodSecurity healthy, then wait
+  k.world.write(k.popGame.Population).foodSecurity[vi] = 0.9;
+  resolve('base:event.tutorial.economy', waitForPending('base:event.tutorial.economy', 5000).choiceIds[0] as string);
+
+  // 3/4/5 — season-gated (spring is tick 0; summer/autumn/winter arrive as ticks advance
+  // naturally); autumn's tax step needs no extra state, winter's edicts step needs treasury ≥ 20
+  resolve('base:event.tutorial.happiness', waitForPending('base:event.tutorial.happiness', 20_000).choiceIds[0] as string);
+  resolve('base:event.tutorial.tax', waitForPending('base:event.tutorial.tax', 20_000).choiceIds[0] as string);
+  k.world.write(k.kingdomGame.Kingdom).treasury[k.kingdomId & 0x3fffff] = 100;
+  resolve('base:event.tutorial.edicts', waitForPending('base:event.tutorial.edicts', 20_000).choiceIds[0] as string);
+
+  // 6. completion — the SC-1 signal itself: village.tier reaching 2
+  k.world.write(k.game.comps.VillageCore).tier[vi] = 2;
+  resolve('base:event.tutorial.complete', waitForPending('base:event.tutorial.complete', 5000).choiceIds[0] as string);
+
+  const tutorialFired = k.fired.filter(
+    (f) => f.type === 'event.fired' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.'),
+  );
+  const tutorialResolved = k.fired.filter(
+    (f) => f.type === 'event.resolved' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.'),
+  );
+  assert.equal(tutorialFired.length, 6, 'each once:true tutorial step fires exactly once');
+  assert.equal(tutorialResolved.length, 6, 'every fired step was actually resolved');
+  // other pools keep firing independently across the long wait windows above — only the
+  // TUTORIAL steps are this test's concern, and none of them are left unanswered
+  const pendingTutorial = k.eventGame
+    .pendingChoices(k.kingdomId as never)
+    .filter((p) => p.eventId.startsWith('base:event.tutorial.'));
+  assert.deepEqual(pendingTutorial, [], 'no tutorial step left unanswered');
+});
+
 test('determinism: event state folds identically for the same tick sequence', () => {
   const run = (): number => {
     const { kernel, days } = makeKingdom({ seed: 55 });

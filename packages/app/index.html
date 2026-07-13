@@ -4,20 +4,50 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Crowns &amp; Clay — dev build</title>
+  <!-- roadmap M44 PWA polish (doc 03 §9, doc 05, doc 10) -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <meta name="theme-color" content="#14120f" />
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     body { margin: 0; height: 100vh; display: flex; flex-direction: column;
            font: 13px/1.4 ui-monospace, "Cascadia Mono", monospace;
            background: #14120f; color: #e8e0d0; }
-    header { display: flex; gap: 1.25rem; align-items: center; padding: .5rem .75rem;
+    header { display: flex; gap: .75rem 1rem; align-items: center; padding: .5rem .75rem;
              background: #1e1a14; border-bottom: 1px solid #3a3226; flex-wrap: wrap; }
     header .stat b { color: #d8b060; font-weight: 600; }
     header .group { display: flex; gap: .25rem; }
+    header .brand { font-weight: 600; color: #d8b060; letter-spacing: .02em; }
+    /* Fixed-width stat tiles: labels sit in stable columns and each value has a
+       reserved, right-aligned, tabular-numeral slot, so a count going 9 → 1024
+       never nudges its neighbours (report: "even with different counts, text
+       would not move"). */
+    .statgrid { display: flex; gap: .1rem; align-items: stretch; }
+    .statgrid .cell { display: flex; flex-direction: column; justify-content: center;
+             padding: .05rem .5rem; border-left: 1px solid #2f2a20; }
+    .statgrid .cell:first-child { border-left: none; }
+    .statgrid .k { font-size: 9px; line-height: 1.2; text-transform: uppercase;
+             letter-spacing: .05em; color: #8a8065; }
+    .statgrid .v { font-size: 13px; line-height: 1.25; font-weight: 600; color: #d8b060;
+             font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+    .statgrid .cell.n .v { min-width: 3.2ch; }
+    .statgrid .cell.date .v { min-width: 17ch; text-align: left; color: #e8e0d0; }
+    .statgrid .cell.treasury .v { min-width: 20ch; text-align: left; }
+    /* Per-village vitals: one fixed-column chip per village so numbers stay put. */
+    #village-stats { display: flex; flex-wrap: wrap; gap: .25rem .4rem; font-variant-numeric: tabular-nums; }
+    .vchip { display: inline-flex; align-items: baseline; gap: .3rem; padding: .05rem .4rem;
+             background: #241f18; border: 1px solid #332d22; border-radius: 3px; white-space: nowrap; }
+    .vchip .nm { color: #d8b060; font-weight: 600; }
+    .vchip .f { color: #b8ae9a; }
+    .vchip .f b { color: #e8e0d0; font-weight: 600; display: inline-block; min-width: 2.5ch; text-align: right; }
     button { background: #2a241b; color: #e8e0d0; border: 1px solid #4a4030;
              padding: .25rem .6rem; cursor: pointer; font: inherit; border-radius: 3px; }
     button:hover { background: #3a3226; }
     button.active { background: #d8b060; color: #14120f; border-color: #d8b060; }
+    button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+    button[aria-disabled="true"]:hover { background: #2a241b; }
     #game { flex: 1; min-height: 0; position: relative; }
     #game canvas { position: absolute; inset: 0; touch-action: none; }
     #status.error { color: #e07070; }
@@ -40,10 +70,21 @@
     .panel-body .row { display: flex; gap: .4rem; align-items: center; margin: .3rem 0; flex-wrap: wrap; }
     .panel-body select { background: #1a1712; color: #e8e0d0; border: 1px solid #3a3226; font: inherit; padding: .15rem; }
     .panel-body button.armed { background: #d8b060; color: #14120f; }
+    .ledger-heading { margin: .5rem 0 .2rem; font-size: 11px; text-transform: uppercase; color: #d8b060; }
+    .ledger-list { max-height: 140px; overflow-y: auto; border-top: 1px solid #2a241b; }
+    .ledger-row { padding: 1px 0; font-variant-numeric: tabular-nums; }
+    .ledger-row.income { color: #9fc98a; }
+    .ledger-row.expense { color: #e0a070; }
     #toasts { position: absolute; top: .5rem; left: 50%; transform: translateX(-50%);
               display: flex; flex-direction: column; gap: .3rem; z-index: 6; pointer-events: none; }
-    .toast { padding: .35rem .7rem; border-radius: 3px; font-size: 12px; background: #2a241b;
-             border: 1px solid #4a4030; opacity: .95; }
+    .toast { display: flex; align-items: center; gap: .5rem; padding: .35rem .4rem .35rem .7rem;
+             border-radius: 3px; font-size: 12px; background: #2a241b;
+             border: 1px solid #4a4030; opacity: .95; pointer-events: auto; }
+    .toast .toast-text { flex: 1; }
+    .toast .toast-close { pointer-events: auto; border: none; background: none; color: inherit;
+             opacity: .6; font-size: 15px; line-height: 1; padding: 0 .2rem; cursor: pointer;
+             border-radius: 2px; }
+    .toast .toast-close:hover { opacity: 1; background: rgba(255,255,255,.12); }
     .toast.attention { border-color: #d8b060; color: #d8b060; }
     .toast.urgent { border-color: #e07070; color: #e07070; background: #3a1a17; }
     #debug { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; overflow-y: auto;
@@ -62,41 +103,83 @@
     #debug textarea { height: 4.5em; resize: vertical; }
     #inj-result { min-height: 1.2em; }
     #inj-result.err { color: #e07070; }
+    /* ---- M42: tooltips, keybind help, focus visibility ---- */
+    .tooltip { position: fixed; z-index: 10; max-width: 260px; padding: .35rem .55rem;
+               background: #1e1a14; color: #e8e0d0; border: 1px solid #d8b060; border-radius: 3px;
+               font-size: 12px; line-height: 1.35; pointer-events: none; white-space: pre-line; }
+    :focus-visible { outline: 2px solid #d8b060; outline-offset: 1px; }
+    /* ---- M43: event-choice dialog — the first-ever in this app ---- */
+    #event-dialog-backdrop, #end-screen-backdrop { position: absolute; inset: 0; z-index: 8; display: flex;
+             align-items: center; justify-content: center; background: rgba(10, 9, 7, .6); }
+    #event-dialog-backdrop[hidden], #end-screen-backdrop[hidden] { display: none; }
+    #event-dialog, #end-screen { max-width: 420px; margin: 1rem; padding: 1rem 1.2rem; background: #1e1a14;
+             border: 1px solid #d8b060; border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+    #event-dialog h2, #end-screen h2 { margin: 0 0 .5rem; color: #d8b060; font-size: 15px; }
+    #event-dialog p, #end-screen p { margin: 0 0 .8rem; line-height: 1.5; white-space: pre-line; }
+    #end-screen-backdrop { z-index: 10; } /* above the new-game screen and event dialogs */
+    #event-dialog-choices { display: flex; flex-direction: column; gap: .3rem; }
+    #event-dialog-choices button { text-align: left; padding: .4rem .6rem; }
+    /* ---- M47.6: new-game screen — the first real world-creation surface ---- */
+    #newgame-backdrop { position: absolute; inset: 0; z-index: 9; display: flex;
+             align-items: center; justify-content: center; background: rgba(10, 9, 7, .82); }
+    #newgame-backdrop[hidden] { display: none; }
+    #newgame { width: 440px; max-width: calc(100vw - 2rem); margin: 1rem; padding: 1.1rem 1.3rem;
+             background: #1e1a14; border: 1px solid #d8b060; border-radius: 6px;
+             box-shadow: 0 8px 32px rgba(0,0,0,.5); max-height: calc(100vh - 6rem); overflow-y: auto; }
+    #newgame h2 { margin: 0 0 .7rem; color: #d8b060; font-size: 16px; }
+    #newgame .row { display: flex; align-items: center; gap: .6rem; margin: .45rem 0; }
+    #newgame .row > label:first-child { width: 8.5rem; color: #b8ae9a; }
+    #newgame input[type="text"], #newgame input[type="number"], #newgame select {
+             background: #2a241b; color: #e8e0d0; border: 1px solid #4a4030; border-radius: 3px;
+             padding: .25rem .4rem; font: inherit; }
+    #newgame fieldset { border: 1px solid #3a3226; border-radius: 4px; margin: .6rem 0; padding: .4rem .6rem; }
+    #newgame fieldset legend { color: #b8ae9a; padding: 0 .3rem; }
+    #newgame fieldset label { display: inline-flex; align-items: center; gap: .3rem; margin-right: .8rem; }
+    #newgame .actions { display: flex; gap: .6rem; margin-top: .9rem; }
+    #newgame .actions button { flex: 1; padding: .5rem .6rem; }
+    #newgame .actions #btn-begin-campaign { background: #d8b060; color: #14120f; border-color: #d8b060; font-weight: 600; }
   </style>
 </head>
 <body>
   <header>
-    <span class="stat">Crowns &amp; Clay</span>
-    <span class="stat">fps <b id="fps">—</b></span>
-    <span class="stat">tick <b id="tick">0</b></span>
-    <span class="stat"><b id="date">Year 0 · spring · day 1</b></span>
-    <span class="stat">wanderers <b id="entities">0</b></span>
-    <span class="group" id="ui-toolbar"></span>
-    <span class="group">
-      <button id="btn-save" title="Save to slot 'manual'">💾</button>
-      <button id="btn-load" title="Load slot 'manual'">📂</button>
-      <button id="btn-export" title="Export .crown file">⇩</button>
-      <button id="btn-import" title="Import .crown file">⇧</button>
+    <span class="brand">Crowns &amp; Clay</span>
+    <div class="statgrid" aria-label="Session stats">
+      <div class="cell n"><span class="k">fps</span><span class="v" id="fps">—</span></div>
+      <div class="cell n"><span class="k">tick</span><span class="v" id="tick">0</span></div>
+      <div class="cell date"><span class="k">date</span><span class="v" id="date">Year 0 · spring · day 1</span></div>
+      <div class="cell n"><span class="k">folk</span><span class="v" id="entities">0</span></div>
+      <div class="cell treasury"><span class="k">treasury</span><span class="v" id="kingdom-stats">—</span></div>
+    </div>
+    <span class="group" id="ui-toolbar" role="toolbar" aria-label="Panels"></span>
+    <span class="group" role="toolbar" aria-label="Save and load">
+      <button id="btn-save" title="Save to slot 'manual'" aria-label="Save to slot 'manual'">💾</button>
+      <button id="btn-load" title="Load slot 'manual'" aria-label="Load slot 'manual'">📂</button>
+      <button id="btn-export" title="Export .crown file" aria-label="Export .crown file">⇩</button>
+      <button id="btn-import" title="Import .crown file" aria-label="Import .crown file">⇧</button>
       <input id="import-file" type="file" accept=".crown,.json" style="display:none" />
     </span>
     <span class="group">
-      <button data-speed="0">⏸</button>
-      <button data-speed="1">1×</button>
-      <button data-speed="2">2×</button>
-      <button data-speed="4">4×</button>
-      <button data-speed="8">8×</button>
+      <button id="btn-audio" title="Enable audio (music &amp; SFX)" aria-label="Enable audio (music &amp; SFX)" aria-pressed="false">🔈</button>
     </span>
-    <span class="hint">drag to pan · wheel to zoom · space pauses · 1–4 set speed · ` debug panel</span>
-    <!-- variable-length text (grows/shrinks every tick) — kept last so its reflow never
-         shifts the buttons above -->
-    <span class="stat" id="kingdom-stats"></span>
-    <span class="stat" id="village-stats"></span>
+    <span class="group" role="toolbar" aria-label="Simulation speed">
+      <button data-speed="0" aria-label="Pause" aria-pressed="false">⏸</button>
+      <button data-speed="1" aria-label="Speed 1×" aria-pressed="true">1×</button>
+      <button data-speed="2" aria-label="Speed 2×" aria-pressed="false">2×</button>
+      <button data-speed="4" aria-label="Speed 4×" aria-pressed="false">4×</button>
+      <button data-speed="8" aria-label="Speed 8×" aria-pressed="false">8×</button>
+    </span>
+    <span class="hint">drag to pan · wheel to zoom · press ? for keyboard shortcuts</span>
     <span class="stat" id="status" style="margin-left:auto"></span>
+    <!-- Per-village vitals live on their own full-width row (flex-basis 100%): each
+         village is a fixed fixed-column chip, so reflow here never disturbs the
+         stat grid or buttons above. -->
+    <span id="village-stats" style="flex-basis:100%"></span>
   </header>
   <div id="game">
     <div id="panel-dock"></div>
-    <div id="toasts"></div>
-    <aside id="debug">
+    <div id="toasts" aria-live="polite" aria-atomic="false"></div>
+    <aside id="debug" role="complementary" aria-label="Debug and sandbox editor">
+      <div id="dbg-sandbox-badge" class="hint"></div>
       <h2>Systems (ms/tick)</h2>
       <table id="dbg-systems"><tbody></tbody></table>
       <div>tick avg <b id="dbg-tickms">—</b> ms · entities <b id="dbg-entities">—</b> · chunks <b id="dbg-chunks">—</b></div>
@@ -109,6 +192,77 @@
       <button id="inj-send">submit command</button>
       <pre id="inj-result"></pre>
     </aside>
+    <div id="event-dialog-backdrop" hidden>
+      <div id="event-dialog" role="dialog" aria-modal="true" aria-labelledby="event-dialog-title">
+        <h2 id="event-dialog-title"></h2>
+        <p id="event-dialog-body"></p>
+        <div id="event-dialog-choices"></div>
+      </div>
+    </div>
+    <!-- M47.7: campaign end screen — victory or defeat, with keep-playing (GDD §16) -->
+    <div id="end-screen-backdrop" hidden>
+      <div id="end-screen" role="dialog" aria-modal="true" aria-labelledby="end-screen-title">
+        <h2 id="end-screen-title"></h2>
+        <p id="end-screen-body"></p>
+        <div><button id="end-screen-continue">Keep playing</button></div>
+      </div>
+    </div>
+    <!-- M47.6 (doc 12 R1): the new-game screen — seed, map, kingdoms, difficulty, victory,
+         sandbox. Replaces the hardcoded SEED; ?quickstart=terra|campaign skips it (dev/CI). -->
+    <div id="newgame-backdrop">
+      <div id="newgame" role="dialog" aria-modal="true" aria-labelledby="newgame-title">
+        <h2 id="newgame-title">Crowns &amp; Clay — New Game</h2>
+        <div class="row">
+          <label for="ng-seed">Seed</label>
+          <input id="ng-seed" type="text" size="12" placeholder="random" />
+          <button id="ng-reroll" type="button" aria-label="Random seed">🎲</button>
+        </div>
+        <div class="row">
+          <label for="ng-mapsize">Map size</label>
+          <select id="ng-mapsize">
+            <option value="small">Small</option>
+            <option value="medium" selected>Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="ng-kingdoms">Kingdoms</label>
+          <input id="ng-kingdoms" type="number" min="1" max="8" value="4" />
+          <span class="hint">you + up to 7 AI rivals</span>
+        </div>
+        <div class="row">
+          <label for="ng-difficulty">Difficulty</label>
+          <select id="ng-difficulty">
+            <option value="story">Story</option>
+            <option value="fair" selected>Fair — no bonuses either way</option>
+            <option value="hard">Hard — AI +15% (labelled)</option>
+            <option value="brutal">Brutal — AI +30% (labelled)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="ng-years">Year limit</label>
+          <input id="ng-years" type="number" min="1" max="200" placeholder="100" size="5" />
+          <span class="hint">Chronicle judged at this year (short games welcome)</span>
+        </div>
+        <fieldset id="ng-victory">
+          <legend>Victory conditions</legend>
+          <label><input type="checkbox" value="conquest" checked /> Conquest</label>
+          <label><input type="checkbox" value="hegemony" checked /> Hegemony</label>
+          <label><input type="checkbox" value="legacy" checked /> Legacy</label>
+          <label><input type="checkbox" value="prosperity" checked /> Prosperity</label>
+          <label><input type="checkbox" value="chronicle" checked /> Chronicle</label>
+        </fieldset>
+        <div class="row">
+          <label for="ng-sandbox">Sandbox mode</label>
+          <input id="ng-sandbox" type="checkbox" />
+          <span class="hint">no defeat · editor palette · save flagged</span>
+        </div>
+        <div class="actions">
+          <button id="btn-begin-campaign" type="button">Begin campaign</button>
+          <button id="btn-begin-terra" type="button" data-tooltip="The classic single-village economy sandbox (golden scenario terra-demo)">Village sandbox</button>
+        </div>
+      </div>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
