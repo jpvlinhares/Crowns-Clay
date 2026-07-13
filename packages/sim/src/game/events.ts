@@ -30,7 +30,7 @@ import type { DefinitionDatabase, EventDef, EventPool, StatPath } from '@crowns/
 import { EVENT_POOLS } from '@crowns/data';
 import type { World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
-import { TICKS_PER_DAY, TICKS_PER_SEASON, calendarFromTick } from '../time.js';
+import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_SEASON, calendarFromTick } from '../time.js';
 import type { VillageGameplay } from './villages.js';
 import type { PopulationGameplay } from './population.js';
 import type { KingdomGameplay } from './kingdom.js';
@@ -53,6 +53,31 @@ if (DAILY_POOLS.length + WEEKLY_POOLS.length !== EVENT_POOLS.length) {
 /** Weight 1 -> ~1%/day (daily pools) or ~1%/week (weekly pools) before modifiers/governor. */
 export const BASE_DAILY_RATE = 0.01;
 export const BASE_WEEKLY_RATE = 0.03;
+
+// ---------------------------------------------------------------- special-event tuning (two levers)
+
+/** The "special" pools — the world's flavour/gameplay events — as distinct from the `tutorial`
+ * pool, which is ordinary onboarding and is deliberately NOT gated or rate-tuned here. */
+export const SPECIAL_POOLS: readonly EventPool[] = ['opportunity', 'character', 'diplomatic', 'unrest', 'era', 'disaster'];
+const SPECIAL_POOL_SET: ReadonlySet<EventPool> = new Set(SPECIAL_POOLS);
+
+/** Measured baseline: at scale 1 the default per-event rates (governor bypassed, see below)
+ * produce ~0.96 special events per in-game month for a kingdom (mean over 5 seeds × 20 game-years).
+ * The frequency lever scales linearly against this, so `avgPerMonth = X` ⇒ ~X special events/month. */
+const SPECIAL_BASELINE_PER_MONTH = 0.96;
+
+/** Two INDEPENDENT levers for special events (ordinary/tutorial events ignore both):
+ *  - `startGateMonths`: they stay silent until this many in-game months have elapsed;
+ *  - `avgPerMonth`: target average per in-game month once eligible (probabilistic, natural variance,
+ *    no hard cap or enforced spacing — it simply scales the per-tick fire probability). */
+export interface SpecialEventTuning {
+  readonly startGateMonths: number;
+  readonly avgPerMonth: number;
+}
+
+/** GDD App. A / doc 08 §10 defaults. Overridable per composition (mods/scenarios) via
+ * `EventGameplayOptions.specialEvents`, so both levers stay tunable without a code change. */
+export const DEFAULT_SPECIAL_EVENT_TUNING: SpecialEventTuning = { startGateMonths: 6, avgPerMonth: 0.5 };
 
 /** Target events/kingdom/season band the pacing governor holds pressure inside (GDD App. A). */
 export const PACING_TARGET_MIN = 1;
@@ -271,6 +296,9 @@ export interface EventGameplayOptions {
   /** Issuer number for a kingdom index — the `command` effect's escape hatch and AI answers.
    * Defaults to `kingdomIndex + 1` (player=1, AI kingdoms 2..n, every other module's convention). */
   readonly issuerFor?: (kingdomIndex: number) => number;
+  /** Overrides for the special-event start-gate / frequency levers (defaults in
+   * `DEFAULT_SPECIAL_EVENT_TUNING`). Partial — each lever defaults independently. */
+  readonly specialEvents?: Partial<SpecialEventTuning>;
 }
 
 export interface EventGameplay {
@@ -292,6 +320,11 @@ export function registerEventGameplay(
 ): EventGameplay {
   const state = new EventState();
   kernel.addHashSource('events', (fold) => state.fold(fold));
+
+  // Special-event levers (independent; ordinary/tutorial events are unaffected by both):
+  const specialTuning: SpecialEventTuning = { ...DEFAULT_SPECIAL_EVENT_TUNING, ...options.specialEvents };
+  const specialGateTicks = specialTuning.startGateMonths * TICKS_PER_MONTH; // START GATE
+  const specialRateScale = specialTuning.avgPerMonth / SPECIAL_BASELINE_PER_MONTH; // FREQUENCY (× base rate)
 
   const interner = new Interner();
   const eventIds = [...db.events.keys()].sort();
@@ -432,6 +465,13 @@ export function registerEventGameplay(
       const vi = representativeVillage(ki);
       const governorMultiplier = pacingMultiplier(state.seasonFireCount(ki));
       for (const pool of pools) {
+        const isSpecial = SPECIAL_POOL_SET.has(pool);
+        // START GATE: special pools stay silent until the elapsed-time threshold; ordinary
+        // (tutorial) pools are never gated — onboarding must still guide a brand-new realm.
+        if (isSpecial && ctx.tick < specialGateTicks) continue;
+        // FREQUENCY: special pools' per-tick fire probability is scaled to the target cadence;
+        // ordinary pools keep the base rate untouched.
+        const poolRate = isSpecial ? baseRate * specialRateScale : baseRate;
         const candidates = eventIds
           .map((id) => eventCode(id) as number)
           .filter((code) => eventById(code).pool === pool)
@@ -451,8 +491,11 @@ export function registerEventGameplay(
           for (const wm of def.weightModifiers ?? []) {
             if (evaluatePredicate(wm.condition, evalCtx)) weight *= wm.multiplier;
           }
-          weight *= governorMultiplier;
-          const roll = ctx.rng.fork(`event-roll:${code}:${ki}:${ctx.tick}`).chance(weight * baseRate);
+          // Special events get a flat, tunable cadence (avgPerMonth) — they bypass the pacing
+          // governor, whose boost/dampen would otherwise skew the average and act as soft
+          // spacing. Ordinary (tutorial) events keep the governor exactly as before.
+          weight *= isSpecial ? 1 : governorMultiplier;
+          const roll = ctx.rng.fork(`event-roll:${code}:${ki}:${ctx.tick}`).chance(weight * poolRate);
           if (roll) {
             passed.push(code);
             passedWeights.push(weight);

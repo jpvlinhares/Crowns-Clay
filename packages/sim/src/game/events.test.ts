@@ -35,7 +35,7 @@ const plain: TerrainAccessor = {
   movementCostAt: () => 1,
 };
 
-function makeKingdom(options: { seed?: number } = {}) {
+function makeKingdom(options: { seed?: number; specialEvents?: { startGateMonths?: number; avgPerMonth?: number } } = {}) {
   const kernel = new Kernel(options.seed ?? 71);
   const world = new World(512);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
@@ -47,15 +47,16 @@ function makeKingdom(options: { seed?: number } = {}) {
   const opinionDeltas: { kingdom: number; delta: number }[] = [];
   const eventGame = registerEventGameplay(kernel, world, db, game, popGame, kingdomGame, {
     diplomacy: { applyOpinionDelta: (kingdomId, delta) => opinionDeltas.push({ kingdom: kingdomId as number, delta }) },
+    ...(options.specialEvents ? { specialEvents: options.specialEvents } : {}),
   });
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
 
   const rejections: string[] = [];
-  const fired: { type: string; data: unknown }[] = [];
+  const fired: { type: string; data: unknown; tick: number }[] = [];
   kernel.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rejections.push(`${e.data.what}: ${e.data.reason}`));
   for (const type of ['event.fired', 'event.resolved']) {
-    kernel.subscribe(type, (e) => fired.push({ type, data: e.data }));
+    kernel.subscribe(type, (e) => fired.push({ type, data: e.data, tick: e.tick }));
   }
 
   const submit = (type: string, issuer: number, payload: unknown): void => {
@@ -255,6 +256,40 @@ test('pacing governor: over many seasons, real per-kingdom fire counts land insi
   void kingdomId;
 });
 
+// ---------------------------------------------------------------- special-event levers (start gate + frequency)
+
+const isSpecialFire = (f: { type: string; data: unknown }): boolean =>
+  f.type === 'event.fired' && !(f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.');
+const isTutorialFire = (f: { type: string; data: unknown }): boolean =>
+  f.type === 'event.fired' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.');
+
+test('special events: START GATE keeps them silent until 6 months elapse; ordinary tutorial events are not gated', () => {
+  const k = makeKingdom({ seed: 3 }); // defaults: startGateMonths 6, avgPerMonth 0.5
+  const GATE = 6 * 720; // 6 months × TICKS_PER_MONTH(720) = 4320
+  for (let t = 0; t < GATE; t++) k.kernel.step();
+  assert.ok(k.fired.every((f) => !isSpecialFire(f)), 'no special event may fire before the gate');
+  assert.ok(k.fired.some(isTutorialFire), 'ordinary tutorial events still fire during the gated window');
+
+  for (let t = 0; t < 30 * TICKS_PER_SEASON; t++) k.kernel.step();
+  const special = k.fired.filter(isSpecialFire);
+  assert.ok(special.length > 0, 'special events do fire once past the gate');
+  assert.ok(special.every((f) => f.tick >= GATE), 'every special fire lands at or after the gate tick');
+});
+
+test('special events: FREQUENCY lever scales the cadence and leaves ordinary events untouched', () => {
+  const measure = (avgPerMonth: number) => {
+    const k = makeKingdom({ seed: 5, specialEvents: { startGateMonths: 0, avgPerMonth } });
+    for (let t = 0; t < 40 * TICKS_PER_SEASON; t++) k.kernel.step();
+    return { special: k.fired.filter(isSpecialFire).length, tutorial: k.fired.filter(isTutorialFire).length };
+  };
+  const low = measure(0.5);
+  const high = measure(2);
+  assert.ok(high.special > low.special, `higher avgPerMonth must fire more special events (saw ${low.special} vs ${high.special})`);
+  assert.ok(low.special > 0, 'the default-ish rate still fires special events over a long run');
+  // the frequency lever is special-only — the tutorial (ordinary) count is identical either way
+  assert.equal(low.tutorial, high.tutorial, 'ordinary tutorial events are unaffected by the special frequency lever');
+});
+
 // ---------------------------------------------------------------- commands & mechanics
 
 test('event.choose: rejects unknown event, unknown choice, no pending instance, and unmet requirements', () => {
@@ -294,10 +329,12 @@ test('event.choose: applies effects, resolves the pending instance, and rejects 
 });
 
 test('event.choose: a grantResource/removeResource effect actually moves the village stockpile', () => {
-  const { kernel, submit, world, game, villageId, kingdomId, eventGame } = makeKingdom({ seed: 4 });
+  // this exercises effect application, not the start gate — open the gate so the special
+  // traveling-merchant event can fire promptly (avgPerMonth left at default)
+  const { kernel, submit, world, game, villageId, kingdomId, eventGame } = makeKingdom({ seed: 4, specialEvents: { startGateMonths: 0, avgPerMonth: 1 } });
   let tries = 0;
   let target: { eventId: string; choiceIds: readonly string[] } | undefined;
-  while (target === undefined && tries < 2000) {
+  while (target === undefined && tries < 4000) {
     kernel.step();
     tries++;
     target = eventGame.pendingChoices(kingdomId as never).find((e) => e.eventId === 'base:event.opportunity.traveling-merchant');

@@ -211,6 +211,24 @@ registered, so deriving the boundary directly avoids a fragile cross-module orde
 cadence-driven; M31's `diplomacy.warDeclared`-style alarm events are the existing precedent for
 that shape, not owned by events.ts).
 
+**Special-event levers (`SpecialEventTuning`, `DEFAULT_SPECIAL_EVENT_TUNING`):** the six flavour
+pools (`opportunity`/`character`/`diplomatic`/`unrest`/`era`/`disaster`) are "special"; the
+`tutorial` pool is ordinary onboarding and is exempt from both levers below. Both are independent,
+data-driven, and overridable per composition via `EventGameplayOptions.specialEvents`:
+- **Start gate** (`startGateMonths`, default **6**): special pools do not roll until
+  `ctx.tick ≥ startGateMonths × TICKS_PER_MONTH` (6 × 720 = 4320 ticks); tutorial is never gated, so
+  a new realm is still guided. Measured: with the default, the first special event lands right at
+  month ~6 and zero fire before it.
+- **Frequency** (`avgPerMonth`, default **0.5** — one every ~two months): special pools' per-tick
+  fire probability is `weight × BASE_*_RATE × (avgPerMonth / SPECIAL_BASELINE_PER_MONTH)`, and they
+  **bypass the pacing governor** (whose boost/dampen would otherwise skew the average and act as soft
+  spacing). `SPECIAL_BASELINE_PER_MONTH` is the measured baseline (~1 special event/month at the raw
+  default rates), so `avgPerMonth = X ⇒ ~X special events/month` — probabilistic, natural month-to-
+  month variance, no hard cap or enforced spacing. Current effective rate BEFORE this change was
+  ~0.9–1.0/month starting from month ~1; AFTER it is ~`avgPerMonth`/month starting at month 6.
+The pacing governor now governs only the ordinary (tutorial) pool; special events set their own
+cadence, so ordinary events are provably untouched by either lever (unit-tested).
+
 ## §11. Determinism & Ordering Guarantees
 
 All cadence gating derives from tick counters (never wall-clock); staggering offsets derive from
