@@ -119,8 +119,12 @@
     #end-screen-backdrop { z-index: 10; } /* above the new-game screen and event dialogs */
     #event-dialog-choices { display: flex; flex-direction: column; gap: .3rem; }
     #event-dialog-choices button { text-align: left; padding: .4rem .6rem; }
-    #event-dialog-choices .choice-cost { display: block; margin-top: .15rem; font-size: 11px;
-             color: #e0a070; opacity: .85; font-variant-numeric: tabular-nums; }
+    #event-dialog-choices .choice-outcomes { display: flex; flex-wrap: wrap; gap: .25rem .5rem;
+             margin-top: .25rem; font-size: 11px; font-variant-numeric: tabular-nums; }
+    #event-dialog-choices .outcome { white-space: nowrap; }
+    #event-dialog-choices .outcome.gain { color: #9fc98a; }
+    #event-dialog-choices .outcome.loss { color: #e0a070; }
+    #event-dialog-choices .outcome.neutral { color: #b8ae9a; opacity: .8; }
     /* ---- M47.6: new-game screen — the first real world-creation surface ---- */
     #newgame-backdrop { position: absolute; inset: 0; z-index: 9; display: flex;
              align-items: center; justify-content: center; background: rgba(10, 9, 7, .82); }

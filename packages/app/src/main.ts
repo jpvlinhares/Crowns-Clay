@@ -171,14 +171,24 @@ function showNextEventDialog(): void {
     if (choice === undefined) continue;
     const button = document.createElement('button');
     button.append(choice.text);
-    // payment prompts state their price (from the event def's effects) so the player knows what
-    // they're paying, not just what they're paying for — automatic for modded events too
-    if (choice.cost !== undefined && choice.cost.length > 0) {
-      const note = document.createElement('span');
-      note.className = 'choice-cost';
-      note.textContent = `Cost: ${choice.cost.map(([name, amount]) => `${amount} ${name}`).join(', ')}`;
-      button.append(note);
+    // every option states its outcome (from the event def's effects): what the player gains or
+    // suffers, signed and colour-coded — a no-effect option (e.g. "Decline") says so explicitly
+    const summary = document.createElement('span');
+    summary.className = 'choice-outcomes';
+    if (choice.outcomes !== undefined && choice.outcomes.length > 0) {
+      for (const outcome of choice.outcomes) {
+        const chip = document.createElement('span');
+        chip.className = `outcome ${outcome.kind}`;
+        chip.textContent = outcome.label;
+        summary.append(chip);
+      }
+    } else {
+      const chip = document.createElement('span');
+      chip.className = 'outcome neutral';
+      chip.textContent = 'No effect';
+      summary.append(chip);
     }
+    button.append(summary);
     button.addEventListener('click', () => {
       command('event.choose', { eventId: next.eventId, choiceId: choice.id });
       eventQueue.shift();

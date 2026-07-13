@@ -64,10 +64,11 @@ export interface CatalogEvent {
   readonly choices: readonly {
     readonly id: string;
     readonly text: string;
-    /** What this choice SPENDS, as [display name, amount] pairs — derived from its effects
-     * (removeResource / negative treasury), so payment prompts state their price. Omitted when
-     * the choice costs nothing; optional so older/modded projections stay compatible. */
-    readonly cost?: readonly (readonly [string, number])[];
+    /** What this choice GAINS or COSTS, as signed player-facing chips derived from its effects
+     * (grant/remove resource, stat/treasury nudge, standing) — so each option states its outcome,
+     * not just its label. Omitted when the choice has no mechanical effect; optional so
+     * older/modded projections stay compatible. */
+    readonly outcomes?: readonly { readonly label: string; readonly kind: 'gain' | 'loss' | 'neutral' }[];
   }[];
 }
 /** A recruitable unit (M47.7 — the Military panel's palette; projected from UnitDefs). */
