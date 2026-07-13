@@ -141,6 +141,36 @@ test('evaluatePredicate: comparators, season, hasEdict/hasTech, and combinators 
   assert.equal(evaluatePredicate({ not: { season: 'winter' } }, fakeContext({ season: () => 'summer' })), true);
 });
 
+test('tutorial "Granaries Are Full" cannot fire from the initial state (foodSecurity seeds at 1.0)', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const economy = db.events.get('base:event.tutorial.economy');
+  assert.ok(economy, 'tutorial economy event exists');
+  const trigger = economy.trigger;
+
+  // A freshly-founded village on day 1 (spring): foodSecurity is seeded at its EMA max of 1.0
+  // and happiness at 60. This is exactly the state that made the bare `foodSecurity >= 0.8`
+  // trigger fire at t=0. The season gate must keep it FALSE here even at maximum food security.
+  const initialState = fakeContext({
+    season: () => 'spring',
+    statOf: (s) => (s === 'village.foodSecurity' ? 1 : s === 'village.happiness' ? 60 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, initialState), false, 'must not fire from the initial state');
+
+  // A genuinely food-secure village once summer has come around → fires as intended.
+  const genuineSurplus = fakeContext({
+    season: () => 'summer',
+    statOf: (s) => (s === 'village.foodSecurity' ? 0.95 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, genuineSurplus), true, 'fires on a genuine, earned surplus');
+
+  // …but summer alone is not enough — a starving village in summer still stays quiet.
+  const summerButStarving = fakeContext({
+    season: () => 'summer',
+    statOf: (s) => (s === 'village.foodSecurity' ? 0.3 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, summerButStarving), false, 'food security is still required');
+});
+
 // ---------------------------------------------------------------- DSL fuzzing: applyEffect
 
 function fakeEffectContext(): EventEffectContext & { calls: string[] } {
@@ -309,9 +339,19 @@ test('tutorial: all 6 steps are reachable and resolvable in sequence through the
   // 1. welcome — trigger is unconditionally true from day 1
   resolve('base:event.tutorial.welcome', waitForPending('base:event.tutorial.welcome', 5000).choiceIds[0] as string);
 
-  // 2. economy — force foodSecurity healthy, then wait
-  k.world.write(k.popGame.Population).foodSecurity[vi] = 0.9;
-  resolve('base:event.tutorial.economy', waitForPending('base:event.tutorial.economy', 5000).choiceIds[0] as string);
+  // 2. economy — now gated on SUMMER as well as food security (so it can't fire from the day-1
+  // foodSecurity=1.0 seed). This village has no food income, so its EMA would decay before summer
+  // arrives — pin it healthy each tick to isolate the season gate this step now depends on.
+  {
+    let target: { eventId: string; choiceIds: readonly string[] } | undefined;
+    for (let tries = 0; target === undefined && tries < 6000; tries++) {
+      k.world.write(k.popGame.Population).foodSecurity[vi] = 0.9;
+      k.kernel.step();
+      target = k.eventGame.pendingChoices(k.kingdomId as never).find((e) => e.eventId === 'base:event.tutorial.economy');
+    }
+    assert.ok(target !== undefined, 'expected economy to fire once summer arrives with food secure');
+    resolve('base:event.tutorial.economy', target.choiceIds[0] as string);
+  }
 
   // 3/4/5 — season-gated (spring is tick 0; summer/autumn/winter arrive as ticks advance
   // naturally); autumn's tax step needs no extra state, winter's edicts step needs treasury ≥ 20

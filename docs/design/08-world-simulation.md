@@ -107,6 +107,14 @@ Daily cohort update: `births = adults × baseRate × foodSecurity × housing × 
 prosperity/reputation and away from unrest/war (bounded per day). Aging promotes cohorts on year
 boundaries. Named individuals resample from cohorts on demand [OQ-2].
 
+`foodSecurity` is a daily EMA of the fed fraction, **seeded at its maximum `1.0`** so a brand-new
+village reads as fed rather than starving (this seed is load-bearing: `RECRUIT_MIN_FOOD_SECURITY`,
+`CRISIS_FOOD_SECURITY`, and births all key on it). Consequence for content authors: an event/tutorial
+trigger that keys on *high* food security (`foodSecurity gte …`) is trivially true on day 1 from that
+seed, so it must be **gated** (e.g. by season) or it fires from the initial state — the "Bountiful
+Harvest" (autumn) and tutorial "Granaries Are Full" (summer) events both do this. Low-water triggers
+(`lt …`, e.g. starvation/unrest) need no such gate; the max seed never satisfies them.
+
 ## §6. Resource Production & Construction
 
 Construction consumes stockpiled materials up front (reservation) then labor per hour until
