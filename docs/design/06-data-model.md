@@ -440,7 +440,15 @@ Characters, M34; `startEvent` needs an event-chaining scheduler this milestone d
 `PredicateExpr` (doc 09 §4) is a small closed vocabulary — `all`/`any`/`not`, `season`,
 `hasEdict`, `hasTech` (ties directly into M32's `techsKnown`), `chance`, and `stat` with five
 comparators — validated at content load (`terrain.ts`'s `DefinitionDatabase`, alongside DAG-
-style referential checks: `hasEdict`/`hasTech`/resource references must be real). `EventState`
+style referential checks: `hasEdict`/`hasTech`/resource references must be real). **Payment-prompt legibility (choice cost projection):** a choice's price is already fully
+described by its `effects` — a `removeResource`, or a negative `kingdom.treasury` modifier — so
+no separate "reason/cost" field is authored. `simPort.ts`'s catalog projection derives a
+per-choice `cost: [displayName, amount][]` from those effects (`packages/app/src/eventCost.ts`)
+and the event dialog renders it under each button, so every payment prompt states what it costs
+(including modded events, automatically). It's optional on the wire (`CatalogEvent.choices[].cost`)
+and omitted for free choices; non-payment effects (grants, happiness/opinion changes, `mul`
+modifiers, `command`) are deliberately excluded — this answers "what does it cost", the button
+text answers "what for". `EventState`
 is a plain relational class keyed by kingdom EntityId (same reasoning as `DiplomacyState`/
 `ResearchState`), tracking fired-history (cooldowns, `once`-flags), per-season fire counts (the
 pacing governor's input), and pending (unanswered) event instances — `kingdom.setActiveResearch`-

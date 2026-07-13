@@ -14,6 +14,7 @@ import {
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
+import { choicePaymentCost } from './eventCost.js';
 import { SnapshotEmitter } from './snapshots.js';
 import { BuildingEmitter, RoadEmitter, TerritoryEmitter, VillageStatsEmitter } from './buildingEmitter.js';
 import { composeTerra, type ModSelection, type SandboxOptions } from './terra.js';
@@ -252,7 +253,11 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
       id: def.id,
       title: locale.resolve(def.text.title),
       body: locale.resolve(def.text.body),
-      choices: def.choices.map((choice) => ({ id: choice.id, text: locale.resolve(choice.text) })),
+      choices: def.choices.map((choice) => {
+        // surface the choice's price (from its effects) so payment prompts say what they cost
+        const cost = choicePaymentCost(choice.effects, (resId) => db.resources.get(resId)?.name ?? resId);
+        return { id: choice.id, text: locale.resolve(choice.text), ...(cost.length > 0 ? { cost } : {}) };
+      }),
     })),
   };
   const audioCatalog: AudioCatalog = {

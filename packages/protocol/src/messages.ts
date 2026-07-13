@@ -61,7 +61,14 @@ export interface CatalogEvent {
   readonly id: string;
   readonly title: string;
   readonly body: string;
-  readonly choices: readonly { readonly id: string; readonly text: string }[];
+  readonly choices: readonly {
+    readonly id: string;
+    readonly text: string;
+    /** What this choice SPENDS, as [display name, amount] pairs — derived from its effects
+     * (removeResource / negative treasury), so payment prompts state their price. Omitted when
+     * the choice costs nothing; optional so older/modded projections stay compatible. */
+    readonly cost?: readonly (readonly [string, number])[];
+  }[];
 }
 /** A recruitable unit (M47.7 — the Military panel's palette; projected from UnitDefs). */
 export interface CatalogUnit {

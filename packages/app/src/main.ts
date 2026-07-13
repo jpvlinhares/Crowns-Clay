@@ -170,7 +170,15 @@ function showNextEventDialog(): void {
     const choice = def.choices.find((c) => c.id === choiceId);
     if (choice === undefined) continue;
     const button = document.createElement('button');
-    button.textContent = choice.text;
+    button.append(choice.text);
+    // payment prompts state their price (from the event def's effects) so the player knows what
+    // they're paying, not just what they're paying for — automatic for modded events too
+    if (choice.cost !== undefined && choice.cost.length > 0) {
+      const note = document.createElement('span');
+      note.className = 'choice-cost';
+      note.textContent = `Cost: ${choice.cost.map(([name, amount]) => `${amount} ${name}`).join(', ')}`;
+      button.append(note);
+    }
     button.addEventListener('click', () => {
       command('event.choose', { eventId: next.eventId, choiceId: choice.id });
       eventQueue.shift();
