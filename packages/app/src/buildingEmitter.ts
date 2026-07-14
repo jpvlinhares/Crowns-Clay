@@ -1,7 +1,12 @@
 /** Building snapshot diffing (M11): rare adds/removes + progress for the few under construction. */
 import type { BuildingRec } from '@crowns/protocol';
-import type { FogRegistry, KingdomGameplay, VillageGameplay } from '@crowns/sim';
-import { BASE_STORAGE, type World } from '@crowns/sim';
+import type { FogRegistry, KingdomGameplay, StatModifierView, VillageGameplay } from '@crowns/sim';
+import {
+  BASE_STORAGE, FORAGE_FLOOR, JOY_NEUTRAL, SERVICE_JOY_CAP, HAPPINESS_DRIFT_TARGET,
+  joyContributions, joyTarget, joyFertility, joyMigration, type World,
+} from '@crowns/sim';
+
+const round = (n: number, dp: number): number => { const f = 10 ** dp; return Math.round(n * f) / f; };
 
 /** entity id → dense component index (low 22 bits), matching the sim's convention. */
 const vindex = (id: number): number => id & 0x3fffff;
@@ -114,6 +119,7 @@ export class VillageStatsEmitter {
     private readonly game: VillageGameplay,
     private readonly Population: import('@crowns/sim').PopulationComponent,
     db: import('@crowns/data').DefinitionDatabase,
+    private readonly mods: StatModifierView,
   ) {
     for (const [id, def] of db.resources) {
       if (id === 'base:resource.food') continue;
@@ -133,13 +139,18 @@ export class VillageStatsEmitter {
     const bc = this.world.read(this.game.comps.BuildingCore);
     const housingByV = new Map<number, number>();
     const storageByV = new Map<number, number>();
+    const serviceJoyByV = new Map<number, number>(); // Σ joy service auras, capped (needs system)
     this.world.query([this.game.comps.BuildingCore]).forEach((i) => {
       if ((bc.complete[i] as number) !== 1) return;
       const vi = vindex(bc.village[i] as number);
       const def = this.game.ops.buildingDef(bc.def[i] as number);
       housingByV.set(vi, (housingByV.get(vi) ?? 0) + (def.housing?.capacity ?? 0));
       storageByV.set(vi, (storageByV.get(vi) ?? 0) + (def.storage?.capacity ?? 0));
+      if (def.serviceAura?.need === 'joy') {
+        serviceJoyByV.set(vi, Math.min(SERVICE_JOY_CAP, (serviceJoyByV.get(vi) ?? 0) + def.serviceAura.strength));
+      }
     });
+    const drift = this.mods.add(HAPPINESS_DRIFT_TARGET); // edict/office joy modifier (global board)
     this.world.query([this.Population, this.game.comps.VillageCore]).forEach((vi, entity) => {
       const stock = stocks.tryGet(vi);
       const goods: Record<string, number> = {};
@@ -148,23 +159,46 @@ export class VillageStatsEmitter {
         const amount = Math.floor(stock?.get(code) ?? 0);
         if (amount > 0) goods[this.goodsNames.get(code) as string] = amount;
       }
+      // joy breakdown (M-era): the SAME numbers the sim uses (shared helpers), so the
+      // Joy panel stays exactly accurate. Contributions are for display; the target and
+      // migration/fertility come straight from the sim's own functions.
+      const total = (pop.children[vi] as number) + (pop.adults[vi] as number) + (pop.elders[vi] as number);
+      const housingCap = housingByV.get(vi) ?? 0;
+      const shelter = total > 0 ? Math.min(1, housingCap / total) : 1;
+      const nutrition = pop.foodSecurity[vi] as number;
+      const serviceJoy = serviceJoyByV.get(vi) ?? 0;
+      const happiness = pop.happiness[vi] as number;
+      const contrib = joyContributions(nutrition, shelter, serviceJoy, drift);
+      const factors: { label: string; value: number }[] = [
+        { label: 'Food', value: round(contrib.food, 1) },
+        { label: 'Shelter', value: round(contrib.shelter, 1) },
+      ];
+      if (serviceJoy !== 0) factors.push({ label: 'Services', value: round(contrib.service, 1) });
+      if (drift !== 0) factors.push({ label: 'Edicts', value: round(contrib.edicts, 1) });
+      const joy = {
+        level: Math.round(happiness),
+        target: Math.round(joyTarget(Math.max(FORAGE_FLOOR, nutrition), shelter, serviceJoy, drift)),
+        neutral: JOY_NEUTRAL,
+        factors,
+        migrationPerDay: round(joyMigration(happiness, total, housingCap), 2),
+        fertility: round(joyFertility(happiness), 2),
+      };
       const stat = {
         id: entity as number,
         name: names.tryGet(vi) ?? `village ${vi}`,
-        population: Math.floor(
-          (pop.children[vi] as number) + (pop.adults[vi] as number) + (pop.elders[vi] as number),
-        ),
+        population: Math.floor(total),
         food: Math.floor(stock?.get(foodCode) ?? 0),
-        happiness: Math.round(pop.happiness[vi] as number),
+        happiness: Math.round(happiness),
         goods,
-        housing: housingByV.get(vi) ?? 0,
+        housing: housingCap,
         stockCap: BASE_STORAGE + (storageByV.get(vi) ?? 0),
+        joy,
         tier: core.tier[vi] as number,
         taxRate: core.taxRate[vi] as number,
         cx: core.centerX[vi] as number,
         cy: core.centerY[vi] as number,
       };
-      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}`;
+      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}|${joy.target}|${joy.migrationPerDay}|${joy.fertility}|${factors.map((f) => f.value).join(',')}`;
       if (this.last.get(stat.id) !== key) {
         this.last.set(stat.id, key);
         out.push(stat);

@@ -102,6 +102,12 @@ inspectable and makes every interaction loggable/replayable.
   Kingdom, Joy/capacity (future) — registers here rather than being bespoke, inheriting the dock and
   single-open for free. **Kingdom resources are NOT always-on:** treasury/net/ledger live in the
   on-demand **Kingdom** panel (👑), fed from the `kingdom.rollup` event, not the top bar.
+- **Joy panel:** a right-docked panel (glyph 😊, hotkey **J**) explains the selected settlement's mood
+  from live state — current joy vs. the target it's drifting toward, a signed contribution breakdown
+  (Food / Shelter / Services / Edicts, only the non-zero ones), and joy's effect on population (net
+  migrants/day and the fertility multiplier). Every number is projected in the sim worker via the
+  population module's own exported helpers (`joyContributions`, `joyTarget`, `joyFertility`,
+  `joyMigration`), so the panel can never drift from the numbers the sim actually applies (doc 08 §5).
 - **Re-render focus guard:** panel bodies are rebuilt wholesale on every store change (which fires per
   snapshot delta). A rebuild must not clobber an *editable* control the player is mid-interaction with
   — replacing a live `<select>` snaps its open dropdown shut (the "tax selector closes the instant it

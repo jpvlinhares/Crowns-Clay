@@ -181,6 +181,7 @@ export interface CampaignComposition {
   readonly worldDef: WorldDef | null;
   readonly terrainSnapshot: TerrainSnapshot | null;
   readonly game: VillageGameplay;
+  readonly statMods: StatModifiers; // modifier board (edicts/offices) — read for the Joy panel drift
   readonly popGame: ReturnType<typeof registerPopulationGameplay>;
   readonly econGame: ReturnType<typeof registerEconomyGameplay>;
   readonly logiGame: ReturnType<typeof registerLogisticsGameplay>;
@@ -912,7 +913,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
 
   return {
     kernel, world, db, modReport, locale, sandbox: sandboxEnabled, Position, worldDef, terrainSnapshot,
-    game, popGame, econGame, logiGame, settlerGame, kingdomGame, diplomacyGame, militaryGame, armiesGame,
+    game, statMods, popGame, econGame, logiGame, settlerGame, kingdomGame, diplomacyGame, militaryGame, armiesGame,
     combatGame, castleGame, siegeGame, researchGame, eventsGame, victoryGame, fog, placement, saves,
     villageOf: (kingdomIndex: number) => villageIndexByKingdom.get(kingdomIndex) ?? null,
     personalityTagsOf: (kingdomIndex: number): readonly string[] => {

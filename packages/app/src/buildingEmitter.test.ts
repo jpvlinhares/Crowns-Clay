@@ -12,7 +12,9 @@ import {
   registerEconomyGameplay,
   registerKingdomGameplay,
   StatModifiers,
+  INERT_MODIFIERS,
   BASE_STORAGE,
+  JOY_NEUTRAL,
   TICKS_PER_DAY,
   type TerrainAccessor,
 } from '@crowns/sim';
@@ -103,11 +105,23 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.equal(granary?.storageCapacity, 400, 'granary projects its storage capacity');
 
   // VillageStatsEmitter surfaces the POOLED village totals used for the used/total gauges.
-  const stats = new VillageStatsEmitter(world, game, popGame.Population, db).delta();
+  const stats = new VillageStatsEmitter(world, game, popGame.Population, db, INERT_MODIFIERS).delta();
   const v = stats.find((s) => s.name === 'Cap');
   assert.ok(v, 'village stats emitted');
   assert.equal(v.housing, 5, 'village housing total = Σ completed housing capacity');
   assert.equal(v.stockCap, BASE_STORAGE + 400, 'village stock cap = BASE_STORAGE + Σ completed storage capacity');
+
+  // Joy breakdown is projected from live state (M-era): food + shelter factors present,
+  // level in range, neutral pivot exposed, and the population effect surfaced.
+  assert.ok(v.joy, 'joy breakdown emitted');
+  assert.equal(v.joy.neutral, JOY_NEUTRAL);
+  assert.ok(v.joy.level >= 0 && v.joy.level <= 100, 'joy level in 0..100');
+  const labels = v.joy.factors.map((f) => f.label);
+  assert.deepEqual(labels.slice(0, 2), ['Food', 'Shelter'], 'food and shelter are the base drivers');
+  // no active edicts and no joy auras here → only the two base factors
+  assert.equal(v.joy.factors.length, 2, 'no service auras or edicts → just food + shelter');
+  assert.equal(typeof v.joy.migrationPerDay, 'number');
+  assert.ok(v.joy.fertility >= 0 && v.joy.fertility <= 2, 'fertility multiplier in 0..2');
 });
 
 test('TerritoryEmitter: single-kingdom composition emits nothing (VillageOwner undefined)', () => {

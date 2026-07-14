@@ -6,7 +6,10 @@ import { Kernel } from '../kernel.js';
 import { World } from '../ecs.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
-import { registerPopulationGameplay, FOOD_PER_PERSON_DAY, JOY_NEUTRAL } from './population.js';
+import {
+  registerPopulationGameplay, FOOD_PER_PERSON_DAY, JOY_NEUTRAL,
+  joyContributions, joyTarget, joyFertility, joyMigration,
+} from './population.js';
 import { registerEconomyGameplay, type StatModifierView } from './economy.js';
 import { registerLogisticsGameplay } from './logistics.js';
 
@@ -238,6 +241,30 @@ test('migration: unhappy villages (joy < neutral) bleed people even when well fe
   assert.ok(end.happiness < JOY_NEUTRAL, `discontent should hold joy below neutral (${end.happiness.toFixed(0)})`);
   assert.ok(end.foodSecurity > 0.9, 'the village is well fed — the loss is emigration, not starvation');
   assert.ok(end.total < start * 0.95, `an unhappy village should shrink via emigration (${end.total.toFixed(1)} from ${start})`);
+});
+
+// ---------------- joy helpers (shared by the sim and the Joy panel) ----------------
+
+test('joy helpers: contributions, target, fertility, and migration follow the model', () => {
+  // fully fed, fully housed, no services/edicts → food 70 + shelter 30 = target 100
+  const c = joyContributions(1, 1, 0, 0);
+  assert.equal(c.food, 70);
+  assert.equal(c.shelter, 30);
+  assert.equal(joyTarget(1, 1, 0, 0), 100);
+  // forage floor lifts a starving village's food factor off zero (morale, not survival)
+  assert.equal(joyContributions(0, 0, 0, 0).food, 0.4 * 0.7 * 100);
+
+  // fertility: 1 at neutral, 2 at max joy, 0 when miserable
+  assert.equal(joyFertility(JOY_NEUTRAL), 1);
+  assert.equal(joyFertility(100), 2);
+  assert.equal(joyFertility(0), 0);
+
+  // migration: a content village draws people into SPARE housing (gated by room)…
+  assert.ok(joyMigration(80, 40, 60) > 0, 'happy + spare housing → immigration');
+  assert.equal(joyMigration(80, 40, 40), 0, 'happy but full → no immigration');
+  // …and an unhappy one bleeds people (negative, ungated by housing)
+  assert.ok(joyMigration(20, 40, 40) < 0, 'unhappy → emigration');
+  assert.equal(joyMigration(JOY_NEUTRAL, 40, 60), 0, 'neutral joy → no net migration');
 });
 
 // ---------------- determinism ----------------

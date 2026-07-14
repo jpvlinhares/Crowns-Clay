@@ -344,6 +344,17 @@ export type FromSimMessage =
          * (BASE_STORAGE + Σ storage.capacity). Optional for back-compat. */
         housing?: number;
         stockCap?: number;
+        /** Joy breakdown for the Joy panel (M-era), projected from live sim state: the
+         * current level, the target it trends toward, each signed contribution (points),
+         * and joy's effect on population (net migrants/day, fertility multiplier). */
+        joy?: {
+          level: number;
+          target: number;
+          neutral: number;
+          factors: readonly { readonly label: string; readonly value: number }[];
+          migrationPerDay: number;
+          fertility: number;
+        };
         tier: number;
         taxRate: number;
         cx: number;

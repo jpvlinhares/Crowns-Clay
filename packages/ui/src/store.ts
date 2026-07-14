@@ -17,6 +17,15 @@ export interface VillageInfo {
    * inspector's used/total gauges (M-era). */
   readonly housing: number;
   readonly stockCap: number;
+  /** Joy breakdown for the Joy panel (M-era), projected from live sim state. */
+  readonly joy?: {
+    readonly level: number;
+    readonly target: number;
+    readonly neutral: number;
+    readonly factors: readonly { readonly label: string; readonly value: number }[];
+    readonly migrationPerDay: number;
+    readonly fertility: number;
+  };
   readonly tier: number;
   readonly taxRate: number;
   readonly cx: number;

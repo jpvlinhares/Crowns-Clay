@@ -70,6 +70,7 @@ export interface TerraComposition {
   readonly worldDef: WorldDef;
   readonly terrain: TerrainSnapshot;
   readonly game: VillageGameplay;
+  readonly statMods: StatModifiers; // modifier board (edicts/offices) — read for the Joy panel drift
   readonly popGame: PopulationGameplay;
   readonly econGame: EconomyGameplay;
   readonly logiGame: LogisticsGameplay;
@@ -352,6 +353,6 @@ export function composeTerra(
   };
   return {
     db, modReport: report, locale, sandbox: sandboxEnabled, kernel, world, Position, worldDef, terrain,
-    game, popGame, econGame, logiGame, settlerGame, kingdomGame, eventsGame, saves,
+    game, statMods, popGame, econGame, logiGame, settlerGame, kingdomGame, eventsGame, saves,
   };
 }

@@ -214,6 +214,7 @@ const villagePanel = panels.register('village', 'Village', '🏘');
 const buildPanel = panels.register('build', 'Build', '🔨');
 const buildingPanel = panels.register('building', 'Building', '🏛');
 const kingdomPanel = panels.register('kingdom', 'Kingdom', '👑');
+const joyPanel = panels.register('joy', 'Joy', '😊');
 // M47.7 (doc 12 R1): the four "dark systems" get player surfaces — no action below
 // requires the debug injector. Campaign-only; the village sandbox shows a hint instead.
 const diplomacyPanel = panels.register('diplomacy', 'Diplomacy', '🤝');
@@ -519,6 +520,58 @@ function renderKingdomPanel(): void {
     body.append(row);
   }
   renderLedger(body);
+}
+
+/** One joy contribution as a signed value + bar (points on the 0–100 joy scale). */
+function joyFactorRow(label: string, value: number): HTMLElement {
+  const row = el('div', undefined, 'cap-row');
+  const head = el('div', undefined, 'cap-head');
+  head.append(el('span', label, 'cap-label'), el('span', `${value > 0 ? '+' : ''}${value.toFixed(1)}`, 'cap-val'));
+  const track = el('div', undefined, 'cap-track');
+  const fill = el('div', undefined, 'cap-fill');
+  fill.style.width = `${Math.min(100, Math.abs(value))}%`;
+  if (value < 0) fill.classList.add('over'); // a reduction (e.g. a punitive edict) shows amber
+  track.append(fill);
+  row.append(head, track);
+  return row;
+}
+
+// Joy panel (M-era): explains the settlement's mood and how it drives population, all
+// from live sim state (the projection reuses the sim's own joy helpers — no drift).
+function renderJoyPanel(): void {
+  const body = joyPanel.body;
+  body.replaceChildren();
+  const v = store.selectedVillage();
+  if (v === null || v.joy === undefined) {
+    body.append(el('div', 'Joy appears once a settlement is founded.', 'hint'));
+    return;
+  }
+  const joy = v.joy;
+  body.append(tip(
+    el('div', `${v.name} — joy ${joy.level} / 100`, 'row'),
+    'The settlement\'s mood (0–100). It drifts daily toward the target below.',
+  ));
+  body.append(el('div', `trending toward ${joy.target}`, 'row hint'));
+
+  body.append(el('div', 'What drives joy', 'ledger-heading'));
+  for (const f of joy.factors) body.append(joyFactorRow(f.label, f.value));
+
+  body.append(el('div', 'Effect on population', 'ledger-heading'));
+  const mig = joy.migrationPerDay;
+  const migText = mig > 0.005
+    ? `+${mig.toFixed(2)} settlers/day arriving`
+    : mig < -0.005
+      ? `${mig.toFixed(2)} people/day leaving`
+      : 'no net migration';
+  body.append(tip(
+    el('div', migText, 'row'),
+    `Joy above ${joy.neutral} draws newcomers into spare housing; below ${joy.neutral} people leave for better lands.`,
+  ));
+  body.append(tip(
+    el('div', `births ×${joy.fertility.toFixed(2)}`, 'row'),
+    'Joy\'s fertility multiplier — a happier village raises more children (×2 at full joy, ~0 when miserable).',
+  ));
+  body.append(el('div', `neutral point is ${joy.neutral} — ${joy.level >= joy.neutral ? 'growing' : 'shrinking'}`, 'row hint'));
 }
 
 const LEDGER_KIND_LABELS: Record<string, string> = {
@@ -925,6 +978,7 @@ store.subscribe(() => {
   renderVillagePanelIdle();
   renderBuildPalette();
   renderKingdomPanelIdle();
+  renderJoyPanel();
   updateFootprintPreview(); // arming/disarming a building shows/hides the placement outline
 });
 renderBuildingPanel(); // seed the inspector's "click a building" hint before any selection
@@ -1441,6 +1495,7 @@ const KEYBINDS: readonly Keybind[] = [
   { key: 'V', description: 'Toggle Village panel', action: () => villagePanel.toggle() },
   { key: 'B', description: 'Toggle Build panel', action: () => buildPanel.toggle() },
   { key: 'K', description: 'Toggle Kingdom panel', action: () => kingdomPanel.toggle() },
+  { key: 'J', description: 'Toggle Joy panel', action: () => joyPanel.toggle() },
   { key: 'D', description: 'Toggle Diplomacy panel', action: () => diplomacyPanel.toggle() },
   { key: 'A', description: 'Toggle Military panel', action: () => militaryPanel.toggle() },
   { key: 'R', description: 'Toggle Research panel', action: () => researchPanel.toggle() },

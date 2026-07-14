@@ -125,6 +125,13 @@ ungated). Migration is applied pro-rata across cohorts so the age pyramid is pre
 deterministic (a pure function of state — no RNG). `JOY_MIGRATION_RATE`/`BIRTH_RATE` magnitudes are
 tuned against day-length in the pace pass.
 
+The target, fertility, and migration formulas are exported as pure helpers (`joyContributions`,
+`joyTarget`, `joyFertility`, `joyMigration`) that the needs/population systems call with their exact
+expressions — so the UI's Joy panel breaks joy down (Food/Shelter/Services/Edicts contributions,
+net migrants/day, fertility ×) using the very numbers the sim applies, with no second implementation
+to drift. Contribution weights are named constants (`HAPPINESS_FOOD_WEIGHT` 0.7, `HAPPINESS_SHELTER_WEIGHT`
+0.3, `SERVICE_JOY_CAP` 15) rather than inline literals.
+
 **Starvation is lethal.** `foodSecurity` is a daily EMA of the fed fraction — now tracking **real,
 un-floored nutrition** so a village with no food trends toward `0`, which halts births and drives
 famine mortality at full strength (`famine = FAMINE_MORTALITY × (1 − foodSecurity)`): people genuinely
