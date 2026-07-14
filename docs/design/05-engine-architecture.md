@@ -92,15 +92,28 @@ inspectable and makes every interaction loggable/replayable.
 ## §7. UI Subsystem (main thread, HTML)
 
 - Reactive views bound to a **UI Store** fed by snapshot deltas and GameEvents; issues commands via
-  the Command Bus only. Panel taxonomy: HUD (clock/resources/notifications), Inspector (any entity),
+  the Command Bus only. Panel taxonomy: HUD (clock/notifications), Inspector (any entity),
   Ledgers, Diplomacy table, Research tree, Army orders, Build palettes, Event dialogs, Menus.
 - **Interfaces:** `pick()` from renderer for world selection; localisation service for all strings
   (doc 10 §6); input focus arbitration with the Input Mapper (typing ≠ hotkeys).
-- **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk · treasury)
-  where each value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never
-  reflows its neighbours. Per-village vitals render as one bordered fixed-column chip per village on
-  their own full-width row (built via DOM, not string concat), keeping numbers legibly in place —
-  the "grids, text doesn't move even with different counts" requirement.
+- **Panel host (`@crowns/ui` `PanelHost`):** all on-demand windows dock on the **right** and obey a
+  **single-open invariant** — opening one (toolbar glyph, hotkey, or a selection that reveals a panel)
+  closes whichever was showing, so a side never stacks. Every panel — Village, Building inspector,
+  Kingdom, Joy/capacity (future) — registers here rather than being bespoke, inheriting the dock and
+  single-open for free. **Kingdom resources are NOT always-on:** treasury/net/ledger live in the
+  on-demand **Kingdom** panel (👑), fed from the `kingdom.rollup` event, not the top bar.
+- **Re-render focus guard:** panel bodies are rebuilt wholesale on every store change (which fires per
+  snapshot delta). A rebuild must not clobber an *editable* control the player is mid-interaction with
+  — replacing a live `<select>` snaps its open dropdown shut (the "tax selector closes the instant it
+  opens" defect, which only survived while paused because pausing halts the deltas). The village/kingdom
+  renders skip while an editable control (`SELECT`/`INPUT`/`TEXTAREA`) inside the panel holds focus;
+  the next delta after it blurs redraws with fresh data. Focused *buttons* still re-render (they want
+  the fresh state and suffer no clobber).
+- **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk) where each
+  value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never reflows its
+  neighbours. Per-village vitals render as one bordered fixed-column chip per village on their own
+  full-width row (built via DOM, not string concat), keeping numbers legibly in place — the "grids,
+  text doesn't move even with different counts" requirement.
 - **Building inspector + demolish:** clicking a building opens the Building panel (name · category ·
   footprint · construction %) and offers a two-click-confirm **🧹 Demolish** that issues the
   `village.demolish` command (the same command a besieger's breach uses). Village-centre buildings

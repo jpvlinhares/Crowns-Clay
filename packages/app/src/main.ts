@@ -9,7 +9,7 @@
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
 import { BASE_TICKS_PER_SECOND, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
-import { NotificationQueue, PanelHost, TooltipController, UIStore } from '@crowns/ui';
+import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
 import { EN_LOCALE } from './locale/en.js';
@@ -46,7 +46,6 @@ const hud = {
   entities: document.getElementById('entities') as HTMLElement,
   status: document.getElementById('status') as HTMLElement,
   villages: document.getElementById('village-stats') as HTMLElement,
-  kingdom: document.getElementById('kingdom-stats') as HTMLElement,
 };
 const villageStats = new Map<number, { name: string; population: number; food: number; happiness: number; goods?: Record<string, number> }>();
 
@@ -862,10 +861,29 @@ function renderWarPanels(): void {
 }
 renderWarPanels(); // initial hint state before any campaign boots
 
+// A panel body is rebuilt wholesale (replaceChildren) on every store change, which
+// fires on every snapshot delta. That must NOT happen while the user is mid-interaction
+// with a control inside the panel — replacing a live <select> snaps its open dropdown
+// shut. This was the "tax selector closes the instant it opens" bug: it only survived
+// while PAUSED (no deltas → no re-render). Skip the rebuild while focus is inside the
+// panel; the next delta after the control blurs redraws it with fresh data.
+const EDITABLE = new Set(['SELECT', 'INPUT', 'TEXTAREA']);
+function whenIdle(panel: Panel, render: () => void): () => void {
+  return () => {
+    const active = document.activeElement;
+    // only an *editable* control mid-interaction is worth protecting (a focused
+    // button re-renders fine and wants the fresh state); a live <select> does not.
+    if (active !== null && EDITABLE.has(active.tagName) && panel.body.contains(active)) return;
+    render();
+  };
+}
+const renderVillagePanelIdle = whenIdle(villagePanel, renderVillagePanel);
+const renderKingdomPanelIdle = whenIdle(kingdomPanel, renderKingdomPanel);
+
 store.subscribe(() => {
-  renderVillagePanel();
+  renderVillagePanelIdle();
   renderBuildPalette();
-  renderKingdomPanel();
+  renderKingdomPanelIdle();
   updateFootprintPreview(); // arming/disarming a building shows/hides the placement outline
 });
 renderBuildingPanel(); // seed the inspector's "click a building" hint before any selection
@@ -1016,7 +1034,6 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.centerOnTile(focus.x, focus.y);
           villageStats.clear();
           hud.villages.textContent = '';
-          hud.kingdom.textContent = '';
         } else {
           void bootRenderer(message.world.widthTiles, message.world.heightTiles, message.entities, message.terrain, message.buildings, message.roads, focus);
         }
@@ -1072,9 +1089,8 @@ worker.onmessage = (event: MessageEvent) => {
             ledger?: { tick: number; kind: string; amount: number; detail: string }[];
           };
           if ((r.kingdomIndex ?? 0) === 0) {
-            const sign = r.net >= 0 ? '+' : '−';
-            hud.kingdom.textContent =
-              `⛁ ${r.treasury.toFixed(0)} (${sign}${Math.abs(r.net).toFixed(1)}/day · tax ${r.taxes.toFixed(1)} − upkeep ${(r.upkeep + r.salaries).toFixed(1)})`;
+            // kingdom resources are no longer always-on HUD text — the on-demand
+            // Kingdom panel (👑) renders treasury/net/ledger from this same rollup.
             store.applyRollup(r);
             store.appendLedger(r.ledger ?? []); // M42: itemized breakdown, "full income/expense" (GDD §2)
           }
