@@ -66,6 +66,9 @@ export interface CatalogEvent {
   readonly id: string;
   readonly title: string;
   readonly body: string;
+  /** When true, the dialog HALTS the sim until answered (a genuine blocking decision).
+   * Absent/false → answerable at leisure while the game runs (M-era). Data-driven. */
+  readonly blocking?: boolean;
   readonly choices: readonly {
     readonly id: string;
     readonly text: string;

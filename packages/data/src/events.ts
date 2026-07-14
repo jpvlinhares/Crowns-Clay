@@ -215,6 +215,10 @@ export interface EventDef {
   readonly weightModifiers?: readonly WeightModifier[];
   readonly cooldownDays?: number;
   readonly once?: boolean;
+  /** M-era: when true, this event's dialog HALTS the sim until answered — reserved for
+   * genuinely blocking crises/decisions. Default (absent/false) = the dialog is answerable
+   * at leisure while the game keeps running. Data-driven so mods opt in. */
+  readonly blocking?: boolean;
   /** M44: locale KEYS, not raw display text (doc 06 "LocalizedText", doc 10 §6). */
   readonly text: { readonly title: LocalizedText; readonly body: LocalizedText };
   readonly choices: readonly EventChoice[];
@@ -257,9 +261,10 @@ export const eventValidator: Validator<EventDef> = v.object(
     weightModifiers: v.array(weightModifierValidator),
     cooldownDays: v.number({ min: 0 }),
     once: v.boolean(),
+    blocking: v.boolean(),
     text: v.object({ title: v.localeKey(), body: v.localeKey() }),
     choices: v.array(choiceValidator, { minItems: 1 }),
     tags: v.array(v.string({ minLength: 1 })),
   },
-  { optional: ['weightModifiers', 'cooldownDays', 'once'] },
+  { optional: ['weightModifiers', 'cooldownDays', 'once', 'blocking'] },
 ) as unknown as Validator<EventDef>;

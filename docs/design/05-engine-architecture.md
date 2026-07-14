@@ -108,13 +108,19 @@ inspectable and makes every interaction loggable/replayable.
   migrants/day and the fertility multiplier). Every number is projected in the sim worker via the
   population module's own exported helpers (`joyContributions`, `joyTarget`, `joyFertility`,
   `joyMigration`), so the panel can never drift from the numbers the sim actually applies (doc 08 §5).
-- **Re-render focus guard:** panel bodies are rebuilt wholesale on every store change (which fires per
-  snapshot delta). A rebuild must not clobber an *editable* control the player is mid-interaction with
-  — replacing a live `<select>` snaps its open dropdown shut (the "tax selector closes the instant it
-  opens" defect, which only survived while paused because pausing halts the deltas). The village/kingdom
-  renders skip while an editable control (`SELECT`/`INPUT`/`TEXTAREA`) inside the panel holds focus;
-  the next delta after it blurs redraws with fresh data. Focused *buttons* still re-render (they want
-  the fresh state and suffer no clobber).
+- **Re-render clobber guard (`isInteracting`):** panel/toast surfaces are rebuilt wholesale
+  (`replaceChildren`) on store/snapshot updates. A rebuild must not clobber a surface the player is
+  mid-interaction with — replacing a live `<select>` snaps its dropdown shut, and replacing a **button
+  between mousedown and mouseup** means the `click` never fires (so the toast **×** and the two-click
+  **Demolish** appeared to work *only while paused*, because pausing halts the deltas). `isInteracting`
+  reports either condition — an editable control (`SELECT`/`INPUT`/`TEXTAREA`) inside the surface holds
+  focus, OR the pointer is hovering it — and callers skip the rebuild then, redrawing once the
+  interaction ends. Toasts additionally rebuild **only when a new one surfaces** (not every tick), so an
+  existing toast's × is never destroyed under the cursor.
+- **Pause policy (data-driven):** the sim pauses for a message **only** when the event def opts in with
+  `blocking: true` (genuine crises/decisions — the base disasters do); ordinary informational events and
+  notifications never pause, staying answerable while the game runs. The end-of-game screen still pauses
+  (the game is over).
 - **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk) where each
   value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never reflows its
   neighbours. Per-village vitals render as one bordered fixed-column chip per village on their own

@@ -253,6 +253,7 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
       id: def.id,
       title: locale.resolve(def.text.title),
       body: locale.resolve(def.text.body),
+      ...(def.blocking === true ? { blocking: true } : {}), // only blocking events pause the sim (M-era)
       choices: def.choices.map((choice) => {
         // surface the choice's outcomes (from its effects) so each option states what it gains/costs
         const outcomes = choiceOutcomes(choice.effects, (resId) => db.resources.get(resId)?.name ?? resId);

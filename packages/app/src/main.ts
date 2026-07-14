@@ -199,8 +199,9 @@ function showNextEventDialog(): void {
   }
   eventDialog.backdrop.hidden = false;
   firstButton?.focus(); // keyboard-complete from the moment it appears (M42 precedent)
-  setSpeed(0); // GDD §1's urgent-pause tier, same "never rushed" pillar (doc 01 §3) — a dialog is
-  // meant to be read, not ticked past; the player resumes deliberately when ready
+  // Only genuinely BLOCKING events (crises/decisions, opt-in per def) halt the sim; everything
+  // else stays answerable at leisure while the game runs (no more pausing on every message).
+  if (def.blocking === true) setSpeed(0);
 }
 
 const store = new UIStore();
@@ -956,20 +957,22 @@ function renderWarPanels(): void {
 }
 renderWarPanels(); // initial hint state before any campaign boots
 
-// A panel body is rebuilt wholesale (replaceChildren) on every store change, which
-// fires on every snapshot delta. That must NOT happen while the user is mid-interaction
-// with a control inside the panel — replacing a live <select> snaps its open dropdown
-// shut. This was the "tax selector closes the instant it opens" bug: it only survived
-// while PAUSED (no deltas → no re-render). Skip the rebuild while focus is inside the
-// panel; the next delta after the control blurs redraws it with fresh data.
+// A panel/toast surface is rebuilt wholesale (replaceChildren) on store/snapshot updates.
+// That must NOT happen while the user is mid-interaction with it: replacing a live <select>
+// snaps its open dropdown shut, and replacing a button between mousedown and mouseup means the
+// `click` never fires. Both are the same defect — it only "worked while PAUSED" because pausing
+// stops the updates. `isInteracting` reports either condition (an editable control inside holds
+// focus, OR the pointer is hovering the surface); callers skip the rebuild then and redraw once
+// the interaction ends. Root cause of: tax-select close, toast × dismiss, and building demolish.
 const EDITABLE = new Set(['SELECT', 'INPUT', 'TEXTAREA']);
+function isInteracting(el: HTMLElement): boolean {
+  const active = document.activeElement;
+  if (active !== null && EDITABLE.has(active.tagName) && el.contains(active)) return true;
+  return el.matches(':hover');
+}
 function whenIdle(panel: Panel, render: () => void): () => void {
   return () => {
-    const active = document.activeElement;
-    // only an *editable* control mid-interaction is worth protecting (a focused
-    // button re-renders fine and wants the fresh state); a live <select> does not.
-    if (active !== null && EDITABLE.has(active.tagName) && panel.body.contains(active)) return;
-    render();
+    if (!isInteracting(panel.body)) render();
   };
 }
 const renderVillagePanelIdle = whenIdle(villagePanel, renderVillagePanel);
@@ -1157,7 +1160,9 @@ worker.onmessage = (event: MessageEvent) => {
       // selected building was demolished (here or by a siege) drop the stale selection
       if (buildingPanel.isOpen() && selectedBuildingId !== null) {
         if ((message.buildingsRemoved ?? []).includes(selectedBuildingId)) selectBuilding(null);
-        else renderBuildingPanel();
+        // skip the live-stats rebuild while the pointer is on the panel, so the two-click
+        // Demolish (and any button) isn't replaced mid-click — the "only works paused" fix.
+        else if (!isInteracting(buildingPanel.body)) renderBuildingPanel();
       }
       // buildings changed under the cursor → re-probe the footprint preview so a just-placed
       // (or removed) tile flips colour without waiting for the next mouse move
@@ -1169,8 +1174,9 @@ worker.onmessage = (event: MessageEvent) => {
       lastDeltaAtMs = performance.now();
       return;
     }
-    case 'ticked':
+    case 'ticked': {
       hud.tick.textContent = String(message.toTick);
+      let toastSurfaced = false;
       for (const gameEvent of message.events) {
         if (gameEvent.type === 'time.dayStarted') {
           const { date } = gameEvent.data as { date: { year: number; seasonName: string; day: number } };
@@ -1211,13 +1217,17 @@ worker.onmessage = (event: MessageEvent) => {
           battleLog.push(`t${gameEvent.tick} ${gameEvent.type.replace(/^(battle|siege|diplomacy)\./, '')} ${detail}`);
           if (battleLog.length > BATTLE_LOG_CAP) battleLog.splice(0, battleLog.length - BATTLE_LOG_CAP);
         }
-        notifications.push(gameEvent);
+        if (notifications.push(gameEvent) !== undefined) toastSurfaced = true;
         audioDirector.push(gameEvent);
       }
       audioDirector.advance(message.toTick); // tension decay even on ticks with no qualifying event
-      renderToasts();
-      if (notifications.takePauseRequest()) setSpeed(0); // GDD §1 urgent-pause tier
+      // Rebuild toasts ONLY when a new one surfaced. Rebuilding every tick (replaceChildren)
+      // destroyed a toast and its × button mid-click, so dismiss appeared to work only while
+      // paused (no ticks → stable DOM). Notifications no longer pause the sim — only blocking
+      // event dialogs do (issue 2).
+      if (toastSurfaced) renderToasts();
       return;
+    }
     case 'saveResult':
       hud.status.textContent = message.ok
         ? `saved '${message.slot}' (${(message.bytes / 1024).toFixed(0)} KB)`

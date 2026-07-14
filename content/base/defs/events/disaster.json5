@@ -13,6 +13,7 @@
     "trigger": { "all": [{ "season": "summer" }, { "chance": 0.4 }] },
     "weight": 3,
     "cooldownDays": 90,
+    "blocking": true, // a crisis with a real trade-off — halt the sim for the decision
     "text": {
       "title": "event.disaster.blight.title",
       "body": "event.disaster.blight.body",
@@ -44,6 +45,7 @@
     "trigger": { "all": [{ "season": "winter" }, { "chance": 0.35 }] },
     "weight": 3,
     "cooldownDays": 60,
+    "blocking": true, // a crisis with a real trade-off — halt the sim for the decision
     "text": {
       "title": "event.disaster.storm.title",
       "body": "event.disaster.storm.body",
@@ -72,6 +74,7 @@
     "trigger": { "all": [{ "stat": "village.happiness", "lt": 60 }, { "chance": 0.25 }] },
     "weight": 2,
     "cooldownDays": 120,
+    "blocking": true, // a crisis with a real trade-off — halt the sim for the decision
     "text": {
       "title": "event.disaster.fire.title",
       "body": "event.disaster.fire.body",

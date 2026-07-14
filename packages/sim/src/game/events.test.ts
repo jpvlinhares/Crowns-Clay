@@ -352,6 +352,18 @@ test('event.choose: a grantResource/removeResource effect actually moves the vil
   assert.ok(Math.abs((stockAfter.get(toolsCode) ?? 0) - (toolsBefore + 8)) < 1e-9);
 });
 
+test('event def: disasters opt into BLOCKING (halt the sim); routine events do not', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  // genuine crises with real trade-offs pause the game for the decision (M-era)
+  for (const id of ['base:event.disaster.blight', 'base:event.disaster.storm', 'base:event.disaster.fire']) {
+    assert.equal(db.events.get(id)?.blocking, true, `${id} should be blocking`);
+  }
+  // informational/leisurely events must NOT pause — the default is non-blocking
+  for (const id of ['base:event.tutorial.welcome', 'base:event.opportunity.traveling-merchant', 'base:event.unrest.grumbling']) {
+    assert.notEqual(db.events.get(id)?.blocking, true, `${id} should not pause the game`);
+  }
+});
+
 // ---------------------------------------------------------------- tutorial (roadmap M43)
 
 test('tutorial: all 6 steps are reachable and resolvable in sequence through the real engine, ending at village.tier 2', () => {
