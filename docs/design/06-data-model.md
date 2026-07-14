@@ -52,6 +52,11 @@ BuildingDef { id, name, desc, category: housing|production|service|military|cast
               recipes?: [{ inputs: Yield[], outputs: Yield[] }],
               serviceAura?: { need: NeedType, strength: number, radius: number },
               housing?: { capacity: number, comfort: number },
+              storage?: { capacity: number }, // adds to every resource's per-village stockpile cap.
+              // Storage cap per (village, resource) = base + Σ storage.capacity of completed buildings.
+              // The base is BASE_STORAGE (150) for all goods EXCEPT food, whose base is the keep's
+              // KEEP_FOOD_BUFFER (50, config): a village stores only 50 food until it builds a
+              // granary (M-era, GDD §3) — surplus can't be deposited past the cap.
               military?: { recruits: Id<UnitDef>[], drillRate: number, garrisonCap: number },
               // M25 delta: `military.recruits` implemented (barracks gates recruitment
               // by def id). M28 delta: `garrisonCap` implemented as content (keep/tower)

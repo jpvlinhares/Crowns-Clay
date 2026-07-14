@@ -16,7 +16,7 @@ import { World } from '../ecs.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
 import { registerPopulationGameplay } from './population.js';
-import { registerEconomyGameplay, BASE_STORAGE, type ResourceFlows } from './economy.js';
+import { registerEconomyGameplay, BASE_STORAGE, KEEP_FOOD_BUFFER, type ResourceFlows } from './economy.js';
 import { registerLogisticsGameplay } from './logistics.js';
 
 const plain: TerrainAccessor = {
@@ -205,7 +205,8 @@ test('conservation: fuzzed compositions and commands reconcile over every window
 // ---------------- spoilage ----------------
 
 test('spoilage: decaying stock follows (1 − decay)^days exactly when nothing else moves', () => {
-  const v = makeEconomy({ food: 100, buildings: [] });
+  // food kept under the keep buffer so ONLY decay moves it (no granary-overflow spoilage)
+  const v = makeEconomy({ food: 40, buildings: [] });
   const decay = v.db.resources.get('base:resource.food')?.decay ?? 0;
   assert.ok(decay > 0, 'base food must spoil (M13)');
   // empty the village: nobody eats, nothing produces — only spoilage moves food
@@ -223,6 +224,24 @@ test('spoilage: decaying stock follows (1 − decay)^days exactly when nothing e
   assert.ok(Math.abs(spoiled - (start - got)) < 1e-9, 'ledger accounts every spoiled unit');
   // non-decaying resources never spoil
   assert.equal(v.econ.ledger.of(v.vi).get(v.code('base:resource.wood'))?.spoiled ?? 0, 0);
+});
+
+test('food storage: the keep holds only KEEP_FOOD_BUFFER; a granary is needed to hoard more', () => {
+  const foodCode = (v: ReturnType<typeof makeEconomy>): number => v.code('base:resource.food');
+
+  // a lone keep with farms: food production is real, but the keep can STORE only its
+  // small larder — surplus has nowhere to go, so the stockpile never climbs past it.
+  const noGranary = makeEconomy({ food: 40, buildings: ['base:building.farm', 'base:building.farm'] });
+  assert.equal(noGranary.econ.capOf(noGranary.vi, foodCode(noGranary)), KEEP_FOOD_BUFFER, 'food capped at the keep buffer with no granary');
+  assert.equal(noGranary.econ.capOf(noGranary.vi, noGranary.code('base:resource.wood')), BASE_STORAGE, 'other goods keep BASE_STORAGE');
+  noGranary.days(120);
+  assert.ok(noGranary.stockOf(foodCode(noGranary)) <= KEEP_FOOD_BUFFER + 1e-6, `food never exceeds the buffer without a granary (got ${noGranary.stockOf(foodCode(noGranary)).toFixed(1)})`);
+
+  // the SAME setup WITH a granary lifts the cap and lets food actually stockpile
+  const withGranary = makeEconomy({ food: 40, buildings: ['base:building.farm', 'base:building.farm', 'base:building.granary'] });
+  withGranary.days(120);
+  assert.ok(withGranary.econ.capOf(withGranary.vi, foodCode(withGranary)) > KEEP_FOOD_BUFFER + 300, 'a completed granary raises the food cap');
+  assert.ok(withGranary.stockOf(foodCode(withGranary)) > KEEP_FOOD_BUFFER, `a granary lets food accumulate past the buffer (got ${withGranary.stockOf(foodCode(withGranary)).toFixed(1)})`);
 });
 
 // ---------------- stockpile limits ----------------

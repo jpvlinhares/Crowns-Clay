@@ -344,6 +344,9 @@ export type FromSimMessage =
          * (BASE_STORAGE + Σ storage.capacity). Optional for back-compat. */
         housing?: number;
         stockCap?: number;
+        /** Food's own cap (KEEP_FOOD_BUFFER + Σ storage.capacity) — smaller than stockCap
+         * because the keep's food larder is small; a granary is needed to hold more (M-era). */
+        foodCap?: number;
         /** Joy breakdown for the Joy panel (M-era), projected from live sim state: the
          * current level, the target it trends toward, each signed contribution (points),
          * and joy's effect on population (net migrants/day, fertility multiplier). */

@@ -2,7 +2,7 @@
 import type { BuildingRec } from '@crowns/protocol';
 import type { FogRegistry, KingdomGameplay, StatModifierView, VillageGameplay } from '@crowns/sim';
 import {
-  BASE_STORAGE, FORAGE_FLOOR, JOY_NEUTRAL, SERVICE_JOY_CAP, HAPPINESS_DRIFT_TARGET,
+  BASE_STORAGE, KEEP_FOOD_BUFFER, FORAGE_FLOOR, JOY_NEUTRAL, SERVICE_JOY_CAP, HAPPINESS_DRIFT_TARGET,
   joyContributions, joyTarget, joyFertility, joyMigration, type World,
 } from '@crowns/sim';
 
@@ -192,6 +192,7 @@ export class VillageStatsEmitter {
         goods,
         housing: housingCap,
         stockCap: BASE_STORAGE + (storageByV.get(vi) ?? 0),
+        foodCap: KEEP_FOOD_BUFFER + (storageByV.get(vi) ?? 0),
         joy,
         tier: core.tier[vi] as number,
         taxRate: core.taxRate[vi] as number,

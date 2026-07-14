@@ -200,9 +200,11 @@ test('taxes: punitive rates bleed happiness and eat their own base', () => {
 // ---------------- edicts v1 ----------------
 
 test('edicts: rejections by name, then every modifier is observable in the sim', () => {
-  // one farm, light stores: the stockpile never hits its cap, so production
-  // runs uninterrupted and the corvée effect is measured cleanly
+  // one farm plus a granary so the food stockpile never hits its cap (the keep's
+  // larder alone is tiny, M-era) — production runs uninterrupted and the corvée
+  // effect is measured cleanly at the farm gate
   const k = makeKingdom({ farms: 1, food: 100 });
+  k.placeNear('base:building.granary');
   k.days(8);
 
   k.submit('kingdom.enactEdict', { edict: 'base:edict.moon-tax' });

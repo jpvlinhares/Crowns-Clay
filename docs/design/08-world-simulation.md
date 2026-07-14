@@ -100,6 +100,15 @@ limits, spoilage applies daily to decaying goods. Daily roll-up computes village
 (production value + trade + happiness factor) feeding taxes. Conservation invariant: every unit of
 resource created/consumed/moved reconciles in the ledger (property-tested, TDD §13).
 
+**Storage caps are per-resource:** `cap(vi, code) = base(code) + Σ storage.capacity` of completed
+storage buildings, then floored by any player-set stock limit. Every good's base is `BASE_STORAGE`
+(150) **except food**, whose base is the keep's small larder `KEEP_FOOD_BUFFER` (50, a config value).
+So a village can hold only 50 food until it raises a **granary** — surplus food has nowhere to go and
+simply can't be stored (haulers can't deposit past the cap, so the farm's overflow stalls in its
+outbox rather than accumulating). This makes a granary an early priority (GDD §3). Food alone carries
+the reduced base; wood/stone/planks/tools are unchanged. The cap is deposit-time (not a retroactive
+purge), so it is fully deterministic.
+
 Production overflows into per-building outboxes (`OUTBOX_DAYS`) which haulers drain into the
 stockpile. **A hauler that reaches a full stockpile must NOT park indefinitely** holding its cargo:
 when a resource's consumers are also saturated it stays capped forever, and a hauler frozen on it is a

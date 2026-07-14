@@ -417,13 +417,14 @@ function renderBuildingPanel(): void {
     }
     if (storageCap > 0) {
       // storage caps are shared across the village and applied PER resource, so surface
-      // each stocked good's fill against the cap — this is "food stored / capacity" on a
-      // granary and "amount stored / capacity" on a storehouse, sourced from live state.
-      const stored: [string, number][] = [['food', village.food], ...Object.entries(village.goods)];
-      for (const [good, amount] of stored) body.append(capacityRow(good, amount, village.stockCap));
+      // each stocked good's fill against the cap. Food is special: it has the small keep
+      // buffer as its base (KEEP_FOOD_BUFFER), so it uses its own foodCap — surplus food
+      // beyond it spoils without a granary. Every number comes from live state.
+      body.append(capacityRow('food', village.food, village.foodCap));
+      for (const [good, amount] of Object.entries(village.goods)) body.append(capacityRow(good, amount, village.stockCap));
       body.append(tip(
         el('div', `+${storageCap} storage per resource from this building`, 'row hint'),
-        'Storage capacity is pooled across the village; each resource may hold up to the cap.',
+        'Storage capacity is pooled across the village; food also draws on the keep\'s small larder, everything else on the base store.',
       ));
     }
   }
@@ -1139,7 +1140,7 @@ worker.onmessage = (event: MessageEvent) => {
       for (const stat of message.villageStats ?? []) {
         villageStats.set(stat.id, stat);
       }
-      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0 })));
+      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0 })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
       }

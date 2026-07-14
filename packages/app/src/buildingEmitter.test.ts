@@ -14,6 +14,7 @@ import {
   StatModifiers,
   INERT_MODIFIERS,
   BASE_STORAGE,
+  KEEP_FOOD_BUFFER,
   JOY_NEUTRAL,
   TICKS_PER_DAY,
   type TerrainAccessor,
@@ -110,6 +111,7 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.ok(v, 'village stats emitted');
   assert.equal(v.housing, 5, 'village housing total = Σ completed housing capacity');
   assert.equal(v.stockCap, BASE_STORAGE + 400, 'village stock cap = BASE_STORAGE + Σ completed storage capacity');
+  assert.equal(v.foodCap, KEEP_FOOD_BUFFER + 400, 'food cap = keep buffer + granary capacity (smaller base than other goods)');
 
   // Joy breakdown is projected from live state (M-era): food + shelter factors present,
   // level in range, neutral pivot exposed, and the population effect surfaced.

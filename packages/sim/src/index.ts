@@ -126,6 +126,7 @@ export {
   registerEconomyGameplay,
   ResourceLedger,
   BASE_STORAGE,
+  KEEP_FOOD_BUFFER,
   OUTBOX_DAYS,
   type EconomyGameplay,
   type ResourceFlows,

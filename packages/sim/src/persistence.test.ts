@@ -79,6 +79,9 @@ function liveIn(r: ReturnType<typeof makeRealm>): number {
   r.submit('village.build', { villageId, def: 'base:building.farm', x: 36, y: 27 });
   r.submit('village.build', { villageId, def: 'base:building.sawmill', x: 44, y: 32 });
   r.submit('village.build', { villageId, def: 'base:building.house', x: 37, y: 32 });
+  // a granary: food storage beyond the keep's 50-food larder (M-era) — needed to hold
+  // the cargo a settler party carries (SETTLER_CARRY food) before it can be dispatched
+  r.submit('village.build', { villageId, def: 'base:building.granary', x: 40, y: 33 });
   r.submit('village.buildRoad', { villageId, x: 42, y: 30 });
   r.submit('village.buildRoad', { villageId, x: 43, y: 30 });
   r.days(12); // build out, staff up, haul
