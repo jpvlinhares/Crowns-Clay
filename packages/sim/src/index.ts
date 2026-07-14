@@ -26,7 +26,7 @@ export {
   type EntityInspection,
 } from './ecs.js';
 export { EventBus } from './eventBus.js';
-export { TickDriver, BASE_TICKS_PER_SECOND, type Speed, type DriverOptions } from './driver.js';
+export { TickDriver, BASE_TICKS_PER_SECOND, REAL_SECONDS_PER_DAY, type Speed, type DriverOptions } from './driver.js';
 export {
   CalendarSystem,
   calendarFromTick,

@@ -5,15 +5,29 @@ elsewhere defers to the tables below.
 
 ## §1. Time Progression
 
-| Unit | Definition | Real time @1× (10 tps) | @8× |
+| Unit | Definition | Real time @1× (1 tps) | @8× |
 |---|---|---|---|
-| Tick | 1 in-game hour | 0.1 s | 12.5 ms |
-| Day | 24 ticks | 2.4 s | 0.3 s |
-| Season | 90 days | ~3.6 min | ~27 s |
-| Year | 4 seasons (360 days) | ~14.4 min | ~1.8 min |
+| Tick | 1 in-game hour | 1 s | 125 ms |
+| Day | 24 ticks | 24 s | 3 s |
+| Season | 90 days | 36 min | 4.5 min |
+| Year | 4 seasons (360 days) | 2.4 h | 18 min |
 
 Fixed timestep; speed changes multiply ticks/second, never tick length (TDD §6). Pause halts the
 sim; UI and camera remain live. Target campaign length: 40–120 in-game years (Vision §2).
+
+**Felt pace is one knob:** `REAL_SECONDS_PER_DAY` (config, default **24**) sets how long an in-game
+day takes at normal speed; the driver derives its rate as `BASE_TICKS_PER_SECOND = TICKS_PER_DAY /
+REAL_SECONDS_PER_DAY` (= 1 tps by default). Because production and growth are expressed **per
+game-day** (recipe `perDay` rates split across `TICKS_PER_DAY`; births/deaths/needs run once per
+game-day) rather than on real-time timers, stretching the day scales the felt speed of everything
+proportionally — with no per-building retuning and no change to tick content (determinism untouched;
+the rate is presentation-only, so goldens are unaffected).
+
+**Starting setup is data-driven** (`DEFAULT_STARTING_SETUP` in `terra.ts`, overridable per compose):
+the player begins with the **keep only** (no pre-built farm/quarry/etc.) and `{ 200 wood, 100 stone,
+50 food }` in the stockpile — the 50 food being the keep's larder (§4). Genesis funds the keep's own
+cost on top of that stock, so the player is left holding exactly the configured resources once the
+centre is placed (conservation intact).
 
 ## §2. Update Pipeline & Frequencies
 

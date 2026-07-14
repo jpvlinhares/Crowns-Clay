@@ -199,9 +199,9 @@ test('driver: speed multiplies tick throughput', () => {
   const { kernel } = makeKernel();
   const driver = new TickDriver(kernel, { maxTicksPerAdvance: 1000 });
   driver.setSpeed(1);
-  assert.equal(driver.advance(1000).length, 10); // 10 tps
+  assert.equal(driver.advance(1000).length, 1); // 1 tps at normal speed (1 game-day = 24s)
   driver.setSpeed(8);
-  assert.equal(driver.advance(1000).length, 80); // 80 tps
+  assert.equal(driver.advance(1000).length, 8); // 8 tps at 8×
 });
 
 test('driver: pause executes nothing and clears owed time', () => {
@@ -216,9 +216,9 @@ test('driver: pause executes nothing and clears owed time', () => {
 test('driver: budget exhaustion dilates time instead of spiraling (TDD §6)', () => {
   const { kernel } = makeKernel();
   const driver = new TickDriver(kernel, { maxTicksPerAdvance: 4 });
-  driver.setSpeed(8); // owes 80 ticks for 1s, budget allows 4
+  driver.setSpeed(8); // owes 8 ticks for 1s (8 tps), budget allows 4
   assert.equal(driver.advance(1000).length, 4);
-  // owed time was dropped: a tiny next frame owes at most one new tick's worth
-  assert.equal(driver.advance(12.5).length, 1);
+  // owed time was dropped: a tiny next frame owes at most one new tick's worth (125ms @ 8 tps)
+  assert.equal(driver.advance(125).length, 1);
   assert.equal(driver.advance(0).length, 0);
 });

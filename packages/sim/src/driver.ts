@@ -6,8 +6,18 @@
  */
 import { invariant } from '@crowns/core';
 import type { Kernel, TickResult } from './kernel.js';
+import { TICKS_PER_DAY } from './time.js';
 
-export const BASE_TICKS_PER_SECOND = 10;
+/**
+ * Real-time length of one in-game DAY at normal speed (speed 1), in seconds. This is the
+ * single pace knob: production and growth are expressed PER GAME-DAY (recipe `perDay` rates
+ * divided across `TICKS_PER_DAY`; cohort births/deaths run once per game-day), so stretching
+ * the day stretches all of them proportionally — no per-building retuning, and tick CONTENT
+ * (hence determinism) is untouched. Higher = slower felt pace. Config value.
+ */
+export const REAL_SECONDS_PER_DAY = 24;
+/** Ticks executed per real second at normal speed — derived so day-length is the only knob. */
+export const BASE_TICKS_PER_SECOND = TICKS_PER_DAY / REAL_SECONDS_PER_DAY;
 export type Speed = 0 | 1 | 2 | 4 | 8;
 
 export interface DriverOptions {

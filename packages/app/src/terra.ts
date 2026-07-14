@@ -27,6 +27,7 @@ import {
   kernelSection,
   worldSection,
   bestSiteNear,
+  CENTER_DEF_ID,
   type SimSystem,
   type SoAComponent,
   type TerrainAccessor,
@@ -84,12 +85,26 @@ export interface TerraComposition {
 const CREATURES = 150;
 const FOUNDING_SEARCH_RADIUS = 24; // genesis picks the best-scoring site near map centre (M15)
 
+/** Data-driven starting setup (M-era pace pass), so resources and pre-built buildings are
+ * easy to retune and mod rather than baked into genesis. The player begins with the KEEP
+ * ONLY — a farm/granary/etc. are their first builds — and a modest stock (the 50 food is the
+ * keep's larder). Override per call for scenarios/mods. */
+export interface StartingSetup {
+  readonly stock: Readonly<Record<string, number>>;
+  readonly buildings: readonly string[]; // extra buildings to auto-place around the keep ([] = keep only)
+}
+export const DEFAULT_STARTING_SETUP: StartingSetup = {
+  stock: { 'base:resource.wood': 200, 'base:resource.stone': 100, 'base:resource.food': 50 },
+  buildings: [],
+};
+
 export function composeTerra(
   seed: number,
   clock?: () => number,
   mods?: ModSelection,
   sandbox?: SandboxOptions,
   localeId = 'en',
+  starting: StartingSetup = DEFAULT_STARTING_SETUP,
 ): TerraComposition {
   const sandboxEnabled = sandbox !== undefined;
   // Mod Zero gate: invalid content = no game. Base always leads the layer order;
@@ -128,7 +143,7 @@ export function composeTerra(
       return db.terrainByCode[biome[y * width + x] as number]?.movementCost ?? 0;
     },
   };
-  const STARTING_STOCK = { 'base:resource.wood': 265, 'base:resource.stone': 160, 'base:resource.food': 120 };
+  const STARTING_STOCK = starting.stock;
   const statMods = new StatModifiers(); // one board: kingdom writes, economy/population read (M16)
   const game = registerVillageGameplay(kernel, world, db, terrainAccessor, STARTING_STOCK, sandboxEnabled);
   const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 12, adults: 30, elders: 5 }, statMods);
@@ -196,11 +211,17 @@ export function composeTerra(
     update(ctx: TickContext): void {
       for (let n = 0; n < CREATURES; n++) spawnOnLand(ctx);
       // found the starter settlement on the best-SCORING valid site near map
-      // center (M15 site scorer: food, water, buildables — GDD §13), then
-      // queue a spread of the M11 buildings — the demo builds itself
+      // center (M15 site scorer: food, water, buildables — GDD §13). By default the
+      // player starts with the KEEP ONLY; `starting.buildings` (data-driven) can queue
+      // extra pre-placed buildings for demos/scenarios.
       const site = bestSiteNear(game, db, width >> 1, height >> 1, FOUNDING_SEARCH_RADIUS);
       if (site === null) return;
-      const village = game.ops.found(ctx, site.x, site.y, 'Firstholm', STARTING_STOCK);
+      // Fund the keep on top of the starting stock so the player is left holding EXACTLY
+      // `starting.stock` once the centre is placed (the keep is a given, not a build cost).
+      const foundStock: Record<string, number> = { ...STARTING_STOCK };
+      const centerCost = db.buildings.get(CENTER_DEF_ID)?.cost ?? {};
+      for (const [res, amt] of Object.entries(centerCost)) foundStock[res] = (foundStock[res] ?? 0) + amt;
+      const village = game.ops.found(ctx, site.x, site.y, 'Firstholm', foundStock);
       if (typeof village === 'string') return;
       // place each building at the first VALID spot on a deterministic spiral
       // around the center — the one-rulebook validator decides, genesis obeys
@@ -222,12 +243,7 @@ export function composeTerra(
           }
         }
       };
-      for (const defId of [
-        'base:building.house', 'base:building.house', 'base:building.house',
-        'base:building.well', 'base:building.granary', 'base:building.farm',
-        'base:building.lumber-camp', 'base:building.quarry',
-        'base:building.sawmill', 'base:building.workshop', // the M13 chain: wood → planks → tools
-      ]) {
+      for (const defId of starting.buildings) {
         placeNear(defId);
       }
       // pave the haul routes (M14): a road along the cart path from the centre
