@@ -1,7 +1,10 @@
 /** Building snapshot diffing (M11): rare adds/removes + progress for the few under construction. */
 import type { BuildingRec } from '@crowns/protocol';
 import type { FogRegistry, KingdomGameplay, VillageGameplay } from '@crowns/sim';
-import type { World } from '@crowns/sim';
+import { BASE_STORAGE, type World } from '@crowns/sim';
+
+/** entity id → dense component index (low 22 bits), matching the sim's convention. */
+const vindex = (id: number): number => id & 0x3fffff;
 
 /** Tiles within this Chebyshev radius of an owned village belong to its kingdom (M22). */
 const TERRITORY_RADIUS = 32;
@@ -28,6 +31,9 @@ export class BuildingEmitter {
         h: b.h[i] as number,
         progress: b.progress[i] as number,
         village: b.village[i] as number,
+        // capacity straight from the def — generic, so modded buildings surface it too
+        storageCapacity: def.storage?.capacity ?? 0,
+        housingCapacity: def.housing?.capacity ?? 0,
       });
     });
   }
@@ -122,6 +128,18 @@ export class VillageStatsEmitter {
     const stocks = this.world.readObj(this.game.comps.Stockpile);
     const core = this.world.read(this.game.comps.VillageCore);
     const foodCode = this.game.ops.resourceCode('base:resource.food') as number;
+    // village capacity totals (completed buildings only) — mirrors economy.ts storageCaps
+    // and population.ts housing: occupant slots and per-resource stockpile headroom.
+    const bc = this.world.read(this.game.comps.BuildingCore);
+    const housingByV = new Map<number, number>();
+    const storageByV = new Map<number, number>();
+    this.world.query([this.game.comps.BuildingCore]).forEach((i) => {
+      if ((bc.complete[i] as number) !== 1) return;
+      const vi = vindex(bc.village[i] as number);
+      const def = this.game.ops.buildingDef(bc.def[i] as number);
+      housingByV.set(vi, (housingByV.get(vi) ?? 0) + (def.housing?.capacity ?? 0));
+      storageByV.set(vi, (storageByV.get(vi) ?? 0) + (def.storage?.capacity ?? 0));
+    });
     this.world.query([this.Population, this.game.comps.VillageCore]).forEach((vi, entity) => {
       const stock = stocks.tryGet(vi);
       const goods: Record<string, number> = {};
@@ -139,12 +157,14 @@ export class VillageStatsEmitter {
         food: Math.floor(stock?.get(foodCode) ?? 0),
         happiness: Math.round(pop.happiness[vi] as number),
         goods,
+        housing: housingByV.get(vi) ?? 0,
+        stockCap: BASE_STORAGE + (storageByV.get(vi) ?? 0),
         tier: core.tier[vi] as number,
         taxRate: core.taxRate[vi] as number,
         cx: core.centerX[vi] as number,
         cy: core.centerY[vi] as number,
       };
-      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${Object.entries(goods).flat().join(',')}`;
+      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}`;
       if (this.last.get(stat.id) !== key) {
         this.last.set(stat.id, key);
         out.push(stat);

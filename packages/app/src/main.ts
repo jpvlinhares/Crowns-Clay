@@ -367,6 +367,20 @@ function selectBuilding(id: number | null): void {
   renderBuildingPanel();
 }
 
+/** A used/total gauge with a fill bar — the inspector's capacity readout. */
+function capacityRow(label: string, used: number, total: number): HTMLElement {
+  const row = el('div', undefined, 'cap-row');
+  const head = el('div', undefined, 'cap-head');
+  head.append(el('span', label, 'cap-label'), el('span', `${Math.floor(used)} / ${total}`, 'cap-val'));
+  const track = el('div', undefined, 'cap-track');
+  const fill = el('div', undefined, 'cap-fill');
+  fill.style.width = `${(total > 0 ? Math.min(1, used / total) : 0) * 100}%`;
+  if (used > total) fill.classList.add('over'); // e.g. occupants exceeding housing
+  track.append(fill);
+  row.append(head, track);
+  return row;
+}
+
 function renderBuildingPanel(): void {
   const body = buildingPanel.body;
   body.replaceChildren();
@@ -384,6 +398,33 @@ function renderBuildingPanel(): void {
   ));
   if (rec.progress < 1) {
     body.append(el('div', `under construction — ${Math.round(rec.progress * 100)}%`, 'row hint'));
+  }
+
+  // Capacity (M-era): used/total for capacity-bearing buildings. Housing and storage
+  // caps are POOLED per village, so pair the def's own contribution (from BuildingRec,
+  // straight off the def) with the owning village's live totals. Generic over the def
+  // fields, so modded buildings with capacity get this for free.
+  const housingCap = rec.housingCapacity ?? 0;
+  const storageCap = rec.storageCapacity ?? 0;
+  if (village !== undefined && rec.progress >= 1 && (housingCap > 0 || storageCap > 0)) {
+    body.append(el('div', 'Capacity', 'ledger-heading'));
+    if (housingCap > 0) {
+      body.append(tip(
+        capacityRow('housing', village.population, village.housing),
+        `Occupants across the village vs. total housing (Σ housing capacity).\nThis building provides ${housingCap} of those slots.`,
+      ));
+    }
+    if (storageCap > 0) {
+      // storage caps are shared across the village and applied PER resource, so surface
+      // each stocked good's fill against the cap — this is "food stored / capacity" on a
+      // granary and "amount stored / capacity" on a storehouse, sourced from live state.
+      const stored: [string, number][] = [['food', village.food], ...Object.entries(village.goods)];
+      for (const [good, amount] of stored) body.append(capacityRow(good, amount, village.stockCap));
+      body.append(tip(
+        el('div', `+${storageCap} storage per resource from this building`, 'row hint'),
+        'Storage capacity is pooled across the village; each resource may hold up to the cap.',
+      ));
+    }
   }
 
   const actions = el('div', undefined, 'row');
@@ -1044,7 +1085,7 @@ worker.onmessage = (event: MessageEvent) => {
       for (const stat of message.villageStats ?? []) {
         villageStats.set(stat.id, stat);
       }
-      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {} })));
+      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0 })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
       }

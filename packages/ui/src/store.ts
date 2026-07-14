@@ -13,6 +13,10 @@ export interface VillageInfo {
   readonly food: number;
   readonly happiness: number;
   readonly goods: Record<string, number>;
+  /** occupant slots (Σ housing.capacity) and per-resource stockpile cap for the
+   * inspector's used/total gauges (M-era). */
+  readonly housing: number;
+  readonly stockCap: number;
   readonly tier: number;
   readonly taxRate: number;
   readonly cx: number;

@@ -35,6 +35,11 @@ export interface BuildingRec {
   readonly progress: number; // 0..1
   /** Owning village entity id (M18 — the player inspector's join key). */
   readonly village: number;
+  /** Capacity this building contributes, projected straight from its def so modded
+   * buildings surface it automatically (0/absent = none). Usage is village-pooled —
+   * the inspector pairs these with the owning village's live totals. */
+  readonly storageCapacity?: number; // per-resource stockpile headroom added
+  readonly housingCapacity?: number; // occupant slots added
 }
 
 // ---- player-facing content catalog (M18): defs the UI may offer ----
@@ -334,6 +339,11 @@ export type FromSimMessage =
         happiness: number;
         /** other stocked goods (M13 chains): display name → floored amount */
         goods?: Record<string, number>;
+        /** capacity totals for the inspector's used/total gauges (M-era): occupant slots
+         * (Σ housing.capacity of completed buildings) and per-resource stockpile cap
+         * (BASE_STORAGE + Σ storage.capacity). Optional for back-compat. */
+        housing?: number;
+        stockCap?: number;
         tier: number;
         taxRate: number;
         cx: number;

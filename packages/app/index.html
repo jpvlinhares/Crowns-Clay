@@ -69,6 +69,15 @@
     .panel-body .row { display: flex; gap: .4rem; align-items: center; margin: .3rem 0; flex-wrap: wrap; }
     .panel-body select { background: #1a1712; color: #e8e0d0; border: 1px solid #3a3226; font: inherit; padding: .15rem; }
     .panel-body button.armed { background: #d8b060; color: #14120f; }
+    /* ---- capacity gauges (M-era building inspector) ---- */
+    .panel-body .cap-row { margin: .25rem 0; }
+    .cap-head { display: flex; justify-content: space-between; font-size: 11px; }
+    .cap-label { text-transform: capitalize; color: #b8ae9a; }
+    .cap-val { font-variant-numeric: tabular-nums; color: #e8e0d0; }
+    .cap-track { height: 5px; background: #241f18; border: 1px solid #332d22;
+                 border-radius: 3px; overflow: hidden; margin-top: 2px; }
+    .cap-fill { height: 100%; background: #6fae5a; }
+    .cap-fill.over { background: #e0a070; }
     .ledger-heading { margin: .5rem 0 .2rem; font-size: 11px; text-transform: uppercase; color: #d8b060; }
     .ledger-list { max-height: 140px; overflow-y: auto; border-top: 1px solid #2a241b; }
     .ledger-row { padding: 1px 0; font-variant-numeric: tabular-nums; }

@@ -19,6 +19,8 @@ const village = (id: number, over: Partial<Parameters<UIStore['applyVillageStats
   food: 100,
   happiness: 60,
   goods: {},
+  housing: 45,
+  stockCap: 550,
   tier: 1,
   taxRate: 2,
   cx: id * 30,

@@ -115,7 +115,14 @@ inspectable and makes every interaction loggable/replayable.
   full-width row (built via DOM, not string concat), keeping numbers legibly in place — the "grids,
   text doesn't move even with different counts" requirement.
 - **Building inspector + demolish:** clicking a building opens the Building panel (name · category ·
-  footprint · construction %) and offers a two-click-confirm **🧹 Demolish** that issues the
+  footprint · construction %). **Capacity gauges (M-era):** any completed building carrying capacity
+  shows a used/total bar sourced from live state — housing → village occupants / Σ housing (bar turns
+  amber when occupants exceed shelter), storage → each stocked good's amount / the per-resource
+  stockpile cap (`BASE_STORAGE + Σ storage.capacity`), plus the building's own contribution. The
+  numbers are projected straight from the def (`storage.capacity`/`housing.capacity` onto `BuildingRec`,
+  and village totals onto `villageStats`), so modded capacity-bearing buildings surface it for free —
+  no new capacity data is invented, only what the sim already tracks is surfaced. The panel also
+  offers a two-click-confirm **🧹 Demolish** that issues the
   `village.demolish` command (the same command a besieger's breach uses). Village-centre buildings
   are disabled up-front (the sim also refuses them, surfacing `village.rejected` as a toast); a
   successful raze emits `building.demolished`, which the notification table shows and the building
