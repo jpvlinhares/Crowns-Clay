@@ -106,6 +106,8 @@ export {
   FORAGE_FLOOR,
   BIRTH_RATE,
   FAMINE_MORTALITY,
+  JOY_NEUTRAL,
+  JOY_MIGRATION_RATE,
   type PopulationGameplay,
   type PopulationComponent,
   type StartingPopulation,

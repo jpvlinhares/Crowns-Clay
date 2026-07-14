@@ -114,12 +114,24 @@ test('M30 harness: an aggressive AI starts and resolves a war against a passive 
   const peace = run(4100, PASSIVE); // kingdom 0 ALSO passive — the baseline, nobody attacks anybody
 
   assert.ok(peace.passiveVillageAlive, 'sanity check: the passive kingdom must survive at peace');
-  const worseOff =
-    war.passiveOwnedByAggressor || !war.passiveVillageAlive || war.passivePopulation < peace.passivePopulation * 0.95;
+
+  // The AGGRESSOR imposes a war the all-passive baseline never sees. (Note: a final-
+  // population comparison no longer discriminates — with joy-driven growth a sturdy,
+  // well-fed village regrows any war losses to its housing ceiling within the 25-year
+  // horizon, so war and peace both plateau at the same size. The honest, robust signal
+  // is that aggression forces real engagements on the theater that pure passivity does
+  // not.) A captured/destroyed village is also, trivially, worse off.
+  const engaged = (es: string[]): boolean =>
+    es.some((e) => e === 'battle.resolved' || e === 'siege.captured' || e === 'siege.ended');
+  const worseOff = war.passiveOwnedByAggressor || !war.passiveVillageAlive || engaged(war.warEvents);
   assert.ok(
     worseOff,
-    `the attacked kingdom (pop ${war.passivePopulation}, captured=${war.passiveOwnedByAggressor}) should fare ` +
-      `measurably worse than the same kingdom at peace (pop ${peace.passivePopulation})`,
+    `the aggressor must force war on the passive kingdom (captured=${war.passiveOwnedByAggressor}, ` +
+      `events=${war.warEvents.join(',') || '(none)'})`,
+  );
+  assert.ok(
+    !engaged(peace.warEvents),
+    `the all-passive baseline must stay entirely at peace (saw: ${peace.warEvents.join(',') || '(none)'})`,
   );
 });
 

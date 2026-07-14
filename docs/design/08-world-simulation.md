@@ -100,20 +100,46 @@ limits, spoilage applies daily to decaying goods. Daily roll-up computes village
 (production value + trade + happiness factor) feeding taxes. Conservation invariant: every unit of
 resource created/consumed/moved reconciles in the ledger (property-tested, TDD §13).
 
+Production overflows into per-building outboxes (`OUTBOX_DAYS`) which haulers drain into the
+stockpile. **A hauler that reaches a full stockpile must NOT park indefinitely** holding its cargo:
+when a resource's consumers are also saturated it stays capped forever, and a hauler frozen on it is a
+hauler that never carries food again — the classic "starve amid full warehouses" deadlock (haulers
+freeze one by one as each stockpile caps, until the farm outbox strands and the village starves).
+Instead the hauler deposits what fits, **returns the remainder to the source outbox, and goes idle**
+(matter conserved) — free to service the always-hungry food route (`game/logistics.ts`, `TO_DROPOFF`).
+
 ## §5. Population Growth
 
-Daily cohort update: `births = adults × baseRate × foodSecurity × housing × health`,
-`deaths = cohort × mortality(ageBand) × (famine|disease|winter modifiers)`; migration flows toward
-prosperity/reputation and away from unrest/war (bounded per day). Aging promotes cohorts on year
-boundaries. Named individuals resample from cohorts on demand [OQ-2].
+Daily cohort update (`game/population.ts`):
+`births = adults × BIRTH_RATE × foodSecurity × (0.5 + 0.5·shelter) × joyFactor`,
+`deaths = cohort × mortality(ageBand) × (famine|disease|winter modifiers)`. Aging promotes cohorts on
+year boundaries. Named individuals resample from cohorts on demand [OQ-2].
 
-`foodSecurity` is a daily EMA of the fed fraction, **seeded at its maximum `1.0`** so a brand-new
-village reads as fed rather than starving (this seed is load-bearing: `RECRUIT_MIN_FOOD_SECURITY`,
-`CRISIS_FOOD_SECURITY`, and births all key on it). Consequence for content authors: an event/tutorial
-trigger that keys on *high* food security (`foodSecurity gte …`) is trivially true on day 1 from that
-seed, so it must be **gated** (e.g. by season) or it fires from the initial state — the "Bountiful
-Harvest" (autumn) and tutorial "Granaries Are Full" (summer) events both do this. Low-water triggers
-(`lt …`, e.g. starvation/unrest) need no such gate; the max seed never satisfies them.
+**Joy is a main driver of population (M-era).** `joyFactor = min(2, happiness/JOY_NEUTRAL)` scales
+fertility (a happy village births ~2× a neutral one; a miserable one ≈0). On top of natural
+demographics, a **net-migration** term keys on the same `happiness` stat around the neutral pivot
+`JOY_NEUTRAL = 50`: `migration = total × JOY_MIGRATION_RATE × (happiness − 50)/50`. Above neutral a
+content village **draws settlers in — but only into spare housing** (`min(migration, housingCap − total)`,
+so capacity gates immigration); below neutral an unhappy village **bleeds people who leave** (emigration,
+ungated). Migration is applied pro-rata across cohorts so the age pyramid is preserved, and is fully
+deterministic (a pure function of state — no RNG). `JOY_MIGRATION_RATE`/`BIRTH_RATE` magnitudes are
+tuned against day-length in the pace pass.
+
+**Starvation is lethal.** `foodSecurity` is a daily EMA of the fed fraction — now tracking **real,
+un-floored nutrition** so a village with no food trends toward `0`, which halts births and drives
+famine mortality at full strength (`famine = FAMINE_MORTALITY × (1 − foodSecurity)`): people genuinely
+die when the granaries run dry, a steady decline (bounded per day, never an instant cliff) rather than
+the earlier hard floor. The **forage floor** (`FORAGE_FLOOR`, GDD §4) still applies — but only to
+*morale*: foragers scrape the hedgerows so happiness never cliffs on hunger alone, while *survival*
+sees true nutrition.
+
+`foodSecurity` is **seeded at its maximum `1.0`** so a brand-new village reads as fed rather than
+starving (this seed is load-bearing: `RECRUIT_MIN_FOOD_SECURITY`, `CRISIS_FOOD_SECURITY`, and births
+all key on it). Consequence for content authors: an event/tutorial trigger that keys on *high* food
+security (`foodSecurity gte …`) is trivially true on day 1 from that seed, so it must be **gated** (e.g.
+by season) or it fires from the initial state — the "Bountiful Harvest" (autumn) and tutorial
+"Granaries Are Full" (summer) events both do this. Low-water triggers (`lt …`, e.g. starvation/unrest)
+need no such gate; the max seed never satisfies them.
 
 ## §6. Resource Production & Construction
 
