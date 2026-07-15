@@ -133,16 +133,36 @@ load and re-bound to the next-oldest village when the first is occupied), plus t
 history-seeding reveal target. Nothing marks a capital in components, saves, victory math, or
 the UI, and occupying a capital today is mechanically identical to occupying any other village.
 **Decisions this needs, in order:**
-1. *Pre-M48 (1.0):* whether to make "capital" explicit, persisted kingdom state now (stamped at
-   genesis, carried in saves) so Phase 8 changes a RULE rather than retrofitting a CONCEPT into
-   1.0 saves — and if so, whether 1.0 surfaces it (a crown marker in the UI) or stamps it
-   silently. The 1.0 defeat rule itself does NOT change (ADR-4: 1.0 ships unchanged).
+1. *Pre-M48 (1.0) — RESOLVED (2026-07-16, project owner): Option A, minimal form.* The existing
+   runtime kingdom→capital binding (`campaign.ts`'s `villageIndexByKingdom`) is PERSISTED before
+   M48: a small save section (kingdom index → village index) restored in `afterLoad`, in the
+   `SiegeState.save()/restore()` shape. **Chartered as a 1.0 DEFECT FIX, not new scope:** a
+   divergence trace (2026-07-16) confirmed the runtime binding and the on-load re-derivation
+   disagree across capture-and-recapture histories — the runtime rebind fires only when the
+   bound capital is LOST and never resets on reconquest, while `afterLoad` re-derives
+   "oldest still-owned village" — so a reload re-anchors the whole AI brain (construction/
+   planner/research/events read their home village through this map, and the planner resumes
+   from the re-derived village's stale `AiPlanState` slot, a hashed component) and can rename or
+   flip the discovered-status of a rival in the diplomacy panel (`simPort.ts` names kingdoms by
+   capital and fog-gates on it). That violates the M47.6 objective stated in `campaign.ts`'s own
+   header: save→load→resume behaviourally identical to an uninterrupted run. Reachable in normal
+   play (AI reconquest of a lost village is in-behaviour; any autosave after it triggers the
+   divergence). No new ECS component and no new hash source — no state-hash change, no golden
+   re-record. **Compatibility, explicitly accepted:** saves predating the new section fall back
+   to today's derivation (oldest still-owned village), and any save already mid-divergence will
+   re-derive — the capital SNAPS to the derived village on its first load under the fix. This
+   one-time snap is accepted and recorded here rather than left implicit. The FULL stamp — an
+   ECS component, a UI crown marker, capital rules — stays DECLINED for 1.0 and lands in
+   Phase 8.
 2. *Phase 8 entry:* ratify capital-death vs. last-village as the kingdom-death condition; define
    capital-capture semantics before the defence layer exists vs. after (today: owner flip + AI
    re-binding; under ADR-4: destruction); state the save-compatibility policy for 1.0 saves
    loaded under the new rule.
 3. *With OQ-11 — since DECIDED (2026-07-15):* vassalage-first, permadeath as the ironman
    opt-in (see OQ-11's decision record below).
+
+**Status:** items 1 and 3 resolved; item 2 is the sole remaining open piece of OQ-9 and the
+sole open question gating Phase 8 entry.
 **What depends on it:** `game/victory.ts` (defeat bookkeeping and the Conquest/Hegemony
 village-share math once capitals can be DESTROYED rather than captured), `game/occupation.ts`
 (whether a capital can be occupied like any village), diplomacy's capitulation/vassalage path

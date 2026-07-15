@@ -91,8 +91,15 @@ and explicitly NOT settled by this record; §3's recommendation on it was adviso
 vassalage-first, permadeath as the ironman opt-in. See doc 14 OQ-11's decision record.)*
 Ratification charters Phase 8 (doc 12 R2, post-1.0) and reopens OQ-9 IMMEDIATELY — the capital
 rule touches 1.0-era state and saves, not just Phase 8 (doc 14, OQ-9 reopening delta). No
-implementation code is chartered before Phase 8; **1.0 ships the existing castle/siege stack
-unchanged.** The body below is the design spike's assessment, preserved as written.
+implementation code is chartered before Phase 8 **by this ADR**; **1.0 ships the existing
+castle/siege stack unchanged.** *(Update 2026-07-16: OQ-9's pre-M48 item is resolved — the
+existing runtime kingdom→capital binding will be persisted before M48, chartered by the OQ-9
+record as a 1.0 DEFECT FIX against the M47.6 save→load→resume objective, not as ADR-4 scope: a
+capture-and-recapture history makes the on-load re-derivation disagree with the runtime binding.
+Pre-section saves fall back to derivation and may snap once on first load — accepted, recorded
+in OQ-9. The full capital stamp — ECS component, UI crown marker, capital rules — remains
+declined for 1.0 and lands in Phase 8.)* The body below is the design spike's assessment,
+preserved as written.
 
 **The proposal (as received).** A Campaign-only second spatial layer per kingdom: a ~100×100
 defence map (keep at centre, generated once from a stable seed, persisted), on which the player
@@ -315,8 +322,11 @@ rejected. Required changes:
   (M47.8's `occupation.ts`); losing the capital — not the last village — becomes the
   kingdom-death condition, which is a deliberate change to OQ-9's last-village rule and must be
   re-recorded there if ratified *(done at ratification — doc 14, OQ-9 reopening delta,
-  2026-07-15)*. Destruction-not-capture of the capital changes victory bookkeeping (a destroyed
-  capital leaves the map; captured villages still count for share).
+  2026-07-15; OQ-9's pre-M48 item has since resolved, 2026-07-16: the runtime capital binding is
+  persisted before M48 as a 1.0 defect fix, so Phase 8 inherits an authoritative persisted
+  capital identity rather than a derived guess — pre-section saves re-derive and may snap once
+  on first load, accepted)*. Destruction-not-capture of the capital changes victory bookkeeping
+  (a destroyed capital leaves the map; captured villages still count for share).
 
 ### §7. Scope, risk, and placement — post-1.0, unambiguous
 
