@@ -158,6 +158,18 @@ inspectable and makes every interaction loggable/replayable.
   the browser menu), re-selecting/picking a different building in the palette, or arming another
   tool (an army order clears the armed build). Only the primary mouse button places — right/middle
   never do.
+- **Placement while paused (blueprint ghosts):** a build placed at speed 0 still sends its
+  `village.build` command, but the command can only execute on a **tick** (`kernel.submit` stamps it
+  for `tick + 1`), and running a tick would advance construction and every other timed system — so a
+  true sim-side commit while paused is impossible without breaking replay determinism (the golden
+  corpus re-runs the command log through normal ticks with no pause information). Instead the client
+  draws a **planned ghost** — a translucent, blueprint-blue footprint at 0% — via
+  `PixiRenderer.addPlanned` (keyed by origin tile, idempotent) so the placement reads as committed
+  while nothing in the sim actually moves. On **resume** (`setSpeed 0 → nonzero`) the queued commands
+  execute on the first tick and their real buildings land in that tick's `snapshotDelta`; the handler
+  then calls `clearPlanned()`, swapping every ghost for the sim's authoritative building (a ghost with
+  no matching building was a placement the sim rejected — e.g. it outran the stockpile — and is
+  correctly dropped too). Purely presentation: no sim/determinism surface, goldens untouched.
 - **Dismissible notifications:** every toast carries a **× close button** (`NotificationQueue.dismiss(id)`)
   that removes it from the on-screen `visible()` set immediately while leaving the scrollback `all()`
   history intact; automatic roll-off (VISIBLE_CAP) is unchanged. Applies to every severity tier, not

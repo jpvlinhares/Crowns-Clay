@@ -74,8 +74,12 @@ function renderVillageChips(): void {
   }
 }
 let speed: Speed = 1;
+// resuming from a pause: drop any pause-time placement ghosts on the first tick the sim runs,
+// where the real (queued) buildings commit — see the snapshotDelta handler and renderer.addPlanned.
+let clearGhostsOnResume = false;
 const speedButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-speed]'));
 const setSpeed = (next: Speed): void => {
+  if (speed === 0 && next !== 0) clearGhostsOnResume = true;
   speed = next;
   send({ kind: 'setSpeed', speed: next });
   for (const b of speedButtons) {
@@ -1155,6 +1159,14 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.updateBuildingProgress(bp[i] as number, bp[i + 1] as number);
         }
         for (const id of message.buildingsRemoved ?? []) renderer.removeBuilding(id);
+        // first delta after a resume: the queued placements have now committed (they land in this
+        // same delta's buildingsAdded, drawn above), so drop the pause-time ghosts. Any ghost with
+        // no committed building was a placement the sim rejected (e.g. it outran the stockpile) and
+        // is correctly removed too.
+        if (clearGhostsOnResume) {
+          renderer.clearPlanned();
+          clearGhostsOnResume = false;
+        }
       }
       // keep the building inspector live: reflect construction progress, and if the
       // selected building was demolished (here or by a siege) drop the stale selection
@@ -1444,7 +1456,17 @@ function wireInput(canvas: HTMLCanvasElement): void {
         const t = renderer.tileAt(sx, sy);
         const target = store.villageNear(t.x, t.y);
         if (target !== null) {
-          command('village.build', { villageId: target.id, def: store.state.armedBuild, x: t.x, y: t.y });
+          const armedDef = store.state.armedBuild;
+          command('village.build', { villageId: target.id, def: armedDef, x: t.x, y: t.y });
+          // while paused the sim is frozen, so this command can't commit until the player resumes
+          // (a tick would advance construction — see the determinism note in the driver). Draw a
+          // client-only "planned" ghost at 0% so the placement reads as committed; it's swapped for
+          // the sim's real building on resume (clearGhostsOnResume). Gate on the latest authoritative
+          // placement verdict so obviously-invalid tiles don't sprout a ghost.
+          if (speed === 0 && previewValid) {
+            const def = store.state.catalog?.buildings.find((b) => b.id === armedDef);
+            if (def !== undefined) renderer.addPlanned(t.x, t.y, def.w, def.h, def.category);
+          }
           // continuous building mode: stay armed after every placement attempt (success OR fail),
           // so the player can drop copy after copy. Only an explicit cancel (Esc / right-click /
           // re-selecting in the palette / another tool) exits. Re-probe the tile just placed on so

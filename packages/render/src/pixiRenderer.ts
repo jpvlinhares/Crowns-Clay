@@ -57,6 +57,11 @@ export class PixiRenderer {
   private readonly entitySprites = new Map<number, Graphics>();
   private readonly buildingLayer = new Container();
   private readonly buildingSprites = new Map<number, { g: Graphics; rec: BuildingRec }>();
+  // planned placements (pause-time): client-only "blueprint" ghosts for buildings placed while
+  // the sim is frozen — the real building can't commit until a tick runs (that would break
+  // determinism), so we draw the intent here and swap it for the sim's building on resume.
+  private readonly plannedLayer = new Container();
+  private readonly plannedGhosts = new Map<string, Graphics>();
   private readonly roadLayer = new Container();
   private readonly roadTiles = new Set<number>();
   private readonly scratch: RenderableEntity[] = [];
@@ -157,6 +162,42 @@ export class PixiRenderer {
     this.buildingLayer.removeChild(entry.g);
     entry.g.destroy();
     this.buildingSprites.delete(id);
+  }
+
+  // ---------- planned placements (pause-time blueprint ghosts) ----------
+
+  /**
+   * Draw a translucent "blueprint" ghost for a building placed while the sim is paused —
+   * the placement is committed as a queued command but can't appear in the sim until a tick
+   * runs, so this shows the intent (at 0% progress) without any construction actually advancing.
+   * Keyed by origin tile; a second placement on the same tile is a no-op. Cleared on resume
+   * (clearPlanned), once the sim's real buildings take over.
+   */
+  addPlanned(x: number, y: number, w: number, h: number, category: string): void {
+    const key = `${x},${y}`;
+    if (this.plannedGhosts.has(key)) return;
+    const color = CATEGORY_COLORS[category] ?? 0xcccccc;
+    const g = new Graphics();
+    const pw = w * TILE_PX;
+    const ph = h * TILE_PX;
+    // faint footprint plate + a blueprint-blue dashed-feel outline so it reads as "planned",
+    // distinct from a real under-construction building (which is category-tinted and opaquer)
+    g.roundRect(1, 1, pw - 2, ph - 2, 2).fill({ color: shade(color, 0.55), alpha: 0.22 });
+    g.roundRect(1, 1, pw - 2, ph - 2, 2).stroke({ color: 0x6aa9ff, width: 1.5, alpha: 0.85 });
+    drawBuildingIcon(g, category, pw, ph, color, 0.35);
+    g.x = x * TILE_PX;
+    g.y = y * TILE_PX;
+    this.plannedLayer.addChild(g);
+    this.plannedGhosts.set(key, g);
+  }
+
+  /** Drop every planned ghost (called on resume, after the sim's real buildings have landed). */
+  clearPlanned(): void {
+    for (const g of this.plannedGhosts.values()) {
+      this.plannedLayer.removeChild(g);
+      g.destroy();
+    }
+    this.plannedGhosts.clear();
   }
 
   // ---------- road layer (M14): flat [x, y, level] triples, add-only ----------
@@ -278,6 +319,7 @@ export class PixiRenderer {
     this.worldLayer.addChild(this.territoryLayer); // tint, over terrain, under roads
     this.worldLayer.addChild(this.roadLayer); // under buildings, over terrain
     this.worldLayer.addChild(this.buildingLayer);
+    this.worldLayer.addChild(this.plannedLayer); // pause-time placement ghosts, over real buildings
     this.worldLayer.addChild(this.entityLayer);
     this.worldLayer.addChild(this.fogLayer); // topmost — obscures everything unrevealed
     this.previewLayer.addChild(this.previewGraphic);
