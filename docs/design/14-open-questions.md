@@ -123,6 +123,33 @@ village and now owns none is out. Dynastic (capital+heir) defeat stays the defer
 rule this recommendation always said it'd be; nothing in M34's Character system or M37's tracker
 forces it. Sandbox mode's independent `defeatEnabled` toggle (GDD §17) ships alongside it.
 
+**ADR-4 ratification delta (2026-07-15) — REOPENED.** ADR-4 (doc 15, accepted with amendments)
+makes the CAPITAL the defended-and-decisive settlement: Phase 8's defence layer guards the
+capital only, and "capital death = kingdom death" replaces last-village as the kingdom-death
+condition when that phase lands. This cannot be parked behind Phase 8, because "capital" is
+barely real in the current codebase: it exists only as genesis bookkeeping — the kingdom→
+first-village binding (`campaign.ts`'s `villageIndexByKingdom`, rebuilt from `VillageOwner` on
+load and re-bound to the next-oldest village when the first is occupied), plus the
+history-seeding reveal target. Nothing marks a capital in components, saves, victory math, or
+the UI, and occupying a capital today is mechanically identical to occupying any other village.
+**Decisions this needs, in order:**
+1. *Pre-M48 (1.0):* whether to make "capital" explicit, persisted kingdom state now (stamped at
+   genesis, carried in saves) so Phase 8 changes a RULE rather than retrofitting a CONCEPT into
+   1.0 saves — and if so, whether 1.0 surfaces it (a crown marker in the UI) or stamps it
+   silently. The 1.0 defeat rule itself does NOT change (ADR-4: 1.0 ships unchanged).
+2. *Phase 8 entry:* ratify capital-death vs. last-village as the kingdom-death condition; define
+   capital-capture semantics before the defence layer exists vs. after (today: owner flip + AI
+   re-binding; under ADR-4: destruction); state the save-compatibility policy for 1.0 saves
+   loaded under the new rule.
+3. *With OQ-11:* the defeat OUTCOME at a fallen capital (vassalage-first vs. permadeath) —
+   owner-decided, explicitly not settled by ADR-4.
+**What depends on it:** `game/victory.ts` (defeat bookkeeping and the Conquest/Hegemony
+village-share math once capitals can be DESTROYED rather than captured), `game/occupation.ts`
+(whether a capital can be occupied like any village), diplomacy's capitulation/vassalage path
+(what surrender protects), ADR-4's new-lords-rising trigger (fires on kingdom death), save
+headers/migrations, and Phase 8's M53 loss-condition milestone, which cannot start until this
+closes.
+
 ### OQ-10 — Float determinism vs. fixed-point migration trigger (Due: M26)
 Sim math is f64 under a strict policy (TDD §5). Define now the objective trigger for migrating hot
 systems to integer fixed-point.
@@ -133,6 +160,22 @@ is not a guarantee across engine updates.
 any reproducible cross-engine or cross-version hash divergence → migrate the diverging system(s)
 (combat math and economy accumulators are pre-identified candidates) behind their existing module
 boundaries.
+
+### OQ-11 — Defeat outcome when a capital falls: vassalage-first vs. permadeath (Owner: project owner · Due: Phase 8 entry, with OQ-9)
+Raised by ADR-4 (doc 15) and EXPLICITLY EXCLUDED from its 2026-07-15 ratification: when a lord's
+capital falls under Phase 8's defence layer, is the shipped capitulation/vassalage path offered
+first (the run survives, diminished — OQ-9's original "mop-up rarely occurs" design), does the
+lord die with the kingdom (permadeath, the proposal as received), or a mix (attacker's choice,
+or permadeath only under the existing `ironman` sandbox flag)?
+**Trade-offs:** vassalage-first preserves long-term progression and reuses shipped M35 mechanics,
+but softens war's stakes; permadeath makes sieges genuinely terminal and matches the proposal's
+intent, but ends a 10–30 h campaign on an auto-resolved event and invites save-scumming outside
+ironman. The same choice governs AI lords, so it also sets Phase 8's world-attrition rate
+(vassal kingdoms persist in the world; destroyed ones leave it).
+**ADR-4's advisory input (not binding):** vassalage-first, with permadeath as the ironman opt-in.
+**Status: OPEN.** The decision is the project owner's — not settled by ADR-4, not delegated.
+Sits outside DR-001 (which ratified OQ-1..10 only). Due at Phase 8's entry gate alongside OQ-9's
+Phase-8 decision, since M53 (loss & succession) implements whatever is chosen.
 
 ---
 
@@ -159,7 +202,7 @@ by the project owner. Binding consequences:
 | OQ-6 | Espionage cut from 1.0; knowledge-model hooks retained; Chancellor grants intelligence-quality bonus |
 | OQ-7 | Battle interactivity fixed at stance + 5-order vocabulary; ratify with M27 playtest data |
 | OQ-8 | Difficulty adjustable downward-only outside ironman, chronicled; ironman locks |
-| OQ-9 | Last-village defeat + AI capitulation/vassalage mechanics; dynastic defeat deferred post-M34 |
+| OQ-9 | Last-village defeat + AI capitulation/vassalage mechanics; dynastic defeat deferred post-M34 — **REOPENED 2026-07-15 by ADR-4 (see the OQ-9 delta above; rule unchanged for 1.0)** |
 | OQ-10 | f64 retained; cross-engine golden-replay CI is the sentinel; divergence triggers fixed-point migration of the diverging system |
 
 Cross-references in docs 02, 07, 08, 09 remain valid; where a doc said "[OQ-n]", read the row above
