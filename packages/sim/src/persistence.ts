@@ -29,6 +29,10 @@ export interface SaveSection {
   readonly key: string;
   /** Current schema version of this section's payload. */
   readonly version: number;
+  /** Absence-tolerant: hydrate() SKIPS this section when the save predates it (the
+   * composition's afterLoad fallback then applies) instead of refusing the load.
+   * Default: required — a missing section is a corrupt/foreign save. */
+  readonly optional?: boolean;
   save(): unknown;
   load(data: unknown): void;
 }
@@ -155,6 +159,10 @@ export class SaveManager {
     const report: string[] = [];
     for (const section of this.sections) {
       const stored = save.sections[section.key];
+      if (stored === undefined && section.optional === true) {
+        report.push(`${section.key}: absent (save predates this section) — composition fallback applies`);
+        continue;
+      }
       invariant(stored !== undefined, `save is missing section '${section.key}'`);
       let { version, data } = stored;
       while (version < section.version) {

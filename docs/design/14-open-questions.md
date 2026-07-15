@@ -153,7 +153,14 @@ the UI, and occupying a capital today is mechanically identical to occupying any
    re-derive — the capital SNAPS to the derived village on its first load under the fix. This
    one-time snap is accepted and recorded here rather than left implicit. The FULL stamp — an
    ECS component, a UI crown marker, capital rules — stays DECLINED for 1.0 and lands in
-   Phase 8.
+   Phase 8. *Implemented 2026-07-16:* the `'capitals'` section in `campaign.ts` plus
+   absence-tolerant (`optional`) section support in `persistence.ts`; two behavioural
+   save/load tests in `campaign.test.ts` build both divergence histories through ordinary
+   commands and prove binding + AI-behaviour + hash lockstep after load (both fail against
+   the pre-fix code). No golden fixture covers a save/load-after-reconquest path (goldens
+   are pure command replays and never hydrate; the corpus's committed saves predate any
+   reconquest and exercise the unchanged fallback) — all four goldens and the corpus verify
+   green with no re-recording.
 2. *Phase 8 entry:* ratify capital-death vs. last-village as the kingdom-death condition; define
    capital-capture semantics before the defence layer exists vs. after (today: owner flip + AI
    re-binding; under ADR-4: destruction); state the save-compatibility policy for 1.0 saves

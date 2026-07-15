@@ -185,6 +185,35 @@ test('migrations: an old section payload is lifted step by step, in order', () =
   assert.throws(() => saves2.hydrate(stale), /no migration for section 'thing' v1/);
 });
 
+// ---------------- optional sections (OQ-9 item 1) ----------------
+
+test('optional sections: absent in an older save ⇒ skipped with a report line; required ones still refuse', () => {
+  const kernel = new Kernel(1);
+  const saves = new SaveManager(kernel);
+  let loadedData: unknown = 'untouched';
+  saves.register({ key: 'core', version: 1, save: () => 42, load: () => undefined });
+  saves.register({ key: 'capitals', version: 1, optional: true, save: () => [[0, 7]], load: (d) => (loadedData = d) });
+
+  // a save written before the optional section existed: load() must never run (fallback applies)
+  const old = saves.snapshot();
+  delete old.sections['capitals'];
+  const report = saves.hydrate(old);
+  assert.equal(loadedData, 'untouched', 'absent optional section is skipped, not loaded as undefined');
+  assert.deepEqual(report, ['capitals: absent (save predates this section) — composition fallback applies']);
+
+  // a current save round-trips through load()
+  const fresh = saves.snapshot();
+  assert.deepEqual(saves.hydrate(fresh), []);
+  assert.deepEqual(loadedData, [[0, 7]]);
+
+  // a missing REQUIRED section is still a hard refusal
+  const strict = new SaveManager(new Kernel(1));
+  strict.register({ key: 'core', version: 1, save: () => 0, load: () => undefined });
+  const missing = strict.snapshot();
+  delete missing.sections['core'];
+  assert.throws(() => strict.hydrate(missing), /missing section 'core'/);
+});
+
 // ---------------- guards ----------------
 
 test('guards: wrong seed, wrong format, and missing sections refuse loudly', () => {

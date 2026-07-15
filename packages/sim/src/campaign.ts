@@ -22,8 +22,10 @@
  *     state (village occupancy, castle defence graphs, kingdom bindings, the
  *     kingdom→village index) make save→load→resume behaviourally identical to
  *     an uninterrupted run — the R1 T objective, proven in campaign.test.ts.
- *   - The kingdom→village index (`villageOf`) is genesis-derived, so it is
- *     REBUILT from `VillageOwner` after hydration (genesis only runs on tick 1).
+ *   - The kingdom→capital binding (`villageOf`) carries conquest HISTORY (it re-binds
+ *     when a capital is lost and does not snap back on reconquest), so it is saved in
+ *     its own 'capitals' section (OQ-9 item 1, doc 14); only saves predating that
+ *     section fall back to re-deriving oldest-still-owned from `VillageOwner`.
  *
  * Known, deliberate v1 inheritances (chartered to M47.8, doc 12 R1): each AI
  * kingdom still operates its FIRST village only, and AI kingdoms still receive
@@ -866,6 +868,20 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       load: (data) => occupationGame.state.restore(data as ReturnType<typeof occupationGame.state.save>),
     });
   }
+  // OQ-9 item 1 (doc 14, 2026-07-16): the kingdom→capital binding is HISTORY, not derivable —
+  // a capital that re-bound when conquered must not snap back if the old one is re-taken.
+  // Optional: saves predating this section fall back to afterLoad's oldest-still-owned
+  // derivation (the historical rule), accepting a one-time snap if already mid-divergence.
+  let restoredCapitals: readonly (readonly [number, number])[] | null = null;
+  saves.register({
+    key: 'capitals',
+    version: 1,
+    optional: true,
+    save: () => [...villageIndexByKingdom.entries()].sort((a, b) => a[0] - b[0]),
+    load: (data) => {
+      restoredCapitals = data as [number, number][];
+    },
+  });
   if (beliefsEnabled) {
     saves.register({
       key: 'beliefs',
@@ -882,8 +898,10 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     game.ops.rebuildDerived();
     kingdomGame.refreshAfterLoad();
     castleGame.rebuildDerived();
-    // genesis only runs on tick 1 — after hydration the kingdom→village index AND the
-    // plain ownership map are re-derived from VillageOwner (the authoritative record).
+    // genesis only runs on tick 1 — after hydration the plain ownership map is re-derived
+    // from VillageOwner (the authoritative record). The kingdom→capital binding is NOT
+    // derivable (it carries conquest history): the 'capitals' section restores it; only
+    // saves predating that section fall back to the historical oldest-still-owned rule.
     villageIndexByKingdom.clear();
     ownerIndexByVillage.clear();
     const owner = kingdomGame.VillageOwner !== undefined ? world.read(kingdomGame.VillageOwner) : null;
@@ -892,9 +910,13 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       const k = owner !== null ? kingdomIds.indexOf(owner.kingdom[vi] as EntityId) : 0;
       if (k >= 0) {
         ownerIndexByVillage.set(vi, k);
-        if (!villageIndexByKingdom.has(k)) villageIndexByKingdom.set(k, vi);
+        if (restoredCapitals === null && !villageIndexByKingdom.has(k)) villageIndexByKingdom.set(k, vi);
       }
     });
+    if (restoredCapitals !== null) {
+      for (const [k, vi] of restoredCapitals) villageIndexByKingdom.set(k, vi);
+      restoredCapitals = null;
+    }
   });
 
   // ---- render-ready terrain snapshot (protocol), when worldgen ran ----
