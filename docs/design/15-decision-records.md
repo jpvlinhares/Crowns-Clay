@@ -86,7 +86,9 @@ pacing (§2) · capital-only defence, "capital death = kingdom death" (§6) · s
 (§4) · terrain-bearing defence maps with geography-priced origins (§5) · loot obeys `capOf` with
 excess burned (§3). **Carved out of this ratification: the defeat-outcome question
 (vassalage-first vs. permadeath, §3)** — recorded as doc 14 OQ-11, owned by the project owner,
-and explicitly NOT settled by this record; §3's recommendation on it is advisory input only.
+and explicitly NOT settled by this record; §3's recommendation on it was advisory input only.
+*(OQ-11 was subsequently CLOSED the same day: the owner accepted the advisory input —
+vassalage-first, permadeath as the ironman opt-in. See doc 14 OQ-11's decision record.)*
 Ratification charters Phase 8 (doc 12 R2, post-1.0) and reopens OQ-9 IMMEDIATELY — the capital
 rule touches 1.0-era state and saves, not just Phase 8 (doc 14, OQ-9 reopening delta). No
 implementation code is chartered before Phase 8; **1.0 ships the existing castle/siege stack
@@ -210,9 +212,11 @@ polish. One rule to add: an assault against a player capital that has never been
 player (no defence layer opened) still resolves — but the incoming-attack notice must deep-link
 to the defence view, so the layer is discoverable before it is fatal.
 
-*Ratification note (2026-07-15): the permadeath-verdict paragraph below is EXCLUDED from ADR-4's
+*Ratification note (2026-07-15): the permadeath-verdict paragraph below was EXCLUDED from ADR-4's
 acceptance — it is the spike's advisory assessment, recorded as doc 14 OQ-11 and owned by the
-project owner. Nothing in it is settled.*
+project owner. Update, same day: OQ-11 was CLOSED by the owner accepting this advisory input —
+vassalage-first, permadeath as the ironman opt-in (doc 14 OQ-11's decision record is the
+authoritative wording).*
 
 **Permadeath verdict — stated plainly:** permadeath as the SOLE defeat outcome does not fit this
 game, and OQ-9 already litigated why: the design deliberately chose last-village defeat softened
@@ -340,8 +344,10 @@ M49–M54), in the amended shape: defence layer as the capital's fortification s
 the on-map defence graph · spatial resolution as the siege's assault phase, instant with a
 replayable trace · templated AI layouts per doc 07 §5 · stale-snapshot structure intel + believed
 garrisons · terrain-differentiated maps with geography-priced origins · loot under `capOf` with
-excess burned · new lords rising against attrition. The defeat outcome at a fallen capital is
-OPEN (doc 14 OQ-11, owner-decided — the one part of §3 this ratification does not adopt).
+excess burned · new lords rising against attrition. The defeat outcome at a fallen capital was
+carved out as doc 14 OQ-11 — the one part of §3 this ratification did not adopt — and was
+subsequently decided by the owner the same day: vassalage-first, permadeath as the ironman
+opt-in.
 Ratification re-opens OQ-9 immediately (doc 14 delta — its groundwork decisions are pre-M48, not
 gated behind Phase 8); GDD §7's rewrite and doc 07 §5's elevation to load-bearing content happen
 at Phase 8 entry.

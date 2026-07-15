@@ -141,8 +141,8 @@ the UI, and occupying a capital today is mechanically identical to occupying any
    capital-capture semantics before the defence layer exists vs. after (today: owner flip + AI
    re-binding; under ADR-4: destruction); state the save-compatibility policy for 1.0 saves
    loaded under the new rule.
-3. *With OQ-11:* the defeat OUTCOME at a fallen capital (vassalage-first vs. permadeath) —
-   owner-decided, explicitly not settled by ADR-4.
+3. *With OQ-11 — since DECIDED (2026-07-15):* vassalage-first, permadeath as the ironman
+   opt-in (see OQ-11's decision record below).
 **What depends on it:** `game/victory.ts` (defeat bookkeeping and the Conquest/Hegemony
 village-share math once capitals can be DESTROYED rather than captured), `game/occupation.ts`
 (whether a capital can be occupied like any village), diplomacy's capitulation/vassalage path
@@ -172,10 +172,19 @@ but softens war's stakes; permadeath makes sieges genuinely terminal and matches
 intent, but ends a 10–30 h campaign on an auto-resolved event and invites save-scumming outside
 ironman. The same choice governs AI lords, so it also sets Phase 8's world-attrition rate
 (vassal kingdoms persist in the world; destroyed ones leave it).
-**ADR-4's advisory input (not binding):** vassalage-first, with permadeath as the ironman opt-in.
-**Status: OPEN.** The decision is the project owner's — not settled by ADR-4, not delegated.
-Sits outside DR-001 (which ratified OQ-1..10 only). Due at Phase 8's entry gate alongside OQ-9's
-Phase-8 decision, since M53 (loss & succession) implements whatever is chosen.
+**ADR-4's advisory input (not binding at ratification):** vassalage-first, with permadeath as
+the ironman opt-in.
+**Decision (2026-07-15, project owner) — CLOSED:** the advisory input is accepted as the rule.
+A fallen capital offers the shipped capitulation/vassalage path FIRST — the lord (player or AI)
+survives, diminished, as a vassal; per ADR-4 §3's mechanism, refusal by either side (the loser
+declines submission, or the attacker wants blood) makes it destruction and death. Under the
+`ironman` sandbox flag, a fallen capital ends the lord outright — permadeath is opt-in.
+Sits outside DR-001 (which ratified OQ-1..10 only).
+**Consequences:** M53 (loss & succession) implements vassalage-first as the default and
+permadeath under ironman; the same rule governs AI lords, so Phase 8's world-attrition rate sits
+in the softer band (vassal kingdoms persist in the world; only refused capitulations destroy a
+kingdom) and new-lords-rising (ADR-4 §3) calibrates against that; OQ-9 becomes the only open
+question gating Phase 8 entry.
 
 ---
 
