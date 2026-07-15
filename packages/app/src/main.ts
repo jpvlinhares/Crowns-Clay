@@ -77,9 +77,28 @@ let speed: Speed = 1;
 // resuming from a pause: drop any pause-time placement ghosts on the first tick the sim runs,
 // where the real (queued) buildings commit — see the snapshotDelta handler and renderer.addPlanned.
 let clearGhostsOnResume = false;
+// Buildings placed while paused are held HERE (not submitted to the sim) so they can be freely
+// canceled while still paused — a real `village.build` can't commit until a tick runs (that would
+// break determinism; see the driver's pause note). Keyed by "x,y" origin tile; submitted on resume.
+const pausedPlacements = new Map<string, { villageId: number; def: string; x: number; y: number; w: number; h: number }>();
+/** Key of the planned placement whose footprint covers tile (x, y), or null — for click-to-cancel. */
+const pausedPlacementAt = (x: number, y: number): string | null => {
+  for (const [key, p] of pausedPlacements) {
+    if (x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h) return key;
+  }
+  return null;
+};
 const speedButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-speed]'));
 const setSpeed = (next: Speed): void => {
-  if (speed === 0 && next !== 0) clearGhostsOnResume = true;
+  if (speed === 0 && next !== 0) {
+    // resuming: now a tick can commit them, so submit everything still planned (uncanceled) while
+    // paused, then let the first post-resume delta swap the ghosts for the sim's real buildings
+    for (const p of pausedPlacements.values()) {
+      command('village.build', { villageId: p.villageId, def: p.def, x: p.x, y: p.y });
+    }
+    pausedPlacements.clear();
+    clearGhostsOnResume = true;
+  }
   speed = next;
   send({ kind: 'setSpeed', speed: next });
   for (const b of speedButtons) {
@@ -331,7 +350,7 @@ function renderBuildPalette(): void {
     body.append(el('div', 'Waiting for the catalog…', 'hint'));
     return;
   }
-  body.append(el('div', 'Pick a building, then click map tiles to place copies. Right-click or Esc exits.', 'hint'));
+  body.append(el('div', 'Pick a building, then click map tiles to place copies. Right-click or Esc exits. While paused, placements are planned as blueprints — click one to cancel it before resuming.', 'hint'));
   for (const building of catalog.buildings) {
     const row = el('div', undefined, 'row');
     const b = document.createElement('button');
@@ -1454,26 +1473,34 @@ function wireInput(canvas: HTMLCanvasElement): void {
         renderToasts();
       } else if (store.state.armedBuild !== null) {
         const t = renderer.tileAt(sx, sy);
-        const target = store.villageNear(t.x, t.y);
-        if (target !== null) {
-          const armedDef = store.state.armedBuild;
-          command('village.build', { villageId: target.id, def: armedDef, x: t.x, y: t.y });
-          // while paused the sim is frozen, so this command can't commit until the player resumes
-          // (a tick would advance construction — see the determinism note in the driver). Draw a
-          // client-only "planned" ghost at 0% so the placement reads as committed; it's swapped for
-          // the sim's real building on resume (clearGhostsOnResume). Gate on the latest authoritative
-          // placement verdict so obviously-invalid tiles don't sprout a ghost.
-          if (speed === 0 && previewValid) {
+        const armedDef = store.state.armedBuild;
+        if (speed === 0) {
+          // paused: the sim is frozen so a real village.build can't commit until resume (a tick
+          // would advance construction — see the driver's pause note). Plan the placement CLIENT-SIDE
+          // as a blueprint ghost and submit it on resume; clicking an existing ghost cancels it, so
+          // the whole layout stays editable while paused.
+          const hit = pausedPlacementAt(t.x, t.y);
+          if (hit !== null) {
+            pausedPlacements.delete(hit);
+            renderer.removePlanned(hit);
+          } else if (previewValid) {
+            const target = store.villageNear(t.x, t.y);
             const def = store.state.catalog?.buildings.find((b) => b.id === armedDef);
-            if (def !== undefined) renderer.addPlanned(t.x, t.y, def.w, def.h, def.category);
+            if (target !== null && def !== undefined) {
+              pausedPlacements.set(`${t.x},${t.y}`, { villageId: target.id, def: armedDef, x: t.x, y: t.y, w: def.w, h: def.h });
+              renderer.addPlanned(t.x, t.y, def.w, def.h, def.category);
+            }
           }
-          // continuous building mode: stay armed after every placement attempt (success OR fail),
-          // so the player can drop copy after copy. Only an explicit cancel (Esc / right-click /
-          // re-selecting in the palette / another tool) exits. Re-probe the tile just placed on so
-          // its outline flips red immediately.
-          lastPreviewKey = null;
-          updateFootprintPreview();
+        } else {
+          const target = store.villageNear(t.x, t.y);
+          if (target !== null) command('village.build', { villageId: target.id, def: armedDef, x: t.x, y: t.y });
         }
+        // continuous building mode: stay armed after every placement attempt (success OR fail), so
+        // the player can drop copy after copy. Only an explicit cancel (Esc / right-click /
+        // re-selecting in the palette / another tool) exits. Re-probe the tile just acted on so its
+        // outline recolours immediately.
+        lastPreviewKey = null;
+        updateFootprintPreview();
       } else if (e.shiftKey) {
         const t = renderer.tileAt(sx, sy);
         const name = renderer.terrainNameAt(t.x, t.y);
@@ -1488,14 +1515,23 @@ function wireInput(canvas: HTMLCanvasElement): void {
           send({ kind: 'debug', op: 'inspect', entityId: picked });
         }
       } else {
-        // player selection (M18): a building click opens its inspector (name, category,
-        // demolish) and syncs the village selection so the Village panel tracks it too
-        const picked = renderer.pickBuilding(sx, sy);
-        const rec = picked !== null ? renderer.buildingRec(picked) : null;
-        if (rec !== null) {
-          store.selectVillage(rec.village);
-          selectBuilding(rec.id);
-          buildingPanel.open();
+        // paused with no tool armed: a click on a planned (blueprint) placement cancels it, so the
+        // player can prune the layout without re-arming the Build tool
+        const gt = renderer.tileAt(sx, sy);
+        const ghostHit = speed === 0 ? pausedPlacementAt(gt.x, gt.y) : null;
+        if (ghostHit !== null) {
+          pausedPlacements.delete(ghostHit);
+          renderer.removePlanned(ghostHit);
+        } else {
+          // player selection (M18): a building click opens its inspector (name, category,
+          // demolish) and syncs the village selection so the Village panel tracks it too
+          const picked = renderer.pickBuilding(sx, sy);
+          const rec = picked !== null ? renderer.buildingRec(picked) : null;
+          if (rec !== null) {
+            store.selectVillage(rec.village);
+            selectBuilding(rec.id);
+            buildingPanel.open();
+          }
         }
       }
     }

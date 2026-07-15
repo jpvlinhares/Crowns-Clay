@@ -21,6 +21,17 @@ test('addPlanned tracks one ghost per origin tile and is idempotent', () => {
   assert.equal(ghostCount(r), 2);
 });
 
+test('removePlanned cancels one ghost by key and leaves the rest (pause-time cancel)', () => {
+  const r = new PixiRenderer(64, 64, 800, 600);
+  r.addPlanned(10, 12, 1, 1, 'housing');
+  r.addPlanned(14, 12, 2, 1, 'storage');
+  r.removePlanned('10,12');
+  assert.equal(ghostCount(r), 1);
+  // removing an unknown key is a harmless no-op
+  r.removePlanned('99,99');
+  assert.equal(ghostCount(r), 1);
+});
+
 test('clearPlanned drops every ghost (the resume swap)', () => {
   const r = new PixiRenderer(64, 64, 800, 600);
   r.addPlanned(3, 4, 2, 2, 'production');

@@ -158,18 +158,21 @@ inspectable and makes every interaction loggable/replayable.
   the browser menu), re-selecting/picking a different building in the palette, or arming another
   tool (an army order clears the armed build). Only the primary mouse button places — right/middle
   never do.
-- **Placement while paused (blueprint ghosts):** a build placed at speed 0 still sends its
-  `village.build` command, but the command can only execute on a **tick** (`kernel.submit` stamps it
-  for `tick + 1`), and running a tick would advance construction and every other timed system — so a
-  true sim-side commit while paused is impossible without breaking replay determinism (the golden
-  corpus re-runs the command log through normal ticks with no pause information). Instead the client
-  draws a **planned ghost** — a translucent, blueprint-blue footprint at 0% — via
-  `PixiRenderer.addPlanned` (keyed by origin tile, idempotent) so the placement reads as committed
-  while nothing in the sim actually moves. On **resume** (`setSpeed 0 → nonzero`) the queued commands
-  execute on the first tick and their real buildings land in that tick's `snapshotDelta`; the handler
-  then calls `clearPlanned()`, swapping every ghost for the sim's authoritative building (a ghost with
-  no matching building was a placement the sim rejected — e.g. it outran the stockpile — and is
-  correctly dropped too). Purely presentation: no sim/determinism surface, goldens untouched.
+- **Placement while paused (cancelable blueprint ghosts):** a `village.build` can only execute on a
+  **tick** (`kernel.submit` stamps it for `tick + 1`), and running a tick would advance construction
+  and every other timed system — so a true sim-side commit while paused is impossible without breaking
+  replay determinism (the golden corpus re-runs the command log through normal ticks with no pause
+  information). So while paused the client does **not** submit at all: it holds each placement in a
+  `pausedPlacements` map (`villageId, def, x, y, w, h`, keyed by origin tile) and draws a **planned
+  ghost** — a translucent, blueprint-blue footprint at 0% — via `PixiRenderer.addPlanned`, so the
+  layout reads as committed while nothing in the sim moves. Because nothing was submitted, a placement
+  is freely **cancelable while paused**: clicking a ghost's footprint (armed → a toggle, or with no
+  tool armed) drops it from the map and calls `PixiRenderer.removePlanned(key)`. On **resume**
+  (`setSpeed 0 → nonzero`) every *still-planned* placement is submitted as a real `village.build`; the
+  buildings land in the first post-resume `snapshotDelta` and the handler calls `clearPlanned()`,
+  swapping the ghosts for the sim's authoritative buildings (a ghost with no committed building was a
+  placement the sim ultimately rejected — e.g. it outran the stockpile — and is dropped too). Purely
+  presentation: nothing enters the sim until resume, so no determinism surface and goldens untouched.
 - **Dismissible notifications:** every toast carries a **× close button** (`NotificationQueue.dismiss(id)`)
   that removes it from the on-screen `visible()` set immediately while leaving the scrollback `all()`
   history intact; automatic roll-off (VISIBLE_CAP) is unchanged. Applies to every severity tier, not

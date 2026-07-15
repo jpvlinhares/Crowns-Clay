@@ -191,6 +191,15 @@ export class PixiRenderer {
     this.plannedGhosts.set(key, g);
   }
 
+  /** Cancel one planned ghost by origin-tile key (the player clicked it while paused). */
+  removePlanned(key: string): void {
+    const g = this.plannedGhosts.get(key);
+    if (g === undefined) return;
+    this.plannedLayer.removeChild(g);
+    g.destroy();
+    this.plannedGhosts.delete(key);
+  }
+
   /** Drop every planned ghost (called on resume, after the sim's real buildings have landed). */
   clearPlanned(): void {
     for (const g of this.plannedGhosts.values()) {
