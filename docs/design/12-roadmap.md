@@ -1,7 +1,10 @@
-# 12 — Development Roadmap (48 Milestones + Integration Revision)
+# 12 — Development Roadmap (48 Milestones to 1.0 + Post-1.0 Phase 8)
 
 > **Revision R1 (M47.5 audit, 2026-07-11):** Phase 7 is split by four inserted integration
 > milestones (M47.6–M47.9) before M48. See the change record at the end of this document.
+>
+> **Revision R2 (ADR-4 ratification, 2026-07-15):** Phase 8 — The Castle (M49–M54) appended as
+> planned POST-1.0 scope. Nothing before M48 changes. See the change record.
 
 **Conventions applying to every milestone (stated once, binding always):**
 
@@ -130,6 +133,23 @@ harness-green.
 |---|---|---|---|
 | M48 | Release candidate → 1.0 | freeze, release notes, mod docs final, launch build — **entry gate: M47.6–M47.9 complete**; SC-1..6 verified against the unified campaign composition, not the sandbox | external RC playtest: SC-1..6 verified; ship |
 
+## Phase 8 — The Castle (M49–M54, post-1.0 — added by revision R2)
+
+Chartered by ADR-4 (doc 15, ratified 2026-07-15 with amendments). **1.0 ships the existing
+castle/siege stack unchanged — nothing in this phase precedes M48.** Entry gate: 1.0 shipped ·
+OQ-9's Phase-8 decision and OQ-11 resolved (doc 14). The M12 playability rule and ADR-3's
+composition rule bind here as everywhere: each milestone lands in the shipping campaign with a
+player surface, not merely harness-green.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
+| M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
+| M51 | Spatial assault resolution | deterministic flow-field resolver replacing `siege.assault`'s flat path (reuses combat.ts morale math + fortification HP math); keep points threshold; compact trace + battle-report replay; the warning chain (blocking auto-pause `siege.begun` notice deep-linking to the defence view); player bombard-target picker and sortie surface — closing the M47.7 gap (`siege.setTarget` is AI-only today and `siege.sortie` has no caller in the shipping game) | same seed + layouts + armies ⇒ identical outcome and trace across Chrome/Firefox/Node; GDD §8 siege-pacing bands still hold end-to-end |
+| M52 | AI defence | doc 07 §5 archetype templates (motte/concentric/ridge-line) as Mod Zero content; deterministic terrain adaptation; incremental build through the existing build-queue discipline; plan-driven garrison assignment from the shared soldier pool | harness: every AI kingdom's layout repels the baseline raid its economy tier should repel; templates visibly differ across terrain seeds |
+| M53 | Loss, loot & succession | capital-death rule per reopened OQ-9; defeat outcome per OQ-11 (owner decision — entry-gated); loot transfer under `capOf` with excess burned, ledger-explicit; new-lords-rising against world attrition | 50-year AI-vs-AI campaigns: kingdom count stays within the design band; conquest victory still reachable |
+| M54 | Intel & balance | stale-snapshot structure preview keyed to last scouting contact; garrison strength via ADR-2 `armyStrength` beliefs (the knowledge model's second consumer); AI attackers preview through the same fog queries; dedicated attack/defence balance matrix | balance bands hold across seeds × difficulties; no single-origin dominant strategy; belief-error stories legible in the battle report |
+
 ---
 
 ## Dependency & Risk Notes
@@ -168,3 +188,23 @@ harness-green.
   real terrain (R-B), unmeasured full-composition performance (R-C), UI scope owned by no
   milestone (R-D). Golden fixtures will be intentionally re-recorded at M47.6 per TDD §13's
   existing policy.
+
+**R2 — Phase 8 ("The Castle") appended as post-1.0 scope (ratified 2026-07-15, ADR-4).**
+
+- **Change:** six milestones (M49–M54, "Phase 8 — The Castle") appended after M48 as planned
+  POST-1.0 scope: a per-kingdom castle-defence layer replacing the on-map defence graph, spatial
+  assault resolution inside the existing siege phases, templated AI defence, and the
+  loss/loot/succession/intel work around it. M48 and everything before it are unchanged —
+  1.0 ships the existing castle/siege stack.
+- **Why:** ADR-4 (doc 15) — the honest realization of Vision USP-4, deliberately kept out of 1.0
+  by the M47.5 audit's own logic: a phase-sized combat rework at M47.9 would reopen M45 (content),
+  M46 (balance), and M47 (hardening).
+- **Affected documents:** this doc (12); doc 14 (OQ-9 reopened with pre-M48 groundwork decisions;
+  OQ-11 added, owner-decided, due at Phase 8 entry); doc 15 (ADR-4 PROPOSED → ACCEPTED with
+  amendments, defeat outcome carved out). GDD §7 and doc 07 §5 rewrites are deferred to Phase 8
+  entry — no design-doc change before then.
+- **Affected milestones:** none before M48; M48's entry gate is untouched. OQ-9's item 1 (make
+  "capital" explicit, persisted state) is a pre-M48 DECISION, not scheduled work — if taken, it
+  lands inside M48's freeze scope or is explicitly declined in the OQ-9 record.
+- **Risk impact:** none to 1.0. Codifies post-1.0 scope so the defence layer reads as planned
+  work rather than a gap.

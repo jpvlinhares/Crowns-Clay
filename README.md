@@ -62,6 +62,7 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M47.8 — AI & balance on the real game (food-first jobs solver, multi-village AI, beliefs wired) | ✅ this commit |
 | M47.9 — Recertification & truth pass (campaign crash triage, benchmark CI gate, ADRs) | ✅ this commit — **Phase 7-INT complete** |
 | M48 — Release candidate → 1.0 | ⬜ entry gate OPEN (doc 12 R1: SC-1..6 verified against the unified composition) |
+| Phase 8 — The Castle (castle-defence layer, M49–M54) | ⬜ planned POST-1.0 scope (ADR-4; doc 12 R2) — 1.0 ships the existing castle/siege stack |
 
 > **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
 > finding — the unified campaign (`composeCampaign`) IS the playable game now: real worldgen,
