@@ -47,7 +47,7 @@ A minimal, complete, loadable mod — a new resource nobody else defines:
   "id": "example:tinker",
   "name": "Tinker's Trinkets",
   "version": "1.0.0",
-  "gameVersion": ">=0.1 <1.0",
+  "gameVersion": ">=1.0 <2.0",
   "authors": ["you"],
 }
 ```

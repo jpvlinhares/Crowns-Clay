@@ -15,7 +15,7 @@ import { fnv1a32 } from '@crowns/core';
 import { parseJson5Subset, v, formatErrors, type ValidationError, type Validator } from './validate.js';
 import { satisfies } from './semver.js';
 
-export const GAME_VERSION = '0.1.0';
+export const GAME_VERSION = '1.0.0';
 
 export interface ModSource {
   /** path → raw text; must include 'mod.json5'. */

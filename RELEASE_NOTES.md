@@ -1,3 +1,28 @@
+# Crowns & Clay — 1.0.0
+
+*Shipped 2026-07-16 (tag `v1.0.0`), from RC-1 with no simulation changes.*
+
+The external RC playtest passed (verified by the project owner, 2026-07-16): SC-1 — a new
+player reaches a stable, growing kingdom within 30 minutes unaided — and SC-6 — blind testers
+attribute distinct personalities to at least two AI kingdoms — closing the last two Vision §8
+success criteria. All six SC now hold against the unified campaign composition.
+
+Changes since RC-1 (the ship commit only):
+
+- **Version flip, in lockstep** (as required by the RC's versioning note): `GAME_VERSION` is
+  now `1.0.0`; Mod Zero is `base@1.0.0` with `gameVersion: ">=1.0 <2.0"`; both example mods
+  widen to the same range; the modding docs' manifest examples now show `">=1.0 <2.0"`.
+  Verified: full test suite (426), golden replays, and save corpus all green after the flip,
+  and the launch build boots a campaign with `base@1.0.0` loaded and nothing disabled.
+- Page title loses its "dev build" suffix.
+- **Note for pre-1.0 saves:** they load normally; the Mods screen's reconciliation report will
+  truthfully show the base game's version change (best-effort load per OQ-4, never blocking).
+
+Everything below is the RC-1 record, unchanged — its verification battery, known limitations,
+and save-compatibility notes all describe the shipped 1.0 build.
+
+---
+
 # Crowns & Clay — 1.0.0-rc.1 (M48 release candidate)
 
 *Cut 2026-07-16 from the unified campaign composition (doc 12, Phase 7-INT complete).*

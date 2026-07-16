@@ -1,7 +1,7 @@
 {
   "name": "crowns-and-clay",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Crowns & Clay — browser-based medieval kingdom management game (see docs/design)",
   "type": "module",
   "workspaces": [

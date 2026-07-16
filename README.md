@@ -61,7 +61,7 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M47.7 — Player UI for diplomacy / military / research / victory (no injector-only actions) | ✅ |
 | M47.8 — AI & balance on the real game (food-first jobs solver, multi-village AI, beliefs wired) | ✅ this commit |
 | M47.9 — Recertification & truth pass (campaign crash triage, benchmark CI gate, ADRs) | ✅ this commit — **Phase 7-INT complete** |
-| M48 — Release candidate → 1.0 | 🟡 **RC-1 cut this commit** (tag `v1.0.0-rc.1`; [RELEASE_NOTES.md](RELEASE_NOTES.md)) — machine-verifiable SC gates green (tests, goldens, corpus+torture, 3 bench scenes, 24-campaign balance matrix, 100-seed crash triage); ship blocks on the external RC playtest (SC-1, SC-6) and the `GAME_VERSION`/mod-range flip |
+| M48 — Release candidate → 1.0 | ✅ **1.0 SHIPPED this commit** (tag `v1.0.0`; [RELEASE_NOTES.md](RELEASE_NOTES.md)) — external RC playtest passed (SC-1, SC-6; project owner, 2026-07-16) on top of the RC-1 machine-verified gates (426 tests, goldens, corpus+torture, 3 bench scenes, 24-campaign balance matrix, 100-seed crash triage); `GAME_VERSION` 1.0.0 with Mod Zero/mod-range flip in lockstep — **Phase 7 complete: shipped** |
 | Phase 8 — The Castle (castle-defence layer, M49–M54) | ⬜ planned POST-1.0 scope (ADR-4; doc 12 R2) — 1.0 ships the existing castle/siege stack |
 
 > **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
