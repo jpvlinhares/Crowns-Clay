@@ -49,6 +49,7 @@ import { CalendarSystem, TICKS_PER_DAY } from './time.js';
 import { describePersonality, perturbWeights, toPlannerWeights } from './ai/personality.js';
 import { KnowledgeModel } from './ai/knowledge.js';
 import { registerOccupationGameplay } from './game/occupation.js';
+import { registerDefenceGameplay } from './game/defence.js';
 import { generateWorld } from './worldgen/pipeline.js';
 import { Biome, type MapSize, type WorldDef } from './worldgen/types.js';
 import { registerVillageGameplay, VILLAGE_MIN_SPACING, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
@@ -195,6 +196,8 @@ export interface CampaignComposition {
   readonly combatGame: ReturnType<typeof registerCombatGameplay>;
   readonly castleGame: ReturnType<typeof registerCastleGameplay>;
   readonly siegeGame: ReturnType<typeof registerSiegeGameplay>;
+  /** M49 (Phase 8): the per-kingdom castle-defence layer. */
+  readonly defenceGame: ReturnType<typeof registerDefenceGameplay>;
   readonly researchGame: ReturnType<typeof registerResearchGameplay>;
   readonly eventsGame: ReturnType<typeof registerEventGameplay>;
   readonly victoryGame: ReturnType<typeof registerVictoryGameplay>;
@@ -774,6 +777,15 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         isAtWar: (a, b) => diplomacyGame.state.isAtWar(a as number, b as number),
       })
     : null;
+  // ---- M49 (Phase 8, ADR-4): the per-kingdom castle-defence layer — maps, keep,
+  // defence.build/demolish/post commands, 'defence' hash source. Appended registration:
+  // no periodic systems, so existing streams and cadences are untouched.
+  const defenceGame = registerDefenceGameplay(kernel, world, db, game, econGame, kingdomGame, militaryGame, castleGame, {
+    worldSeed: options.seed,
+    kingdomCount: options.kingdomCount,
+    capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
+  });
+
   // a fallen capital re-binds the loser's AI to its next-oldest village (or none)
   kernel.subscribe<{ village: number; from: number }>('village.occupied', (event) => {
     const loserIndex = kingdomGame.kingdomEntities().indexOf(event.data.from as EntityId);
@@ -882,6 +894,18 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       restoredCapitals = data as [number, number][];
     },
   });
+  // M49: defence maps travel as seed + version stamp + RLE tiles; restore() regenerates from
+  // the seed when the pipeline version matches and falls back to the stored tiles when it
+  // doesn't (ADR-4: permanent structures depend on tile-exact ground — never re-roll).
+  // Optional: pre-Phase-8 saves get freshly generated maps (their layers were empty by
+  // definition; structures/posts live in worldSection regardless).
+  saves.register({
+    key: 'defence',
+    version: 1,
+    optional: true,
+    save: () => defenceGame.save(),
+    load: (data) => defenceGame.restore(data as ReturnType<typeof defenceGame.save>),
+  });
   if (beliefsEnabled) {
     saves.register({
       key: 'beliefs',
@@ -898,6 +922,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     game.ops.rebuildDerived();
     kingdomGame.refreshAfterLoad();
     castleGame.rebuildDerived();
+    defenceGame.rebuildDerived();
     // genesis only runs on tick 1 — after hydration the plain ownership map is re-derived
     // from VillageOwner (the authoritative record). The kingdom→capital binding is NOT
     // derivable (it carries conquest history): the 'capitals' section restores it; only
@@ -936,7 +961,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   return {
     kernel, world, db, modReport, locale, sandbox: sandboxEnabled, Position, worldDef, terrainSnapshot,
     game, statMods, popGame, econGame, logiGame, settlerGame, kingdomGame, diplomacyGame, militaryGame, armiesGame,
-    combatGame, castleGame, siegeGame, researchGame, eventsGame, victoryGame, fog, placement, saves,
+    combatGame, castleGame, siegeGame, defenceGame, researchGame, eventsGame, victoryGame, fog, placement, saves,
     villageOf: (kingdomIndex: number) => villageIndexByKingdom.get(kingdomIndex) ?? null,
     personalityTagsOf: (kingdomIndex: number): readonly string[] => {
       const a = contentAssign?.(kingdomIndex);

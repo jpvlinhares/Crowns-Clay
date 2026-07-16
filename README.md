@@ -62,7 +62,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M47.8 — AI & balance on the real game (food-first jobs solver, multi-village AI, beliefs wired) | ✅ this commit |
 | M47.9 — Recertification & truth pass (campaign crash triage, benchmark CI gate, ADRs) | ✅ this commit — **Phase 7-INT complete** |
 | M48 — Release candidate → 1.0 | ✅ **1.0 SHIPPED this commit** (tag `v1.0.0`; [RELEASE_NOTES.md](RELEASE_NOTES.md)) — external RC playtest passed (SC-1, SC-6; project owner, 2026-07-16) on top of the RC-1 machine-verified gates (426 tests, goldens, corpus+torture, 3 bench scenes, 24-campaign balance matrix, 100-seed crash triage); `GAME_VERSION` 1.0.0 with Mod Zero/mod-range flip in lockstep — **Phase 7 complete: shipped** |
-| Phase 8 — The Castle (castle-defence layer, M49–M54) | ⬜ planned POST-1.0 scope (ADR-4; doc 12 R2) — 1.0 ships the existing castle/siege stack |
+| M49 — Defence-layer core (per-kingdom 100×100 seeded maps, keep at centre, `defence.build/demolish/post`, seed+version-stamp persistence with stored-tile fallback) | ✅ this commit — **Phase 8 begins: The Castle** (ADR-4; entry gate closed in doc 14 OQ-9). Loss rules unchanged until M53; kernel now tolerates saves predating newly added systems (1.0 saves load) |
+| M50–M54 — Phase 8 remainder (defence view & build UI · spatial assault resolution · AI defence templates · loss/loot/succession · intel & balance) | ⬜ next: M50 |
 
 > **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
 > finding — the unified campaign (`composeCampaign`) IS the playable game now: real worldgen,

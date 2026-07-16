@@ -277,6 +277,27 @@ export {
   type FortificationComponent,
 } from './game/castles.js';
 export {
+  registerDefenceGameplay,
+  KEEP_DEF,
+  DEFENCE_KEEP_CENTRE,
+  type DefenceGameplay,
+  type DefenceMapState,
+  type DefenceStructureComponent,
+  type DefencePostComponent,
+} from './game/defence.js';
+export {
+  DEFENCE_MAP_SIZE,
+  DEFENCE_MAP_VERSION,
+  DEFENCE_TILE,
+  KEEP_CLEARING_RADIUS,
+  defenceMapSeed,
+  generateDefenceMap,
+  digestDefenceMap,
+  encodeDefenceMap,
+  decodeDefenceMap,
+  type DefenceTileCode,
+} from './worldgen/defenceMap.js';
+export {
   registerCombatGameplay,
   CombatState,
   ENGAGEMENT_RADIUS,

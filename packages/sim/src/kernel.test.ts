@@ -193,6 +193,54 @@ test('calendar: date math and boundary events', () => {
   assert.equal(years, 1);
 });
 
+// ---------------- restoreState across composition growth (M49) ----------------
+
+test('restoreState: a session with systems the save predates still restores (deterministically)', () => {
+  const { kernel: original } = makeKernel(7);
+  for (let t = 0; t < 20; t++) original.step();
+  const saved = original.saveState();
+
+  // the newer composition registers one EXTRA system the save has never heard of
+  const build = (): { kernel: Kernel; counter: CounterSystem; extraRuns: number[] } => {
+    const kernel = new Kernel(7);
+    const counter = new CounterSystem();
+    kernel.registerSystem(counter);
+    kernel.registerCommand<{ amount: number }>('counter.add', (_ctx, payload) => {
+      counter.value += payload.amount;
+    });
+    const extraRuns: number[] = [];
+    let extraValue = 0;
+    kernel.registerSystem({
+      name: 'added-after-save',
+      period: 1,
+      update(ctx: TickContext): void {
+        extraRuns.push(ctx.tick);
+        extraValue += ctx.rng.int(0, 3);
+      },
+      hash(fold: (v: number) => void): void {
+        fold(extraValue);
+      },
+    });
+    return { kernel, counter, extraRuns };
+  };
+  const a = build();
+  const b = build();
+  a.kernel.restoreState(saved); // must NOT throw on the extra system
+  b.kernel.restoreState(saved);
+  assert.equal(a.kernel.currentTick, 20);
+  for (let t = 0; t < 30; t++) {
+    a.kernel.step();
+    b.kernel.step();
+  }
+  // the added system's stream is (seed, name)-derived — identical on every load site
+  assert.equal(a.kernel.stateHash(), b.kernel.stateHash(), 'two load sites evolve identically');
+  assert.equal(a.extraRuns.length, 30, 'the added system runs from the restored tick');
+
+  // the reverse — a save carrying a system this composition lacks — still refuses
+  const bare = new Kernel(7);
+  assert.throws(() => bare.restoreState(saved), /system 'counter' not registered/);
+});
+
 // ---------------- driver ----------------
 
 test('driver: speed multiplies tick throughput', () => {
