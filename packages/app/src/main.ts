@@ -698,7 +698,9 @@ function renderModsPanel(): void {
 let panelsState: PlayerPanels | null = null;
 let selectedArmyVillage: number | null = null; // recruit/create-army target village
 /** Armed map action for an army: next map click resolves it (mirrors armedBuild). */
-let armedArmyAction: { kind: 'move' | 'siege'; armyId: number } | null = null;
+let armedArmyAction: { kind: 'move' | 'siege' | 'target'; armyId: number } | null = null;
+/** M51: the assault-origin picker's current choice ('auto' derives server-side). */
+let assaultOrigin = 'auto';
 const battleLog: string[] = [];
 const BATTLE_LOG_CAP = 30;
 let endScreenShown = false;
@@ -874,15 +876,46 @@ function renderMilitaryPanel(): void {
       });
       actions.append(besiege);
     } else {
+      // M51: assault takes an origin — Auto derives it from where the army stands
+      const originSelect = document.createElement('select');
+      originSelect.setAttribute('aria-label', 'Assault origin');
+      for (const [value, label] of [['auto', 'Auto origin'], ['left', 'From the west'], ['right', 'From the east'], ['top', 'From the north'], ['bottom', 'From the south']] as const) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        option.selected = assaultOrigin === value;
+        originSelect.append(option);
+      }
+      originSelect.addEventListener('change', () => { assaultOrigin = originSelect.value; });
+      tip(originSelect, 'Which side of the castle the column storms from (M51). Auto: wherever this army stands.');
+      actions.append(originSelect);
       const assault = document.createElement('button');
       assault.textContent = '⚔ Assault';
-      tip(assault, 'Storm the walls — bloody, but a breach makes it far cheaper (GDD §8).');
-      assault.addEventListener('click', () => { command('siege.assault', { armyId: army.id }); send({ kind: 'requestPanels' }); });
+      tip(assault, 'Storm the walls. A capital resolves on its defence layer — walls, towers, and garrison all fight (M51); elsewhere a breach makes it far cheaper (GDD §8).');
+      assault.addEventListener('click', () => {
+        command('siege.assault', { armyId: army.id, ...(assaultOrigin !== 'auto' ? { origin: assaultOrigin } : {}) });
+        send({ kind: 'requestPanels' });
+      });
+      // M51 (the M47.7 gap): the bombard-target picker — armed click on the castle's walls
+      const target = document.createElement('button');
+      target.textContent = armedArmyAction?.kind === 'target' && armedArmyAction.armyId === army.id ? '🎯 click wall…' : '🎯 Target walls';
+      tip(target, 'Then click one of the besieged castle\'s wall/gate/tower segments — daily bombardment pounds it toward a breach (M29). Esc cancels.');
+      target.addEventListener('click', () => {
+        if (store.state.armedBuild !== null) store.armBuild(null);
+        armedArmyAction = { kind: 'target', armyId: army.id };
+        renderMilitaryPanel();
+      });
       const lift = document.createElement('button');
       lift.textContent = '🏳 Lift siege';
       lift.addEventListener('click', () => { command('siege.lift', { armyId: army.id }); send({ kind: 'requestPanels' }); });
-      actions.append(assault, lift);
+      actions.append(assault, target, lift);
     }
+    // M51 (the M47.7 gap): sorties — the defender's gambit against a besieger in range
+    const sortie = document.createElement('button');
+    sortie.textContent = '🗡 Sortie';
+    tip(sortie, 'Sally out against an army besieging one of YOUR castles — this army must stand at the besieged castle (M29). Refused otherwise.');
+    sortie.addEventListener('click', () => { command('siege.sortie', { armyId: army.id }); send({ kind: 'requestPanels' }); });
+    actions.append(sortie);
     body.append(actions);
   }
 
@@ -984,6 +1017,14 @@ type CastleAction =
   | { mode: 'demolish' }
   | { mode: 'post'; unitId: number };
 let castleAction: CastleAction | null = null;
+/** M51: the last assault fought on OUR walls — its trace overlays the map as the replay. */
+let lastAssaultReport: {
+  outcome: string;
+  attackerLoss: number;
+  defenderLoss: number;
+  breaches: number;
+  trace: { r: number; kind: string; x: number; y: number }[];
+} | null = null;
 
 const DEFENCE_TILE_COLORS = ['#232019', '#5a5348', '#3f7aa4'] as const; // open · rock · water
 const DEFENCE_KIND_COLORS: Record<string, string> = { keep: '#e8c860', tower: '#c08048', gate: '#a08858', wall: '#8a7a52' };
@@ -1048,7 +1089,45 @@ function renderCastlePanel(): void {
       g.arc((p.x + 0.5) * scale, (p.y + 0.5) * scale, scale * 0.6, 0, Math.PI * 2);
       g.fill();
     }
+    // M51: the last assault's replay — the column's walk in red, breaches crossed
+    if (lastAssaultReport !== null) {
+      const walk = lastAssaultReport.trace.filter((t) => t.kind === 'enter' || t.kind === 'advance' || t.kind === 'keep');
+      if (walk.length > 1) {
+        g.strokeStyle = '#d06060';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(((walk[0] as { x: number }).x + 0.5) * scale, ((walk[0] as { y: number }).y + 0.5) * scale);
+        for (const t of walk.slice(1)) g.lineTo((t.x + 0.5) * scale, (t.y + 0.5) * scale);
+        g.stroke();
+      }
+      g.strokeStyle = '#f0e2b0';
+      for (const t of lastAssaultReport.trace.filter((x) => x.kind === 'breach')) {
+        g.beginPath();
+        g.moveTo(t.x * scale, t.y * scale);
+        g.lineTo((t.x + 1) * scale, (t.y + 1) * scale);
+        g.moveTo((t.x + 1) * scale, t.y * scale);
+        g.lineTo(t.x * scale, (t.y + 1) * scale);
+        g.stroke();
+      }
+    }
   }
+  if (lastAssaultReport !== null) {
+    const r = lastAssaultReport;
+    const summary = el(
+      'div',
+      `Last assault: ${r.outcome === 'captured' ? '⚰ the keep FELL' : '🛡 REPELLED'} — attacker lost ${r.attackerLoss}, garrison lost ${r.defenderLoss}, ${r.breaches} breach(es). The red path replays the column's walk.`,
+      'row',
+    );
+    const clear = document.createElement('button');
+    clear.textContent = '× clear';
+    clear.addEventListener('click', () => {
+      lastAssaultReport = null;
+      renderCastlePanel();
+    });
+    summary.append(clear);
+    body.append(summary);
+  }
+
   canvas.addEventListener('click', (e) => {
     if (castleAction === null) return;
     const rect = canvas.getBoundingClientRect();
@@ -1395,6 +1474,23 @@ worker.onmessage = (event: MessageEvent) => {
             eventQueue.push({ eventId, choiceIds });
             showNextEventDialog();
           }
+        } else if (gameEvent.type === 'siege.begun') {
+          // M51 (ADR-4 §3): the warning chain — an enemy army encircling YOUR castle is a
+          // blocking, auto-pausing notice that deep-links to the defence view.
+          const { defender } = gameEvent.data as { defender?: number };
+          if (playerKingdomId !== null && defender === playerKingdomId) {
+            setSpeed(0);
+            notifications.push({ type: 'siege.begunOnPlayer', tick: gameEvent.tick, data: gameEvent.data as Record<string, unknown> });
+            castlePanel.open();
+            toastSurfaced = true;
+          }
+        } else if (gameEvent.type === 'siege.assaultResolved') {
+          // M51: keep the trace for the Castle panel's replay overlay when OUR walls fought
+          const d = gameEvent.data as { defender?: number; outcome?: string; attackerLoss?: number; defenderLoss?: number; breaches?: number; trace?: { r: number; kind: string; x: number; y: number }[] };
+          if (playerKingdomId !== null && d.defender === playerKingdomId && Array.isArray(d.trace)) {
+            lastAssaultReport = { outcome: String(d.outcome), attackerLoss: d.attackerLoss ?? 0, defenderLoss: d.defenderLoss ?? 0, breaches: d.breaches ?? 0, trace: d.trace };
+            renderCastlePanel();
+          }
         }
         // M47.7: the Military panel's war report — human-readable battle/siege lines
         if (
@@ -1619,6 +1715,12 @@ function wireInput(canvas: HTMLCanvasElement): void {
         if (action.kind === 'move') {
           const t = renderer.tileAt(sx, sy);
           command('army.moveTo', { armyId: action.armyId, x: t.x, y: t.y });
+        } else if (action.kind === 'target') {
+          // M51 (the M47.7 gap): pick the bombardment target — the sim validates it is a
+          // wall/gate/tower/keep of the besieged castle and rejects anything else
+          const picked = renderer.pickBuilding(sx, sy);
+          if (picked !== null) command('siege.setTarget', { armyId: action.armyId, buildingId: picked });
+          else notifications.push({ type: 'ui.hint', tick: 0, data: { summary: 'Click a wall/gate/tower segment of the besieged castle to bombard it.' } });
         } else {
           const picked = renderer.pickBuilding(sx, sy);
           const rec = picked !== null ? renderer.buildingRec(picked) : null;

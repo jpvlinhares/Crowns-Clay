@@ -46,6 +46,10 @@ export const NOTIFICATION_RULES: Readonly<Record<string, Rule>> = {
     text: (d) => `Castle order refused — ${str(d['what'])}: ${str(d['reason'])}`,
     subject: (d) => str(d['what']),
   },
+  'siege.begunOnPlayer': {
+    severity: 'urgent',
+    text: () => 'YOUR CASTLE IS UNDER SIEGE — the game is paused. Reinforce the garrison (Castle panel), recall armies, or sue for peace.',
+  },
   'kingdom.edictLapsed': {
     severity: 'attention',
     text: (d) => `Edict lapsed (treasury empty): ${shortId(d['edict'])}`,

@@ -132,6 +132,24 @@ export class SiegeState {
 
 // ---------------------------------------------------------------- gameplay
 
+export type SpatialAssaultOutcome = 'captured' | 'repelled';
+
+/** M51 (ADR-4 §2): the assault phase resolves SPATIALLY on the defender's capital
+ * defence layer when one exists. Late-bound (`current` filled by the composition —
+ * defence registers after siege); returning null means "not applicable" (non-capital
+ * castle, no layer) and the legacy breach-and-engagement path runs unchanged. */
+export interface SpatialAssaultHook {
+  current?: (
+    ctx: TickContext,
+    siege: { castle: number; attackerArmy: number; attackerKingdom: number },
+    origin: 'left' | 'right' | 'top' | 'bottom',
+  ) => SpatialAssaultOutcome | null;
+  /** True when this village index is siege-eligible via its defence layer (a capital with a
+   * standing keep) even without a world-map wall enclosure — ADR-4 §6: castle-ness derives
+   * from the layer once it is the fortification surface. */
+  applicable?: (castleVillageIndex: number) => boolean;
+}
+
 export interface SiegeGameplay {
   readonly state: SiegeState;
 }
@@ -145,6 +163,7 @@ export function registerSiegeGameplay(
   castleGame: CastleGameplay,
   combatGame: CombatGameplay,
   kingdomGame: KingdomGameplay,
+  spatial?: SpatialAssaultHook,
 ): SiegeGameplay {
   const { VillageCore, BuildingCore, Stockpile } = game.comps;
   const { Unit, Army, ops } = militaryGame;
@@ -203,8 +222,11 @@ export function registerSiegeGameplay(
 
   const capture = (ctx: TickContext, s: Siege): void => {
     const ci = index(s.castle);
+    // `from` (M51): the dispossessed owner — the composition's ownership index and
+    // capital re-binding consume it exactly like village.occupied's loser field.
+    const from = VillageOwner !== undefined ? (world.read(VillageOwner).kingdom[ci] as number) : 0;
     if (VillageOwner !== undefined) world.write(VillageOwner).kingdom[ci] = s.attackerKingdom;
-    ctx.events.publish({ type: 'siege.captured', tick: ctx.tick, data: { castle: s.castle, kingdom: s.attackerKingdom } });
+    ctx.events.publish({ type: 'siege.captured', tick: ctx.tick, data: { castle: s.castle, kingdom: s.attackerKingdom, from } });
     endSiege(ctx, s, 'captured');
   };
 
@@ -223,7 +245,9 @@ export function registerSiegeGameplay(
     if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
       return reject(ctx, 'siege.begin', 'no such village');
     }
-    if ((world.read(VillageCore).isCastle[index(villageId)] as number) !== 1) {
+    // castle-ness: a world-map wall enclosure (M28), or — M51, ADR-4 §6 — a capital whose
+    // defence layer stands (the layer IS the fortification surface for capitals)
+    if ((world.read(VillageCore).isCastle[index(villageId)] as number) !== 1 && !(spatial?.applicable?.(index(villageId)) ?? false)) {
       return reject(ctx, 'siege.begin', 'not a castle — nothing to besiege');
     }
     const owner = ownerOfVillage(villageId);
@@ -243,7 +267,9 @@ export function registerSiegeGameplay(
     world.write(ArmyMovement).stance[ai] = SIEGE_STANCE_INDEX;
     world.writeObj(ArmyPath).set(ai, []);
     state.begin(index(villageId), armyId, kingdomId as number);
-    ctx.events.publish({ type: 'siege.begun', tick: ctx.tick, data: { castle: villageId, army: armyId } });
+    // `defender` (owner kingdom entity, M51): the app's warning chain pauses and deep-links
+    // to the Castle panel when the encircled castle is the player's (ADR-4 §3).
+    ctx.events.publish({ type: 'siege.begun', tick: ctx.tick, data: { castle: villageId, army: armyId, defender: owner } });
   });
 
   kernel.registerCommand<{ armyId: number; buildingId: number }>('siege.setTarget', (ctx, p) => {
@@ -271,14 +297,38 @@ export function registerSiegeGameplay(
     endSiege(ctx, s, 'lifted');
   });
 
-  kernel.registerCommand<{ armyId: number }>('siege.assault', (ctx, p, command) => {
+  kernel.registerCommand<{ armyId: number; origin?: string }>('siege.assault', (ctx, p, command) => {
     const armyId = p.armyId | 0;
     const kingdomId = kingdomForIssuer(command.issuer);
     const s = state.siegeOfArmy(armyId);
     if (s === undefined) return reject(ctx, 'siege.assault', 'this army is not besieging anything');
     if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.assault', 'not your siege');
-    if (s.breaches <= 0) return reject(ctx, 'siege.assault', 'no breach — bombard the walls first');
     if (s.assaultEngagementArmy !== 0) return reject(ctx, 'siege.assault', 'an assault is already under way');
+
+    // ---- M51 (ADR-4 §2): a capital with a defence layer resolves SPATIALLY — the walk
+    // handles walls itself, so no breach precondition; casualties and breaches are the
+    // resolver's, and a repulse leaves the siege standing exactly like an inconclusive
+    // legacy assault. Origin: the player's pick, else derived from where the besieger
+    // stands relative to the castle (deterministic).
+    if (spatial?.current !== undefined) {
+      const origin = ((): 'left' | 'right' | 'top' | 'bottom' => {
+        if (p.origin === 'left' || p.origin === 'right' || p.origin === 'top' || p.origin === 'bottom') return p.origin;
+        const core = world.read(VillageCore);
+        const m = world.read(ArmyMovement);
+        const ai = index(armyId);
+        const dx = (m.x[ai] as number) - (core.centerX[s.castle] as number);
+        const dy = (m.y[ai] as number) - (core.centerY[s.castle] as number);
+        return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'top' : 'bottom';
+      })();
+      const outcome = spatial.current(ctx, { castle: s.castle, attackerArmy: s.attackerArmy, attackerKingdom: s.attackerKingdom }, origin);
+      if (outcome !== null) {
+        if (outcome === 'captured') capture(ctx, s);
+        return;
+      }
+    }
+
+    // ---- legacy path (non-capital castles): breach-gated flat engagement ----
+    if (s.breaches <= 0) return reject(ctx, 'siege.assault', 'no breach — bombard the walls first');
     const defender = defenderAt(s.castle, ownerOfVillage(s.castle) as number);
     if (defender === undefined) {
       capture(ctx, s);

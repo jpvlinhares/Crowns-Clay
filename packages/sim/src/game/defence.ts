@@ -83,6 +83,8 @@ export interface DefenceGameplay {
   mapOf(kingdomIndex: number): DefenceMapState | undefined;
   /** Occupied layer tiles (footprint-expanded) for one kingdom: tile → structure entity. */
   occupancyOf(kingdomIndex: number): ReadonlyMap<number, number>;
+  /** M51: a BREACH — the assault resolver levels a structure (occupancy maintained). */
+  removeStructure(entity: number): void;
   save(): { k: number; seed: number; version: number; tiles: number[] }[];
   restore(data: readonly { k: number; seed: number; version: number; tiles: readonly number[] }[]): void;
   /** afterLoad: rebuild the occupancy index from DefenceStructure components. */
@@ -308,6 +310,15 @@ export function registerDefenceGameplay(
     ctx.events.publish({ type: 'defence.unposted', tick: ctx.tick, data: { kingdom: k, unit: unitId } });
   });
 
+  // ---- M51 conflict rule: drafting a posted unit into an army pulls it OFF the walls —
+  // one soldier pool, one place at a time. Subscriber touches component state only (the
+  // codebase's standing subscriber discipline). ----
+  kernel.subscribe<{ unit: number; armyId: number }>('army.unitAssigned', (event) => {
+    if (world.isAlive(event.data.unit as EntityId) && world.has(event.data.unit as EntityId, DefencePost)) {
+      world.detach(event.data.unit as EntityId, DefencePost);
+    }
+  });
+
   // ---------------- determinism: maps fold into the state hash ----------------
   kernel.addHashSource('defence', (fold) => {
     for (const k of [...maps.keys()].sort((a, b) => a - b)) {
@@ -324,6 +335,13 @@ export function registerDefenceGameplay(
     DefencePost,
     mapOf: (k) => maps.get(k),
     occupancyOf: (k) => occupancyFor(k),
+    removeStructure(entity: number): void {
+      if (!world.isAlive(entity as EntityId) || !world.has(entity as EntityId, DefenceStructure)) return;
+      const s = world.read(DefenceStructure);
+      const si = index(entity);
+      vacate(s.kingdom[si] as number, game.ops.buildingDef(s.def[si] as number), s.x[si] as number, s.y[si] as number);
+      world.despawn(entity as EntityId);
+    },
     save: () =>
       [...maps.keys()].sort((a, b) => a - b).map((k) => {
         const m = maps.get(k) as DefenceMapState;

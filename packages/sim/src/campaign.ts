@@ -65,7 +65,8 @@ import { registerMilitaryGameplay } from './game/military.js';
 import { registerArmyGameplay } from './game/armies.js';
 import { registerCombatGameplay } from './game/combat.js';
 import { registerCastleGameplay } from './game/castles.js';
-import { registerSiegeGameplay } from './game/siege.js';
+import { registerSiegeGameplay, type SpatialAssaultHook } from './game/siege.js';
+import { publishAssaultResolved, resolveSpatialAssault } from './game/assault.js';
 import { registerResearchGameplay } from './game/research.js';
 import { registerEventGameplay } from './game/events.js';
 import { registerVictoryGameplay, type VictoryOptions } from './game/victory.js';
@@ -328,7 +329,10 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   const armiesGame = registerArmyGameplay(kernel, world, game, militaryGame, kingdomGame);
   const combatGame = registerCombatGameplay(kernel, world, militaryGame, armiesGame, kingdomGame);
   const castleGame = registerCastleGameplay(kernel, world, db, game);
-  const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, castleGame, combatGame, kingdomGame);
+  // M51 (ADR-4 §2): late-bound spatial-assault hook — the defence layer registers further
+  // down (it needs the capital bindings), so siege gets a ref it can call at command time.
+  const spatialAssault: SpatialAssaultHook = {};
+  const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, castleGame, combatGame, kingdomGame, spatialAssault);
 
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
@@ -361,6 +365,12 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   kernel.subscribe<{ village: number; kingdom: number }>('village.occupied', (event) => {
     const winnerIndex = kingdomGame.kingdomEntities().indexOf(event.data.kingdom as EntityId);
     if (winnerIndex >= 0) ownerIndexByVillage.set(index(event.data.village), winnerIndex);
+  });
+  // M51: siege captures transfer ownership too — the index must follow (a latent M47.8 gap:
+  // assault captures were rare enough in the shipping composition that no test tripped it).
+  kernel.subscribe<{ castle: number; kingdom: number }>('siege.captured', (event) => {
+    const winnerIndex = kingdomGame.kingdomEntities().indexOf(event.data.kingdom as EntityId);
+    if (winnerIndex >= 0) ownerIndexByVillage.set(index(event.data.castle), winnerIndex);
   });
   /** Guard-free ownership + fog check — safe from ANY scope. */
   const anyVillageKnown = (observerIndex: number, targetIndex: number): boolean => {
@@ -785,15 +795,50 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     kingdomCount: options.kingdomCount,
     capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
   });
+  // The spatial assault applies to CAPITALS with a defence layer (ADR-4 §6: the layer guards
+  // the capital only); every other castle keeps the legacy breach-and-engagement path.
+  // `applicable` additionally makes such capitals SIEGE-ELIGIBLE without a world-map wall
+  // enclosure — the layer is their castle-ness. Interim loss rules unchanged (doc 14 OQ-9
+  // item 2): a capture is still an owner flip; capital-death arrives at M53.
+  spatialAssault.applicable = (castleVi) => {
+    if (kingdomGame.VillageOwner === undefined) return false;
+    const ownerId = world.read(kingdomGame.VillageOwner).kingdom[castleVi] as number;
+    const k = kingdomGame.kingdomEntities().indexOf(ownerId as EntityId);
+    return k >= 0 && villageIndexByKingdom.get(k) === castleVi && defenceGame.mapOf(k) !== undefined;
+  };
+  spatialAssault.current = (ctx, siege, origin) => {
+    if (kingdomGame.VillageOwner === undefined) return null;
+    const ownerId = world.read(kingdomGame.VillageOwner).kingdom[siege.castle] as number;
+    const k = kingdomGame.kingdomEntities().indexOf(ownerId as EntityId);
+    if (k < 0 || villageIndexByKingdom.get(k) !== siege.castle) return null;
+    if (defenceGame.mapOf(k) === undefined) return null;
+    const result = resolveSpatialAssault({
+      world,
+      rng: ctx.rng,
+      game,
+      militaryGame,
+      castleGame,
+      defenceGame,
+      defenderKingdomIndex: k,
+      defenderKingdomId: ownerId,
+      attackerArmy: siege.attackerArmy,
+      origin,
+    });
+    publishAssaultResolved(ctx.events, ctx.tick, siege.castle, siege.attackerArmy, ownerId, result);
+    return result.outcome;
+  };
 
-  // a fallen capital re-binds the loser's AI to its next-oldest village (or none)
-  kernel.subscribe<{ village: number; from: number }>('village.occupied', (event) => {
-    const loserIndex = kingdomGame.kingdomEntities().indexOf(event.data.from as EntityId);
-    if (loserIndex < 0 || villageIndexByKingdom.get(loserIndex) !== event.data.village) return;
-    const remaining = villagesOfKingdom(loserIndex).filter((v) => v.vi !== event.data.village);
+  // a fallen capital re-binds the loser's AI to its next-oldest village (or none) —
+  // whether it fell to occupation or to a siege capture (M51)
+  const rebindOnLoss = (village: number, from: number): void => {
+    const loserIndex = kingdomGame.kingdomEntities().indexOf(from as EntityId);
+    if (loserIndex < 0 || villageIndexByKingdom.get(loserIndex) !== village) return;
+    const remaining = villagesOfKingdom(loserIndex).filter((v) => v.vi !== village);
     if (remaining.length > 0) villageIndexByKingdom.set(loserIndex, (remaining[0] as { vi: number }).vi);
     else villageIndexByKingdom.delete(loserIndex);
-  });
+  };
+  kernel.subscribe<{ village: number; from: number }>('village.occupied', (event) => rebindOnLoss(event.data.village, event.data.from));
+  kernel.subscribe<{ castle: number; from: number }>('siege.captured', (event) => rebindOnLoss(event.data.castle, event.data.from));
 
   // ---- sandbox terrain editing (M40) — only meaningful over real worldgen ----
   if (worldDef !== null) {

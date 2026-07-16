@@ -147,6 +147,21 @@ player surface, not merely harness-green.
 | M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
 | M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
 
+**M51 scoping note (shipped 2026-07-16):** the resolver models the army as ONE column walking
+the flow field; garrison posts within `GARRISON_SUPPORT_RANGE` (2) of a contact join a single
+defending line (piecemeal picket duels let a concentrated column eat a garrison unit-by-unit —
+massing is the point of prepared ground). Capitals with a standing layer are SIEGE-ELIGIBLE
+without world-map walls (`SpatialAssaultHook.applicable` — ADR-4 §6's castle-ness derivation);
+non-capital castles keep the legacy breach-gated path verbatim. Interim loss rules unchanged
+per doc 14 OQ-9 item 2: a spatial capture is still an owner flip (capital-death is M53). The
+"battle-report replay" ships as a static trace overlay on the Castle panel's map (walk path +
+breach marks) — animation is M54 polish if wanted. Geography-priced origins (ADR-4 §5's second
+lever) are deferred to M54's balance matrix; origin is player-picked or derived from the
+besieger's true approach. Tower fire consumes the `rangedArc` content field (inert since M29 —
+its designed payoff). Fixed in passing, found by the new tests: `siege.captured` never updated
+the composition's plain ownership index or the capital re-binding (a latent M47.8 gap — assault
+captures were rare enough that nothing tripped it); both now subscribe to it.
+
 **M50 scoping note (shipped 2026-07-16):** the defence view ships as a 2D-canvas scene INSIDE the
 Castle panel, not a second `PixiRenderer` instance — a 100×100 static grid redrawn only when the
 `panels` projection changes needs no WebGL context, no chunk cache, and no per-frame work (the

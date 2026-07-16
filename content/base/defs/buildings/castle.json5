@@ -45,7 +45,7 @@
     "buildTicks": 144,
     "terrainTags": ["open"],
     "requires": { "villageTier": 2 },
-    "defense": { "hp": 400, "armor": 8, "kind": "keep" },
+    "defense": { "hp": 400, "armor": 8, "kind": "keep", "holdStrength": 60 },
     "military": { "garrisonCap": 40 },
     "storage": { "capacity": 200 },
     "tags": [],

@@ -286,6 +286,20 @@ export {
   type DefencePostComponent,
 } from './game/defence.js';
 export {
+  resolveSpatialAssault,
+  publishAssaultResolved,
+  ASSAULT_ORIGINS,
+  DEFAULT_KEEP_HOLD_STRENGTH,
+  ASSAULT_WALL_DAMAGE,
+  TOWER_ATTACK,
+  TOWER_RANGE,
+  GARRISON_DEFENCE_BONUS,
+  MAX_ASSAULT_ROUNDS,
+  type AssaultOrigin,
+  type AssaultResult,
+  type AssaultTraceStep,
+} from './game/assault.js';
+export {
   DEFENCE_MAP_SIZE,
   DEFENCE_MAP_VERSION,
   DEFENCE_TILE,
