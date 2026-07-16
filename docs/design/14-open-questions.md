@@ -161,15 +161,24 @@ the UI, and occupying a capital today is mechanically identical to occupying any
    are pure command replays and never hydrate; the corpus's committed saves predate any
    reconquest and exercise the unchanged fallback) — all four goldens and the corpus verify
    green with no re-recording.
-2. *Phase 8 entry:* ratify capital-death vs. last-village as the kingdom-death condition; define
-   capital-capture semantics before the defence layer exists vs. after (today: owner flip + AI
-   re-binding; under ADR-4: destruction); state the save-compatibility policy for 1.0 saves
-   loaded under the new rule.
+2. *Phase 8 entry — RESOLVED (2026-07-16, at Phase 8 entry, per ADR-4's ratified shape):*
+   **capital death = kingdom death** is ratified as Phase 8's kingdom-death condition,
+   ACTIVATING AT M53 (loss & succession) — not before. Interim semantics (M49–M52): capturing
+   any village, capitals included, keeps today's rules exactly (occupation/siege owner flip +
+   persisted binding re-bind; last-village defeat stays the live rule), so the phase's early
+   milestones change no loss behaviour. At M53: a capital whose keep falls on the defence
+   layer is destroyed, the kingdom dies (outcome per OQ-11 — vassalage-first, permadeath under
+   ironman), and non-capital villages keep the occupation/capture path unchanged.
+   **Save compatibility:** 1.0 saves load into Phase-8 builds; the capital binding is already
+   persisted (item 1), so the rule switch needs no data migration — a 1.0 save loaded at ≥M53
+   simply plays under the new defeat rule from that point (the same forward-rules policy every
+   balance change already follows; no attempt to replay old-rule history).
 3. *With OQ-11 — since DECIDED (2026-07-15):* vassalage-first, permadeath as the ironman
    opt-in (see OQ-11's decision record below).
 
-**Status:** items 1 and 3 resolved; item 2 is the sole remaining open piece of OQ-9 and the
-sole open question gating Phase 8 entry.
+**Status: CLOSED (2026-07-16)** — all three items resolved; Phase 8's entry gate is satisfied
+(1.0 shipped `v1.0.0` · this record · OQ-11 decided). The capital-death rule itself lands at
+M53; M49–M52 change no loss behaviour.
 **What depends on it:** `game/victory.ts` (defeat bookkeeping and the Conquest/Hegemony
 village-share math once capitals can be DESTROYED rather than captured), `game/occupation.ts`
 (whether a capital can be occupied like any village), diplomacy's capitulation/vassalage path

@@ -203,6 +203,16 @@ too (AI Doc §5).
 siege tech and starvation; prevent turtle stalemates via victory conditions (§16) and siege
 attrition on defenders; cost tuned so a realm supports few great castles, not walls everywhere.
 
+**Phase 8 delta (ADR-4, ratified 2026-07-15; entered 2026-07-16).** 1.0 shipped this section's
+world-map realization (walls on the village grid, enclosure-derived `isCastle`). Phase 8
+(M49–M54, doc 12 R2) moves the castle grid OFF the world map: each kingdom's CAPITAL gains a
+dedicated ~100×100 defence layer (keep at centre, terrain-bearing, generated once from
+`hash(worldSeed, kingdomId)` and persisted), where walls/towers are placed and garrisons
+posted; siege ASSAULTS resolve spatially on it (§8's other phases unchanged); the world-map
+defence graph and on-map wall placement retire when M50–M51 make the layer the fortification
+surface. Interactions and balancing above otherwise stand. Kingdom death becomes capital-death
+at M53 (doc 14 OQ-9/OQ-11: vassalage-first, permadeath under ironman).
+
 ---
 
 ## §8. Combat
