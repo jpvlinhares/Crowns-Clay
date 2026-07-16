@@ -41,6 +41,11 @@ export const NOTIFICATION_RULES: Readonly<Record<string, Rule>> = {
     text: (d) => `Order refused — ${str(d['what'])}: ${str(d['reason'])}`,
     subject: (d) => str(d['what']),
   },
+  'defence.rejected': {
+    severity: 'attention',
+    text: (d) => `Castle order refused — ${str(d['what'])}: ${str(d['reason'])}`,
+    subject: (d) => str(d['what']),
+  },
   'kingdom.edictLapsed': {
     severity: 'attention',
     text: (d) => `Edict lapsed (treasury empty): ${shortId(d['edict'])}`,

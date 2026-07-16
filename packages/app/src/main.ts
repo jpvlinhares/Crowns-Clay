@@ -245,6 +245,8 @@ const diplomacyPanel = panels.register('diplomacy', 'Diplomacy', '🤝');
 const militaryPanel = panels.register('military', 'Military', '⚔');
 const researchPanel = panels.register('research', 'Research', '📜');
 const victoryPanel = panels.register('victory', 'Victory', '🏆');
+// M50 (Phase 8): the capital's castle-defence layer — build palette + garrison posting
+const castlePanel = panels.register('castle', 'Castle', '🏰');
 const modsPanel = panels.register('mods', 'Mods', '🧩');
 const helpPanel = panels.register('help', 'Keybinds', '⌨');
 villagePanel.open();
@@ -972,11 +974,166 @@ function showEndScreen(v: NonNullable<PlayerPanels['victory']>): void {
   (document.getElementById('end-screen-backdrop') as HTMLElement).hidden = true;
 });
 
+// ---------- castle panel (M50; ADR-4; GDD §7 Phase 8 delta) ----------
+// The defence layer draws on a plain 2D canvas INSIDE the panel — deliberately not a second
+// PixiRenderer instance (doc 12 M50 scoping note): a 100×100 static grid redrawn only on
+// `panels` messages needs no WebGL context, no chunk cache, and no per-frame work, so the
+// doc 11 fps gates are untouched by having the view open.
+type CastleAction =
+  | { mode: 'build'; def: string; w: number; h: number }
+  | { mode: 'demolish' }
+  | { mode: 'post'; unitId: number };
+let castleAction: CastleAction | null = null;
+
+const DEFENCE_TILE_COLORS = ['#232019', '#5a5348', '#3f7aa4'] as const; // open · rock · water
+const DEFENCE_KIND_COLORS: Record<string, string> = { keep: '#e8c860', tower: '#c08048', gate: '#a08858', wall: '#8a7a52' };
+
+function decodeRle(pairs: readonly number[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (let i = 0; i < pairs.length; i += 2) {
+    out.fill(pairs[i] as number, at, at + (pairs[i + 1] as number));
+    at += pairs[i + 1] as number;
+  }
+  return out;
+}
+
+function renderCastlePanel(): void {
+  const body = castlePanel.body;
+  body.replaceChildren();
+  const st = panelsState?.defence;
+  if (st === undefined || st === null) {
+    body.append(el('div', CAMPAIGN_ONLY_HINT, 'hint'));
+    return;
+  }
+  const tiles = decodeRle(st.tiles, st.size * st.size);
+  const structureAt = (tx: number, ty: number) =>
+    st.structures.find((r) => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
+
+  body.append(el('h3', 'Castle defence', 'ledger-heading'));
+  const status = el('div', undefined, 'hint');
+  status.textContent =
+    castleAction === null ? 'Pick a structure or unit below, then click the map. Esc cancels.'
+    : castleAction.mode === 'build' ? `Placing ${castleAction.def.split('.').pop() ?? ''} — click open ground`
+    : castleAction.mode === 'demolish' ? 'Demolishing — click one of your structures'
+    : 'Posting garrison — click the tile to hold';
+  body.append(status);
+
+  // -- the map --
+  const canvas = document.createElement('canvas');
+  const scale = 2.7; // 100 tiles into the 300px dock (minus padding)
+  canvas.width = Math.floor(st.size * scale);
+  canvas.height = Math.floor(st.size * scale);
+  canvas.style.cursor = castleAction === null ? 'default' : 'crosshair';
+  canvas.setAttribute('aria-label', 'Castle defence map');
+  const g = canvas.getContext('2d');
+  if (g !== null) {
+    for (let y = 0; y < st.size; y++) {
+      for (let x = 0; x < st.size; x++) {
+        g.fillStyle = DEFENCE_TILE_COLORS[tiles[y * st.size + x] as number] ?? DEFENCE_TILE_COLORS[0];
+        g.fillRect(x * scale, y * scale, scale + 0.5, scale + 0.5);
+      }
+    }
+    for (const r of st.structures) {
+      g.fillStyle = DEFENCE_KIND_COLORS[r.kind] ?? DEFENCE_KIND_COLORS['wall'] as string;
+      g.fillRect(r.x * scale, r.y * scale, r.w * scale, r.h * scale);
+      if (r.hp < r.maxHp) {
+        g.fillStyle = '#c05050';
+        g.fillRect(r.x * scale, r.y * scale, r.w * scale * (1 - r.hp / r.maxHp), 1.5);
+      }
+    }
+    g.fillStyle = '#7ac07a';
+    for (const p of st.posts) {
+      g.beginPath();
+      g.arc((p.x + 0.5) * scale, (p.y + 0.5) * scale, scale * 0.6, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  canvas.addEventListener('click', (e) => {
+    if (castleAction === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const tx = Math.floor(((e.clientX - rect.left) / rect.width) * st.size);
+    const ty = Math.floor(((e.clientY - rect.top) / rect.height) * st.size);
+    if (castleAction.mode === 'build') {
+      command('defence.build', { def: castleAction.def, x: Math.min(tx, st.size - castleAction.w), y: Math.min(ty, st.size - castleAction.h) });
+    } else if (castleAction.mode === 'demolish') {
+      const target = structureAt(tx, ty);
+      if (target === undefined) return;
+      command('defence.demolish', { structureId: target.id });
+    } else {
+      command('defence.post', { unitId: castleAction.unitId, x: tx, y: ty });
+      castleAction = null; // posting is one-shot; build/demolish stay armed for runs
+    }
+    send({ kind: 'requestPanels' });
+  });
+  body.append(canvas);
+
+  // -- build palette --
+  body.append(el('h3', 'Build', 'ledger-heading'));
+  const palette = el('div', undefined, 'row');
+  for (const b of st.buildable) {
+    const btn = document.createElement('button');
+    const armed = castleAction?.mode === 'build' && castleAction.def === b.defId;
+    btn.textContent = `${armed ? '▶ ' : ''}${b.name}`;
+    tip(btn, `${b.name} (${b.w}×${b.h}) — costs ${b.cost.map(([n, a]) => `${a} ${n}`).join(', ')} from the capital's stores`);
+    btn.addEventListener('click', () => {
+      castleAction = armed ? null : { mode: 'build', def: b.defId, w: b.w, h: b.h };
+      renderCastlePanel();
+    });
+    palette.append(btn);
+  }
+  const demolishBtn = document.createElement('button');
+  demolishBtn.textContent = castleAction?.mode === 'demolish' ? '▶ Demolish' : '⛏ Demolish';
+  tip(demolishBtn, 'Then click one of your structures. The keep refuses.');
+  demolishBtn.addEventListener('click', () => {
+    castleAction = castleAction?.mode === 'demolish' ? null : { mode: 'demolish' };
+    renderCastlePanel();
+  });
+  palette.append(demolishBtn);
+  body.append(palette);
+
+  // -- garrison --
+  body.append(el('h3', 'Garrison', 'ledger-heading'));
+  const postedIds = new Set(st.posts.map((p) => p.unitId));
+  const idle = (panelsState?.units ?? []).filter((unit) => unit.complete && unit.armyId === 0 && !postedIds.has(unit.id));
+  if (idle.length === 0 && st.posts.length === 0) {
+    body.append(el('div', 'No idle units — recruit in the Military panel; garrison shares the same soldier pool.', 'hint'));
+  }
+  for (const unit of idle) {
+    const row = el('div', undefined, 'row');
+    row.append(el('span', `${unit.name} ×${unit.count}`));
+    const postBtn = document.createElement('button');
+    const armed = castleAction?.mode === 'post' && castleAction.unitId === unit.id;
+    postBtn.textContent = armed ? '▶ click map…' : 'Post';
+    tip(postBtn, 'Then click the defence-map tile this unit should hold.');
+    postBtn.addEventListener('click', () => {
+      castleAction = armed ? null : { mode: 'post', unitId: unit.id };
+      renderCastlePanel();
+    });
+    row.append(postBtn);
+    body.append(row);
+  }
+  for (const p of st.posts) {
+    const unit = panelsState?.units.find((x) => x.id === p.unitId);
+    const row = el('div', undefined, 'row');
+    row.append(el('span', `⚑ ${unit?.name ?? 'Unit'} at (${p.x}, ${p.y})`));
+    const unpostBtn = document.createElement('button');
+    unpostBtn.textContent = 'Unpost';
+    unpostBtn.addEventListener('click', () => {
+      command('defence.unpost', { unitId: p.unitId });
+      send({ kind: 'requestPanels' });
+    });
+    row.append(unpostBtn);
+    body.append(row);
+  }
+}
+
 function renderWarPanels(): void {
   renderDiplomacyPanel();
   renderMilitaryPanel();
   renderResearchPanel();
   renderVictoryPanel();
+  renderCastlePanel();
 }
 renderWarPanels(); // initial hint state before any campaign boots
 
@@ -1571,10 +1728,13 @@ const KEYBINDS: readonly Keybind[] = [
   { key: 'Y', description: 'Toggle Victory panel', action: () => victoryPanel.toggle() },
   { key: 'M', description: 'Toggle Mods panel', action: () => modsPanel.toggle() },
   { key: '`', description: 'Toggle debug / sandbox editor panel', action: () => setDebugOpen(!debugOpen) },
-  { key: 'Escape', description: 'Cancel armed build/army order, or close keybind help', action: (): void => {
+  { key: 'Escape', description: 'Cancel armed build/army/castle order, or close keybind help', action: (): void => {
     if (armedArmyAction !== null) {
       armedArmyAction = null;
       renderMilitaryPanel();
+    } else if (castleAction !== null) {
+      castleAction = null;
+      renderCastlePanel();
     } else if (store.state.armedBuild !== null) store.armBuild(null);
     else if (demolishArmed) { demolishArmed = false; renderBuildingPanel(); }
     else if (helpPanel.isOpen()) helpPanel.close();

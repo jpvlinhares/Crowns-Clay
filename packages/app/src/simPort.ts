@@ -7,10 +7,10 @@
  * the first thing the renderer shows is, deliberately, a world whose exact
  * evolution is pinned by committed fixtures.
  */
-import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
+import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
-  STANCES, TickDriver, composeCampaign, difficultyFromSettings, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  DEFENCE_MAP_SIZE, KEEP_DEF, STANCES, TickDriver, composeCampaign, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
@@ -200,7 +200,49 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
       playerDefeated: victoryGame.isDefeated(playerId as never),
     };
 
-    return { kingdoms, units, armies, research, victory };
+    // ---- defence layer (M50): the PLAYER's own castle map, structures, and garrison posts ----
+    const defence = ((): PanelDefenceState | null => {
+      const map = cc.defenceGame.mapOf(0);
+      if (map === undefined) return null;
+      const s = world.read(cc.defenceGame.DefenceStructure);
+      const fort = world.read(cc.castleGame.Fortification);
+      const structures: PanelDefenceStructureRec[] = [];
+      world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
+        if ((s.kingdom[si] as number) !== 0) return;
+        const def = game.ops.buildingDef(s.def[si] as number);
+        structures.push({
+          id: entity as number,
+          defId: def.id,
+          name: def.name,
+          kind: def.defense?.kind ?? 'wall',
+          x: s.x[si] as number,
+          y: s.y[si] as number,
+          w: def.footprint.w,
+          h: def.footprint.h,
+          hp: fort.hp[idx(entity as number)] as number,
+          maxHp: fort.maxHp[idx(entity as number)] as number,
+        });
+      });
+      const post = world.read(cc.defenceGame.DefencePost);
+      const posts: PanelDefencePostRec[] = [];
+      world.query([cc.defenceGame.DefencePost, militaryGame.Unit]).forEach((pi, entity) => {
+        if ((u.kingdomId[pi] as number) !== playerId) return;
+        posts.push({ unitId: entity as number, x: post.x[pi] as number, y: post.y[pi] as number });
+      });
+      const buildable = [...db.buildings.values()]
+        .filter((def) => def.defense !== undefined && def.id !== KEEP_DEF)
+        .map((def) => ({
+          defId: def.id,
+          name: def.name,
+          kind: def.defense?.kind ?? 'wall',
+          w: def.footprint.w,
+          h: def.footprint.h,
+          cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount]),
+        }));
+      return { size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
+    })();
+
+    return { kingdoms, units, armies, research, victory, defence };
   };
 }
 

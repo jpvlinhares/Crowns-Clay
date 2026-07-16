@@ -146,12 +146,51 @@ export interface PanelVictoryState {
   readonly winner: { readonly kingdomIndex: number; readonly type: string } | null;
   readonly playerDefeated: boolean;
 }
+// ---- defence layer (M50; ADR-4; GDD §7 Phase 8 delta) — the player's OWN castle map.
+// Enemy layouts stay off the wire until M54's intel rules say what an attacker may see.
+export interface PanelDefenceStructureRec {
+  readonly id: number;
+  readonly defId: string;
+  readonly name: string;
+  readonly kind: string; // wall | gate | tower | keep
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly hp: number;
+  readonly maxHp: number;
+}
+export interface PanelDefencePostRec {
+  readonly unitId: number;
+  readonly x: number;
+  readonly y: number;
+}
+export interface PanelDefenceState {
+  /** Map edge length in tiles. */
+  readonly size: number;
+  /** Run-length pairs [code, count, ...]: 0 open · 1 rock · 2 water. */
+  readonly tiles: readonly number[];
+  readonly structures: readonly PanelDefenceStructureRec[];
+  readonly posts: readonly PanelDefencePostRec[];
+  /** Placeable defensive defs; costs display-ready as [resource name, amount]. */
+  readonly buildable: readonly {
+    readonly defId: string;
+    readonly name: string;
+    readonly kind: string;
+    readonly w: number;
+    readonly h: number;
+    readonly cost: readonly (readonly [string, number])[];
+  }[];
+}
+
 export interface PlayerPanels {
   readonly kingdoms: readonly PanelKingdomRec[];
   readonly units: readonly PanelUnitRec[];
   readonly armies: readonly PanelArmyRec[];
   readonly research: PanelResearchState | null;
   readonly victory: PanelVictoryState | null;
+  /** null outside campaigns (terra has no defence layer). */
+  readonly defence: PanelDefenceState | null;
 }
 
 // ---- audio (M41; doc 10 §3, doc 05 §8) ----
