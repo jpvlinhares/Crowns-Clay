@@ -84,6 +84,7 @@ import {
   type PersonalityWeights,
 } from './ai/planner.js';
 import { registerAiMilitaryManager, type AiWarTarget } from './ai/military.js';
+import { registerAiDefenceManager } from './ai/defence.js';
 import { registerAiResearchManager } from './ai/research.js';
 import { registerAiEventAnswering } from './ai/events.js';
 import { FogRegistry } from './ai/fogQuery.js';
@@ -155,6 +156,10 @@ export interface ComposeCampaignOptions {
   /** Grudge memory feeds the planner (M47.8 `PunitiveRaid`; doc 07 §7). Default true; the
    * harness wrapper opts out (its M30-M46 war-cycle tests predate memory consumption). */
   readonly grudges?: boolean;
+  /** M52: AI kingdoms fortify their defence layer from castle templates and post idle
+   * garrison. Default true; the harness wrapper opts out (its M22-M46 emergent-outcome
+   * tests were recorded before the defence layer existed). */
+  readonly aiDefence?: boolean;
   /** GDD §13 "history seeding": kingdoms start mutually AWARE of each other's capitals
    * (medieval realms knew their neighbours) — later villages stay fog-hidden until scouted.
    * Without it, start sites sit beyond scout range and no kingdom ever discovers another —
@@ -795,6 +800,27 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     kingdomCount: options.kingdomCount,
     capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
   });
+  // ---- M52: per-kingdom AI defence — template build queue + garrison posting. Registered
+  // AFTER the defence layer (it consumes maps/occupancy) and appended to the pipeline, so
+  // existing systems' cadences and streams are untouched. Template choice is deterministic
+  // per kingdom (seeded index over the sorted template ids — personality-tag mapping is
+  // content polish for M54's balance pass if wanted).
+  if (options.aiDefence ?? true) {
+    const templates = [...db.castleTemplates.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+    if (templates.length > 0) {
+      for (let k = aiFromIndex; k < options.kingdomCount; k++) {
+        const template = templates[(((options.seed >>> 0) + k) % templates.length)] as (typeof templates)[number];
+        registerAiDefenceManager(kernel, world, db, game, militaryGame, kingdomGame, defenceGame, {
+          issuer: k + 1,
+          kingdomIndex: k,
+          template,
+          id: String(k),
+          capitalOf: () => villageIndexByKingdom.get(k) ?? null,
+        });
+      }
+    }
+  }
+
   // The spatial assault applies to CAPITALS with a defence layer (ADR-4 §6: the layer guards
   // the capital only); every other castle keeps the legacy breach-and-engagement path.
   // `applicable` additionally makes such capitals SIEGE-ELIGIBLE without a world-map wall

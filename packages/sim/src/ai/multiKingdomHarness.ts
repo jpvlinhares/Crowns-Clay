@@ -106,6 +106,7 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     beliefs: false,
     industry: false,
     grudges: false,
+    aiDefence: false, // M52 postdates the pinned M22-M46 outcomes (same reasoning as above)
     historySeeding: false,
     victory: options.victory ?? { enabled: [], defeatEnabled: false },
     ...(options.aiFromIndex !== undefined ? { aiFromIndex: options.aiFromIndex } : {}),

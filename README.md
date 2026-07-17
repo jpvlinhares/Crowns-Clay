@@ -65,7 +65,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M49 — Defence-layer core (per-kingdom 100×100 seeded maps, keep at centre, `defence.build/demolish/post`, seed+version-stamp persistence with stored-tile fallback) | ✅ this commit — **Phase 8 begins: The Castle** (ADR-4; entry gate closed in doc 14 OQ-9). Loss rules unchanged until M53; kernel now tolerates saves predating newly added systems (1.0 saves load) |
 | M50 — Defence view & build UI (Castle panel: 2D-canvas map, build palette, garrison posting; `defence` block on the panels projection) | ✅ this commit — injector-free place/demolish/post walkthrough; hash-inert (no golden/corpus changes); canvas-in-panel per the doc 12 M50 scoping note |
 | M51 — Spatial assault resolution (deterministic flow-field walk on the capital's defence layer with walls/towers/garrison; trace + replay overlay; warning chain with auto-pause; player bombard-target picker + sortie surface — the M47.7 gap closed) | ✅ this commit — capitals siege-eligible via the layer; `rangedArc` content live; `siege.captured` ownership-index gap fixed |
-| M52–M54 — Phase 8 remainder (AI defence templates · loss/loot/succession · intel & balance) | ⬜ next: M52 |
+| M52 — AI defence (castle templates as the 11th def kind: motte/concentric/ridge-line; terrain-adaptive incremental build with a stone reserve; idle-unit garrison posting with the M51 draft release) | ✅ this commit — layouts repel baseline raids and stay crackable; harness wrapper stays pinned via `aiDefence: false` |
+| M53–M54 — Phase 8 remainder (loss/loot/succession · intel & balance) | ⬜ next: M53 |
 
 > **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
 > finding — the unified campaign (`composeCampaign`) IS the playable game now: real worldgen,

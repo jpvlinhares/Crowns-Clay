@@ -147,6 +147,20 @@ player surface, not merely harness-green.
 | M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
 | M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
 
+**M52 scoping note (shipped 2026-07-16):** castle templates ship as the ELEVENTH def kind
+(`defs/castle-templates/`, three archetypes: motte / concentric / ridge-line) — doc 07 §5's
+"template-based skeletons" finally load-bearing. Terrain adaptation is the skip rule: plan tiles
+the local ground refuses (rock/water/occupied) are simply not built — nature already walls them.
+Template choice is a seeded per-kingdom pick over the sorted ids (personality-TAG mapping is M54
+content polish if the matrix wants it); the manager builds one structure and posts one idle unit
+per day, with a stone reserve (`DEFENCE_STONE_RESERVE`) so fortification never starves ordinary
+construction, and the M51 draft rule releases garrison to army assembly automatically. The
+harness wrapper opts out (`aiDefence: false` — M22–M46 outcomes pinned). Two resolver findings
+fixed while testing at scale: fractional casualties written to the u16 `Unit.count` truncated a
+whole man per write (assault now applies WHOLE-man casualties; combat.ts carries the same latent
+truncation but its balance is pinned — flagged for M54), and tower fire re-scaled count-relative
+(a volley bites a 20-man raid, chips a 100-man host) so towers deter raids without melting hosts.
+
 **M51 scoping note (shipped 2026-07-16):** the resolver models the army as ONE column walking
 the flow field; garrison posts within `GARRISON_SUPPORT_RANGE` (2) of a contact join a single
 defending line (piecemeal picket duels let a concentrated column eat a garrison unit-by-unit —

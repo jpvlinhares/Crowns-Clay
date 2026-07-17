@@ -1,0 +1,43 @@
+// Castle-layout archetypes (roadmap M52; doc 07 §5 — the "template-based skeletons"
+// finally load-bearing). Offsets from the keep centre; entries build IN ORDER, one
+// structure per day as the capital's stores allow. Tiles the local ground refuses
+// (rock, water) are skipped — nature already walls them (the terrain adaptation).
+[
+  {
+    "id": "base:castle.motte",
+    "name": "Motte",
+    "desc": "One tight ring, corner towers — cheap, cramped, quick to raise.",
+    "plan": [
+      { "def": "base:building.wall", "ring": 4 },
+      { "def": "base:building.tower", "at": [[-5, -5], [5, -5], [-5, 5], [5, 5]] },
+    ],
+    "garrisonAnchors": [[-3, 0], [3, 0], [0, -3], [0, 3]],
+    "tags": ["cheap"],
+  },
+  {
+    "id": "base:castle.concentric",
+    "name": "Concentric",
+    "desc": "Two rings and flanking towers — the storm breaks twice.",
+    "plan": [
+      { "def": "base:building.wall", "ring": 5 },
+      { "def": "base:building.tower", "at": [[-6, -6], [6, -6], [-6, 6], [6, 6]] },
+      { "def": "base:building.wall", "ring": 9 },
+      { "def": "base:building.tower", "at": [[-10, 0], [10, 0], [0, -10], [0, 10]] },
+    ],
+    "garrisonAnchors": [[-4, 0], [4, 0], [0, -4], [0, 4], [-7, 0], [7, 0]],
+    "tags": ["expensive"],
+  },
+  {
+    "id": "base:castle.ridge-line",
+    "name": "Ridge line",
+    "desc": "A heavy face and towers on two approaches; the far sides trust the ground.",
+    "plan": [
+      { "def": "base:building.wall", "at": [[-6, -6], [-6, -5], [-6, -4], [-6, -3], [-6, -2], [-6, -1], [-6, 0], [-6, 1], [-6, 2], [-6, 3], [-6, 4], [-6, 5], [-6, 6]] },
+      { "def": "base:building.wall", "at": [[-5, -6], [-4, -6], [-3, -6], [-2, -6], [-1, -6], [0, -6], [1, -6], [2, -6], [3, -6], [4, -6], [5, -6], [6, -6]] },
+      { "def": "base:building.tower", "at": [[-7, -7], [-8, 0], [0, -8]] },
+      { "def": "base:building.wall", "at": [[-6, 7], [-5, 7], [7, -6], [7, -5]] },
+    ],
+    "garrisonAnchors": [[-4, 0], [0, -4], [4, 0], [0, 4]],
+    "tags": ["asymmetric"],
+  },
+]

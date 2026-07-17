@@ -125,7 +125,10 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       const def = ops.unitDef(u.def[ui] as number);
       return sum + (u.count[ui] as number) * def.stats.attack * (def.class === 'siege' ? SIEGE_BOMBARD_BONUS : 1);
     }, 0);
-  /** Morale+casualty damage onto the attacking column (tower fire, clashes). */
+  /** Morale+casualty damage onto the attacking column (tower fire, clashes).
+   * `Unit.count` is a u16 — casualties must be applied as WHOLE men (Math.round), or the
+   * store's truncation silently executes a man per fractional write (a latent hazard this
+   * module hit in testing: tower chip-damage of 0.01 casualties was killing 1/unit/volley). */
   const damageAttacker = (damage: number): void => {
     const total = attackerCount();
     if (total <= 0 || damage <= 0) return;
@@ -133,7 +136,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       const share = (u.count[ui] as number) / total;
       const moraleLoss = damage * share;
       u.morale[ui] = Math.max(0, (u.morale[ui] as number) - moraleLoss);
-      const casualties = Math.min(u.count[ui] as number, moraleLoss * ASSAULT_CASUALTY_FRACTION);
+      const casualties = Math.min(u.count[ui] as number, Math.round(moraleLoss * ASSAULT_CASUALTY_FRACTION));
       u.count[ui] = Math.max(0, (u.count[ui] as number) - casualties);
       if ((u.morale[ui] as number) < ROUT_MORALE_THRESHOLD && rng.nextFloat() < ROUT_CHANCE_PER_SUBROUND) {
         u.armyId[ui] = 0; // routs off the field — survives, leaves the assault
@@ -356,9 +359,11 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       break;
     }
 
-    // tower fire on the column, every round it stands in range
+    // tower fire on the column, every round it stands in range — COUNT-relative, not
+    // defense-relative: a volley into 20 raiders bites hard, the same volley into a
+    // 100-man host mostly chips morale (towers deter raids; armies soak them)
     for (const tower of towersInRange(at)) {
-      const damage = (tower.damage / attackerDefense()) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
+      const damage = (tower.damage / Math.max(1, attackerCount())) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
       damageAttacker(damage);
       step('tower', tower.y * size + tower.x);
     }
@@ -395,7 +400,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
         const share = (u.count[g.pi] as number) / Math.max(1, gCount);
         const moraleLoss = damageToGarrison * share;
         u.morale[g.pi] = Math.max(0, (u.morale[g.pi] as number) - moraleLoss);
-        const casualties = Math.min(u.count[g.pi] as number, moraleLoss * ASSAULT_CASUALTY_FRACTION);
+        const casualties = Math.min(u.count[g.pi] as number, Math.round(moraleLoss * ASSAULT_CASUALTY_FRACTION));
         u.count[g.pi] = Math.max(0, (u.count[g.pi] as number) - casualties);
         if ((u.count[g.pi] as number) > 0 && (u.morale[g.pi] as number) < ROUT_MORALE_THRESHOLD && rng.nextFloat() < ROUT_CHANCE_PER_SUBROUND) {
           world.detach(g.entity as EntityId, DefencePost); // flees the walls — survives, unposted

@@ -285,6 +285,7 @@ export {
   type DefenceStructureComponent,
   type DefencePostComponent,
 } from './game/defence.js';
+export { registerAiDefenceManager, expandTemplate, DEFENCE_STONE_RESERVE, type AiDefenceOptions } from './ai/defence.js';
 export {
   resolveSpatialAssault,
   publishAssaultResolved,

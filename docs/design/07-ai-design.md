@@ -245,7 +245,15 @@ capacity-ratio model — a wall isn't a "need" with a satisfiable ratio, it's a 
 positions to fill in. Only runs while `MilitaryBuildup`/`ConquestWar` is the active plan, after the
 barracks and one recruit/army-assembly action for the day are already handled.
 
-## §6. Knowledge Model (fog of information)
+**M52 delta (Phase 8; ADR-4 §1) — the archetype templates are LOAD-BEARING now:** motte /
+concentric / ridge-line ship as an eleventh def kind (`defs/castle-templates/`, modding doc 03)
+consumed by `sim/ai/defence.ts` on the CAPITAL's defence layer (GDD §7 Phase 8 delta): one
+structure per day through the ordinary `defence.build` command, tiles the local ground refuses
+skipped (the terrain adaptation), a stone reserve protecting ordinary construction, and idle
+units posted to the template's garrison anchors — with M51's draft rule releasing them back to
+army assembly when the military manager musters. Unlike the M30 ring this runs in PEACETIME too
+(fortification is preparation, not war conduct); `planCastleRing` remains the world-map
+behaviour for non-capital castles until the on-map defence graph retires.
 
 AI (and player UI) operate on **beliefs, not truth**:
 
