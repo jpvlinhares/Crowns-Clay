@@ -703,6 +703,10 @@ let armedArmyAction: { kind: 'move' | 'siege' | 'target'; armyId: number } | nul
 let assaultOrigin = 'auto';
 const battleLog: string[] = [];
 const BATTLE_LOG_CAP = 30;
+/** M53: fallen enemy capitals whose court has offered homage to the PLAYER —
+ * castle village index → capitulation deadline tick. Rendered as accept rows in the
+ * Diplomacy panel; cleared when the siege resolves either way. */
+const pendingHomage = new Map<number, number>();
 let endScreenShown = false;
 
 const CAMPAIGN_ONLY_HINT = 'Available in campaign mode — start a New Game with 2+ kingdoms.';
@@ -717,6 +721,20 @@ function renderDiplomacyPanel(): void {
   if (panelsState.kingdoms.length === 0) {
     body.append(el('div', 'No rival kingdoms in this campaign.', 'hint'));
     return;
+  }
+  // M53: pending homage from fallen capitals the player felled — accept, or let it burn
+  for (const [castle] of [...pendingHomage.entries()].sort((a, b) => a[0] - b[0])) {
+    const row = el('div', undefined, 'row');
+    row.append(el('span', '⚑ A fallen court offers homage — ', 'hint'));
+    const accept = document.createElement('button');
+    accept.textContent = '👑 Accept capitulation';
+    tip(accept, 'The fallen lord survives as your vassal — tribute flows, the war ends.\nIgnore the offer and the city burns when the window closes.');
+    accept.addEventListener('click', () => {
+      command('siege.acceptCapitulation', { castle });
+      send({ kind: 'requestPanels' });
+    });
+    row.append(accept);
+    body.append(row);
   }
   for (const k of panelsState.kingdoms) {
     const row = el('div', undefined, 'row');
@@ -761,6 +779,10 @@ function renderDiplomacyPanel(): void {
     if (k.atWar) {
       act('🕊 Peace', 'Propose peace with a 25-gold tribute — acceptance depends on their war exhaustion', () =>
         command('kingdom.proposePeace', { targetKingdom: k.index, tribute: 25 }));
+      // M53 (ADR-4 §3 agency chain): submission is always on the table in a war — and it
+      // is THE choice when your keep has fallen (vassalage-first, before the window closes)
+      act('🏳 Submit', 'Offer to become their vassal — the run survives, diminished. A hopeless war (or a fallen keep) makes them accept.', () =>
+        command('kingdom.proposeVassalage', { counterpart: k.index, asVassal: true }), k.playerIsVassal);
     } else {
       act('⚔ War', 'Declare war (no casus belli: reputation and happiness pay for it — GDD §10)', () =>
         command('kingdom.declareWar', { targetKingdom: k.index }));
@@ -1484,6 +1506,29 @@ worker.onmessage = (event: MessageEvent) => {
             castlePanel.open();
             toastSurfaced = true;
           }
+        } else if (gameEvent.type === 'siege.capitalFallen') {
+          // M53: YOUR keep fell — blocking, auto-pausing; the Diplomacy panel holds the
+          // choice (submit within the window, or the realm burns)
+          const { defender } = gameEvent.data as { defender?: number };
+          if (playerKingdomId !== null && defender === playerKingdomId) {
+            setSpeed(0);
+            notifications.push({ type: 'siege.capitalFallenOnPlayer', tick: gameEvent.tick, data: gameEvent.data as Record<string, unknown> });
+            diplomacyPanel.open();
+            toastSurfaced = true;
+          }
+        } else if (gameEvent.type === 'siege.capitulationOffered') {
+          // M53: the fallen court offers homage to YOU — pause and surface the accept row
+          const d = gameEvent.data as { castle: number; lord: number; deadline: number };
+          if (playerKingdomId !== null && d.lord === playerKingdomId) {
+            setSpeed(0);
+            pendingHomage.set(d.castle, d.deadline);
+            diplomacyPanel.open();
+            renderDiplomacyPanel();
+          }
+        } else if (gameEvent.type === 'siege.ended') {
+          // M53: however a fallen siege resolved, its homage offer is dead
+          const { castle } = gameEvent.data as { castle: number };
+          if (pendingHomage.delete(castle)) renderDiplomacyPanel();
         } else if (gameEvent.type === 'siege.assaultResolved') {
           // M51: keep the trace for the Castle panel's replay overlay when OUR walls fought
           const d = gameEvent.data as { defender?: number; outcome?: string; attackerLoss?: number; defenderLoss?: number; breaches?: number; trace?: { r: number; kind: string; x: number; y: number }[] };

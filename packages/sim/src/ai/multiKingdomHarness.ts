@@ -107,6 +107,7 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     industry: false,
     grudges: false,
     aiDefence: false, // M52 postdates the pinned M22-M46 outcomes (same reasoning as above)
+    succession: false, // M53 (capital death / sack / new lords) postdates them too
     historySeeding: false,
     victory: options.victory ?? { enabled: [], defeatEnabled: false },
     ...(options.aiFromIndex !== undefined ? { aiFromIndex: options.aiFromIndex } : {}),

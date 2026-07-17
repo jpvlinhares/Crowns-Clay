@@ -173,6 +173,15 @@ the UI, and occupying a capital today is mechanically identical to occupying any
    persisted (item 1), so the rule switch needs no data migration — a 1.0 save loaded at ≥M53
    simply plays under the new defeat rule from that point (the same forward-rules policy every
    balance change already follows; no attempt to replay old-rule history).
+   *Implemented 2026-07-17 (M53):* `game/succession.ts` + siege.ts's `CapitalFallHook`; the
+   whole rule package (fall window, occupation exemption for layer capitals, AI capital-siege
+   targeting) switches on one `succession` composition flag — the harness wrapper opts out.
+   The forward-rules policy held as written: 1.0 saves load through a siege v1→v2 migration
+   (`fallenDeadline` defaults 0) and an optional `succession` section; the corpus's historical
+   saves verify against their PINNED resume hashes unchanged. One point the record left open
+   was decided at implementation and is written in doc 12's M53 note: on destruction the dead
+   kingdom's remaining villages pass to the conqueror (the realm is seized) rather than linger
+   under a dead banner.
 3. *With OQ-11 — since DECIDED (2026-07-15):* vassalage-first, permadeath as the ironman
    opt-in (see OQ-11's decision record below).
 

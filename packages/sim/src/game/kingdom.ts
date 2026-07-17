@@ -109,7 +109,7 @@ export class StatModifiers {
 
 export interface LedgerEntry {
   readonly tick: number;
-  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary' | 'unit-recruit' | 'unit-upkeep';
+  readonly kind: 'tax' | 'edict-upkeep' | 'advisor-salary' | 'unit-recruit' | 'unit-upkeep' | 'loot';
   readonly amount: number; // signed: income positive, expense negative
   readonly detail: string; // village name, edict id, office, unit def…
 }

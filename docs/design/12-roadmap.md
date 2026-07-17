@@ -147,6 +147,36 @@ player surface, not merely harness-green.
 | M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
 | M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
 
+**M53 scoping note (shipped 2026-07-17):** capital death activates exactly as OQ-9 item 2 ruled —
+when a defence-layer capital falls (assault OR starvation: starving a capital out cannot dodge the
+rule), the siege FREEZES instead of flipping ownership and a `CAPITULATION_WINDOW_DAYS` (5) window
+opens. Vassalage-first (OQ-11): an AI loser decides through the SHIPPED `evaluateVassalageDeal`
+with its war exhaustion floored at `CAPITAL_FALLEN_EXHAUSTION_FLOOR` (40 — the keep falling IS
+hopelessness), so grinding wars end in submission while a lightning war can find a defiant court;
+a human loser submits via `kingdom.proposeVassalage`, a human attacker gets
+`siege.capitulationOffered` and accepts by `siege.acceptCapitulation` — silence until the deadline
+is refusal. Capitulation spares the capital (owner unchanged; fealty + M35 tribute are the price);
+refusal/expiry/`ironman` is DESTRUCTION: treasury transfers whole (ledger kind `loot`), goods carry
+into the attacker's capital under `capOf` with the excess BURNED (`siege.sacked` reports both), the
+capital is razed (`VillageOps.raze` — the twelfth-hour mechanism, policy stays in succession), the
+REALM IS SEIZED (remaining villages pass to the conqueror via ordinary `village.occupied` events —
+a decision the docs left open, resolved here: a dead kingdom must not linger as a zombie), armies
+dissolve, and the defence layer resets to keep-only ground. New lords rise `NEW_LORD_COOLDOWN_DAYS`
+(720) after ANY kingdom death near the slot's genesis heartland, politically blank-slated
+(diplomacy reset, defeat mark cleared, founding treasury restored), suppressed while any survivor
+sits at ≥80% of a victory track so conquest stays winnable. Occupation now EXEMPTS layer capitals
+(the countdown was a rule bypass) and the AI military manager targets/assaults them spatially —
+all switched by ONE `succession` flag so the harness wrapper (`succession: false`) keeps pinned
+pre-M53 semantics. Siege save section v2 (+`fallenDeadline`, v1 migration); optional `succession`
+section; no golden or corpus re-record was needed (the empty-state hash folds nothing). The
+50-year T matrix caught a LATENT M52 crash: military-upkeep's deserter despawn detaches whatever
+rides on the unit, and a broke kingdom's POSTED garrison tripped the access guard — fixed with
+kingdom.ts's M34 extension-point pattern (`registerUnitExtension`; defence.ts declares
+DefencePost). The matrix also confirms AI-vs-AI wars currently end (forced peace) without a
+single capital siege being mounted — verified IDENTICAL under pre-M53 rules (same winner, same
+tick), so it is inherited war pacing, not an M53 regression; it is squarely M54's balance-matrix
+question ("conquest reachable in AI hands", alongside its owned tuning constants).
+
 **M52 scoping note (shipped 2026-07-16):** castle templates ship as the ELEVENTH def kind
 (`defs/castle-templates/`, three archetypes: motte / concentric / ridge-line) — doc 07 §5's
 "template-based skeletons" finally load-bearing. Terrain adaptation is the skip rule: plan tiles

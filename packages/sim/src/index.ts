@@ -266,7 +266,18 @@ export {
   STARVATION_THRESHOLD,
   STARVATION_SURRENDER_DAYS,
   type SiegeGameplay,
+  type CapitalFallHook,
 } from './game/siege.js';
+export {
+  registerSuccessionGameplay,
+  SuccessionState,
+  CAPITULATION_WINDOW_DAYS,
+  CAPITAL_FALLEN_EXHAUSTION_FLOOR,
+  NEW_LORD_COOLDOWN_DAYS,
+  NEW_LORD_SEARCH_RADIUS,
+  type SuccessionGameplay,
+  type SuccessionOptions,
+} from './game/succession.js';
 export {
   registerCastleGameplay,
   computeEnclosure,

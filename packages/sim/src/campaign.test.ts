@@ -150,6 +150,11 @@ function composeWar(): ReturnType<typeof composeCampaign> {
     mods: { sources: [] },
     settings: WAR_SETTINGS,
     startingPopulation: { children: 10, adults: 34, elders: 3 },
+    // These tests build capture-and-recapture histories by OCCUPYING capitals — the
+    // pre-M53 rule. M53's capital-death package (occupation exemption + fall window)
+    // is switched off so the divergence scenarios stay constructible; the capitals
+    // SECTION they verify is rule-independent (succession.test.ts owns the new rules).
+    succession: false,
   });
 }
 

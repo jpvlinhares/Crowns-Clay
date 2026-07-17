@@ -50,6 +50,36 @@ export const NOTIFICATION_RULES: Readonly<Record<string, Rule>> = {
     severity: 'urgent',
     text: () => 'YOUR CASTLE IS UNDER SIEGE — the game is paused. Reinforce the garrison (Castle panel), recall armies, or sue for peace.',
   },
+  // M53: the capital-death chain (client-filtered — only player-involving falls arrive here)
+  'siege.capitalFallenOnPlayer': {
+    severity: 'urgent',
+    text: () => 'YOUR KEEP HAS FALLEN — the game is paused. Submit as a vassal (Diplomacy panel) within the window, or the realm burns.',
+  },
+  'siege.capitulationOffered': {
+    severity: 'urgent',
+    text: () => 'The fallen court offers homage — accept their capitulation (Diplomacy panel) before the window closes, or let the city burn.',
+  },
+  'kingdom.capitulated': {
+    severity: 'attention',
+    text: () => 'A fallen capital has sworn fealty — the war ends; the realm survives as a vassal.',
+  },
+  'siege.sacked': {
+    severity: 'attention',
+    text: (d) => {
+      const loot = d['loot'] as { res: string; carried: number; burned: number }[] | undefined;
+      const carried = loot?.reduce((sum, l) => sum + l.carried, 0) ?? 0;
+      const burned = loot?.reduce((sum, l) => sum + l.burned, 0) ?? 0;
+      return `${str(d['name'])} is sacked — ${Math.round(Number(d['gold'] ?? 0))} gold seized; carried off ${Math.round(carried)} goods, burned ${Math.round(burned)} more.`;
+    },
+  },
+  'kingdom.destroyed': {
+    severity: 'urgent',
+    text: () => 'A kingdom has been destroyed — its capital razed, its lands seized, its banner struck from the map.',
+  },
+  'kingdom.newLordRisen': {
+    severity: 'attention',
+    text: () => 'A new banner rises — a fresh lord has founded a claim on the vacant heartland.',
+  },
   'kingdom.edictLapsed': {
     severity: 'attention',
     text: (d) => `Edict lapsed (treasury empty): ${shortId(d['edict'])}`,

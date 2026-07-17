@@ -31,6 +31,10 @@ function compose(): ReturnType<typeof composeCampaign> {
     mapSize: 'small',
     aiFromIndex: 2, // both kingdoms manual — surgical scenarios
     mods: { sources: [] },
+    // These tests exercise the RESOLVER and the plain owner-flip capture path
+    // (the M47.8/M51 bookkeeping gap). M53's capital-death chain intercepts that
+    // capture for layer capitals — switched off here; succession.test.ts owns it.
+    succession: false,
   });
 }
 

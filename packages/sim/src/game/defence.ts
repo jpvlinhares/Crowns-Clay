@@ -85,6 +85,10 @@ export interface DefenceGameplay {
   occupancyOf(kingdomIndex: number): ReadonlyMap<number, number>;
   /** M51: a BREACH — the assault resolver levels a structure (occupancy maintained). */
   removeStructure(entity: number): void;
+  /** M53 (kingdom destruction): the castle burned with the realm — every structure of this
+   * kingdom comes off the layer, and keep-genesis re-arms so a NEW lord rising into the slot
+   * starts from the same keep-only ground genesis gives everyone. */
+  resetKingdom(kingdomIndex: number): void;
   save(): { k: number; seed: number; version: number; tiles: number[] }[];
   restore(data: readonly { k: number; seed: number; version: number; tiles: readonly number[] }[]): void;
   /** afterLoad: rebuild the occupancy index from DefenceStructure components. */
@@ -123,6 +127,10 @@ export function registerDefenceGameplay(
     y: 'u16',
   });
   const DefencePost: DefencePostComponent = world.defineSoA('defencePost', { x: 'u16', y: 'u16' });
+  // military-upkeep's deserter despawn detaches DefencePost from posted units — it must
+  // declare the component it cannot import (the M34 extension-point pattern; found by the
+  // M53 balance matrix when a broke kingdom's posted garrison deserted).
+  militaryGame.registerUnitExtension(DefencePost);
 
   // ---- maps: generated once per kingdom from the stable seed ----
   const maps = new Map<number, DefenceMapState>();
@@ -341,6 +349,20 @@ export function registerDefenceGameplay(
       const si = index(entity);
       vacate(s.kingdom[si] as number, game.ops.buildingDef(s.def[si] as number), s.x[si] as number, s.y[si] as number);
       world.despawn(entity as EntityId);
+    },
+    resetKingdom(kingdomIndex: number): void {
+      // snapshot rows first — dense SoA storage swap-removes on despawn
+      const s = world.read(DefenceStructure);
+      const doomed: { entity: number; def: BuildingDef; x: number; y: number }[] = [];
+      world.query([DefenceStructure]).forEach((si, entity) => {
+        if ((s.kingdom[si] as number) !== kingdomIndex) return;
+        doomed.push({ entity: entity as number, def: game.ops.buildingDef(s.def[si] as number), x: s.x[si] as number, y: s.y[si] as number });
+      });
+      for (const d of doomed) {
+        vacate(kingdomIndex, d.def, d.x, d.y);
+        world.despawn(d.entity as EntityId);
+      }
+      keepsEnsured = false; // next tick, defence-genesis re-seats the slot's keep
     },
     save: () =>
       [...maps.keys()].sort((a, b) => a - b).map((k) => {

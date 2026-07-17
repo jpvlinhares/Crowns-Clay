@@ -68,6 +68,10 @@ interface Siege {
   breaches: number;
   daysStarving: number;
   assaultEngagementArmy: number; // 0 = no assault/sortie currently in progress
+  /** M53 (OQ-9/OQ-11): tick by which a fallen capital's fate resolves; 0 = not fallen.
+   * While set, the siege is FROZEN (no bombard, no starvation, no further assault) —
+   * the succession module owns the outcome (capitulation or destruction). */
+  fallenDeadline: number;
 }
 
 /** Active sieges — a plain relational class (mirrors CombatState/DiplomacyState), not an entity. */
@@ -84,7 +88,7 @@ export class SiegeState {
   }
 
   begin(castle: number, attackerArmy: number, attackerKingdom: number): Siege {
-    const s: Siege = { castle, attackerArmy, attackerKingdom, targetBuilding: 0, breaches: 0, daysStarving: 0, assaultEngagementArmy: 0 };
+    const s: Siege = { castle, attackerArmy, attackerKingdom, targetBuilding: 0, breaches: 0, daysStarving: 0, assaultEngagementArmy: 0, fallenDeadline: 0 };
     this.byCastle.set(castle, s);
     this.byArmy.set(attackerArmy, s);
     return s;
@@ -108,16 +112,18 @@ export class SiegeState {
       fold(s.breaches);
       fold(s.daysStarving);
       fold(s.assaultEngagementArmy);
+      fold(s.fallenDeadline);
     }
   }
 
   /** Save/restore (M47.6): `begin()` re-links both index maps, then the mutable
-   * progress fields are copied over — same shape as CombatState's own pair. */
-  save(): { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number }[] {
+   * progress fields are copied over — same shape as CombatState's own pair.
+   * v2 (M53) adds `fallenDeadline`; the campaign registers a v1→v2 migration. */
+  save(): { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[] {
     return this.all().map((s) => ({ ...s }));
   }
 
-  restore(data: readonly { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number }[]): void {
+  restore(data: readonly { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[]): void {
     this.byCastle.clear();
     this.byArmy.clear();
     for (const d of data) {
@@ -126,6 +132,7 @@ export class SiegeState {
       s.breaches = d.breaches;
       s.daysStarving = d.daysStarving;
       s.assaultEngagementArmy = d.assaultEngagementArmy;
+      s.fallenDeadline = d.fallenDeadline;
     }
   }
 }
@@ -150,8 +157,25 @@ export interface SpatialAssaultHook {
   applicable?: (castleVillageIndex: number) => boolean;
 }
 
+/** M53 (OQ-9 item 2 / OQ-11): capital death. When a capture would land on a defence-layer
+ * capital, the succession module CLAIMS the fall instead of letting ownership flip: `claim`
+ * returns the deadline tick of the capitulation window (or the current tick under `ironman`
+ * — an already-expired window is immediate destruction), or null to decline (not a layer
+ * capital → the ordinary capture proceeds). Late-bound like SpatialAssaultHook: succession
+ * registers after siege. */
+export interface CapitalFallHook {
+  claim?: (
+    ctx: TickContext,
+    fall: { castle: number; attackerArmy: number; attackerKingdom: number; defender: number },
+  ) => number | null;
+}
+
 export interface SiegeGameplay {
   readonly state: SiegeState;
+  /** M53: succession's exits from a fallen siege — spare it (capitulation; owner keeps the
+   * castle) or close it after destruction (the castle no longer exists). Publishes the same
+   * `siege.ended` every other exit uses. */
+  endFallen(ctx: TickContext, castle: number, reason: 'capitulated' | 'destroyed' | 'besieger destroyed'): void;
 }
 
 export function registerSiegeGameplay(
@@ -164,6 +188,7 @@ export function registerSiegeGameplay(
   combatGame: CombatGameplay,
   kingdomGame: KingdomGameplay,
   spatial?: SpatialAssaultHook,
+  capitalFall?: CapitalFallHook,
 ): SiegeGameplay {
   const { VillageCore, BuildingCore, Stockpile } = game.comps;
   const { Unit, Army, ops } = militaryGame;
@@ -225,6 +250,22 @@ export function registerSiegeGameplay(
     // `from` (M51): the dispossessed owner — the composition's ownership index and
     // capital re-binding consume it exactly like village.occupied's loser field.
     const from = VillageOwner !== undefined ? (world.read(VillageOwner).kingdom[ci] as number) : 0;
+    // M53: a defence-layer capital does not change hands — its fall is a KINGDOM event.
+    // The hook claims it, the siege freezes, and succession resolves the window
+    // (capitulation spares, refusal/expiry destroys). Starvation captures route here
+    // too: starving a capital out must not dodge the capital-death rule.
+    if (s.fallenDeadline === 0 && capitalFall?.claim !== undefined) {
+      const deadline = capitalFall.claim(ctx, { castle: s.castle, attackerArmy: s.attackerArmy, attackerKingdom: s.attackerKingdom, defender: from });
+      if (deadline !== null) {
+        s.fallenDeadline = deadline;
+        ctx.events.publish({
+          type: 'siege.capitalFallen',
+          tick: ctx.tick,
+          data: { castle: s.castle, army: s.attackerArmy, attacker: s.attackerKingdom, defender: from, deadline },
+        });
+        return;
+      }
+    }
     if (VillageOwner !== undefined) world.write(VillageOwner).kingdom[ci] = s.attackerKingdom;
     ctx.events.publish({ type: 'siege.captured', tick: ctx.tick, data: { castle: s.castle, kingdom: s.attackerKingdom, from } });
     endSiege(ctx, s, 'captured');
@@ -304,6 +345,7 @@ export function registerSiegeGameplay(
     if (s === undefined) return reject(ctx, 'siege.assault', 'this army is not besieging anything');
     if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.assault', 'not your siege');
     if (s.assaultEngagementArmy !== 0) return reject(ctx, 'siege.assault', 'an assault is already under way');
+    if (s.fallenDeadline !== 0) return reject(ctx, 'siege.assault', 'the capital has already fallen — its fate is being decided');
 
     // ---- M51 (ADR-4 §2): a capital with a defence layer resolves SPATIALLY — the walk
     // handles walls itself, so no breach precondition; casualties and breaches are the
@@ -350,7 +392,7 @@ export function registerSiegeGameplay(
     }
     let target: Siege | undefined;
     for (const s of state.all()) {
-      if (s.assaultEngagementArmy !== 0) continue;
+      if (s.assaultEngagementArmy !== 0 || s.fallenDeadline !== 0) continue;
       if ((ownerOfVillage(s.castle) as number | undefined) !== (kingdomId as number)) continue;
       const ci = index(s.castle);
       const core = world.read(VillageCore);
@@ -406,6 +448,7 @@ export function registerSiegeGameplay(
     },
     update(ctx: TickContext): void {
       for (const s of state.all()) {
+        if (s.fallenDeadline !== 0) continue; // M53: a fallen capital's siege is frozen
         if (s.targetBuilding !== 0) {
           if (!world.isAlive(s.targetBuilding as EntityId)) {
             s.targetBuilding = 0;
@@ -451,5 +494,12 @@ export function registerSiegeGameplay(
   kernel.registerSystem(assaultWatch);
   kernel.registerSystem(siegeSystem);
 
-  return { state };
+  return {
+    state,
+    endFallen(ctx: TickContext, castle: number, reason: 'capitulated' | 'destroyed' | 'besieger destroyed'): void {
+      const s = state.siegeOfCastle(index(castle));
+      if (s === undefined || s.fallenDeadline === 0) return;
+      endSiege(ctx, s, reason);
+    },
+  };
 }

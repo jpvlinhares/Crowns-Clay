@@ -32,6 +32,10 @@ export const DEFENDER_RADIUS = 6; // an owner army this close contests the occup
 export interface OccupationOptions {
   /** War gate (game/diplomacy.ts): occupation requires a declared war, not mere hostility. */
   isAtWar(a: EntityId, b: EntityId): boolean;
+  /** M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown — the layer
+   * IS its fortification surface, so only a siege (and the capital-death chain) takes it.
+   * Late-bound closure (the layer registers after occupation); default: nothing exempt. */
+  exempt?(villageIndex: number): boolean;
 }
 
 interface Occupation {
@@ -134,8 +138,9 @@ export function registerOccupationGameplay(
         const ownerId = owner.kingdom[vi] as number;
         const cx = core.centerX[vi] as number;
         const cy = core.centerY[vi] as number;
-        // castles are the siege system's business while their walls stand
-        if ((core.isCastle[vi] as number) === 1) {
+        // castles are the siege system's business while their walls stand — and (M53) so
+        // are defence-layer capitals, whose "walls" live on the layer, not the world map
+        if ((core.isCastle[vi] as number) === 1 || (options.exempt?.(vi) ?? false)) {
           state.clear(vi);
           return;
         }

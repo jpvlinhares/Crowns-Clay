@@ -30,7 +30,7 @@
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase, UnitDef } from '@crowns/data';
 import { Interner, invariant } from '@crowns/core';
-import { ObjectComponent, SoAComponent, World } from '../ecs.js';
+import { ObjectComponent, SoAComponent, World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_SEASON } from '../time.js';
 import type { VillageGameplay } from './villages.js';
@@ -87,6 +87,11 @@ export interface MilitaryGameplay {
   readonly Army: ArmyComponent;
   readonly ArmyName: ObjectComponent<string>;
   readonly ops: MilitaryOps;
+  /** M53 (kingdom.ts's M34 `registerCharacterExtension` precedent): a LATER module that
+   * attaches its own sibling components to Unit entities (defence.ts's DefencePost)
+   * declares them here — the upkeep deserter despawn structurally detaches whatever
+   * rides on the unit, and the access guard demands it declared. */
+  registerUnitExtension(comp: Component): void;
 }
 
 export function registerMilitaryGameplay(
@@ -280,11 +285,18 @@ export function registerMilitaryGameplay(
   };
 
   // ---------------- seasonal: upkeep (gold + food); unpayable units desert ----------------
+  // `upkeepWrites` is mutable for the same reason kingdom.ts's `agingWrites` is (M34's
+  // extension-point precedent): a LATER module that attaches its own sibling components to
+  // Unit entities (game/defence.ts's DefencePost, M52) must declare them here, because the
+  // deserter despawn below structurally detaches whatever rides on the unit. Found the hard
+  // way in the M53 balance matrix: a broke kingdom whose POSTED garrison deserted tripped
+  // the access guard mid-campaign.
+  const upkeepWrites: Component[] = [Kingdom, Population, Stockpile, Unit];
   const upkeep: SimSystem = {
     name: 'military-upkeep',
     period: TICKS_PER_SEASON,
     phase: 5,
-    access: { writes: [Kingdom, Population, Stockpile, Unit], reads: [VillageCore, BuildingCore] },
+    access: { writes: upkeepWrites, reads: [VillageCore, BuildingCore] },
     update(ctx: TickContext): void {
       const u = world.read(Unit);
       const k = world.write(Kingdom);
@@ -325,5 +337,13 @@ export function registerMilitaryGameplay(
   kernel.registerSystem(training);
   kernel.registerSystem(upkeep);
 
-  return { Unit, Army, ArmyName, ops };
+  return {
+    Unit,
+    Army,
+    ArmyName,
+    ops,
+    registerUnitExtension(comp: Component): void {
+      upkeepWrites.push(comp);
+    },
+  };
 }

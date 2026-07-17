@@ -421,6 +421,11 @@ snowballs.
 - **Prosperity** — reach prosperity/happiness thresholds realm-wide for X years.
 - **Chronicle (score)** — highest prestige at year limit.
 Defeat: lose your last village, or capital falls with no heir **[OQ-9]**.
+*Phase 8 delta (M53, per OQ-9's 2026-07-16 closure + OQ-11):* a defence-layer capital that falls
+offers the capitulation/vassalage path FIRST — submission spares the realm as a vassal; refusal
+(by either side) or the `ironman` flag makes it destruction: the capital razed, the realm seized,
+the treasury and storable loot sacked under `capOf` with the excess burned. Non-capital villages
+keep the occupation/capture path unchanged; new lords rise on vacant heartlands after a cooldown.
 
 **Internal mechanics.** Victory tracker evaluates conditions at daily cadence; approaching victories
 broadcast world events ("X begins the Grand Cathedral") so AI and player can react — every victory

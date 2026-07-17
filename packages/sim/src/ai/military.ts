@@ -113,6 +113,10 @@ export interface AiMilitaryOptions {
   /** War declaration/peace-suing (M31) — omit to keep the M30 behaviour (combat starts on
    * contact with no formal declaration, and never ends until the target is gone). */
   readonly diplomacy?: AiWarDiplomacy;
+  /** M53: true when this besieged castle resolves SPATIALLY (a defence-layer capital) —
+   * the walk handles walls itself, so assault immediately instead of waiting for a
+   * bombardment breach that can never open (no world-map defence graph to bombard). */
+  readonly spatialSiege?: (castleVillageIndex: number) => boolean;
   readonly id?: string;
   readonly searchRadius?: number;
   /** Extra components a custom `getPlan` reads (e.g. the planner's `AiPlanState` component). */
@@ -282,6 +286,15 @@ export function registerAiMilitaryManager(
 
       const existingSiege = siegeGame.state.siegeOfArmy(armyId);
       if (existingSiege !== undefined) {
+        // M53: a fallen capital's fate belongs to succession — the army waits
+        if (existingSiege.fallenDeadline !== 0) return;
+        // M53: spatial capitals have no bombardable world-map graph — assault directly
+        if (options.spatialSiege?.(existingSiege.castle) ?? false) {
+          if (existingSiege.assaultEngagementArmy === 0) {
+            kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+          }
+          return;
+        }
         if (existingSiege.targetBuilding === 0) {
           const graph = castleGame.defenseGraphOf(existingSiege.castle);
           const node = graph.nodes[0];

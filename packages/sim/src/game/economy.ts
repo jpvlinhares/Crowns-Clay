@@ -58,9 +58,10 @@ export interface ResourceFlows {
   spoiled: number; // daily decay
   built: number; // construction costs reserved at placement
   settled: number; // carried away by settler parties (M15) — returns count negative
+  looted: number; // sack plunder received into this village's stockpile (M53)
 }
 
-const zeroFlows = (): ResourceFlows => ({ produced: 0, consumed: 0, eaten: 0, spoiled: 0, built: 0, settled: 0 });
+const zeroFlows = (): ResourceFlows => ({ produced: 0, consumed: 0, eaten: 0, spoiled: 0, built: 0, settled: 0, looted: 0 });
 
 /**
  * Per-village, per-resource flow accounting since the last drain. Derived

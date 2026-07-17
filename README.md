@@ -66,7 +66,8 @@ reference** — read `00-README.md` first. This repository implements them, mile
 | M50 — Defence view & build UI (Castle panel: 2D-canvas map, build palette, garrison posting; `defence` block on the panels projection) | ✅ this commit — injector-free place/demolish/post walkthrough; hash-inert (no golden/corpus changes); canvas-in-panel per the doc 12 M50 scoping note |
 | M51 — Spatial assault resolution (deterministic flow-field walk on the capital's defence layer with walls/towers/garrison; trace + replay overlay; warning chain with auto-pause; player bombard-target picker + sortie surface — the M47.7 gap closed) | ✅ this commit — capitals siege-eligible via the layer; `rangedArc` content live; `siege.captured` ownership-index gap fixed |
 | M52 — AI defence (castle templates as the 11th def kind: motte/concentric/ridge-line; terrain-adaptive incremental build with a stone reserve; idle-unit garrison posting with the M51 draft release) | ✅ this commit — layouts repel baseline raids and stay crackable; harness wrapper stays pinned via `aiDefence: false` |
-| M53–M54 — Phase 8 remainder (loss/loot/succession · intel & balance) | ⬜ next: M53 |
+| M53 — Loss, loot & succession (capital death behind a 5-day capitulation window: vassalage-first per OQ-11, permadeath under `ironman`; sack loot under `capOf` with excess burned, ledger-explicit; realm seized on destruction; new lords rise on vacant heartlands) | ✅ this commit — occupation can no longer take a layer capital; the whole rule package switches on one `succession` flag (harness wrapper pinned off); no golden/corpus re-record needed |
+| M54 — Intel & balance (stale-snapshot previews, `armyStrength` beliefs for garrisons, balance matrix) | ⬜ next: M54 |
 
 > **Honesty note (M47.5 audit; updated at M47.9):** Phase 7-INT closed the audit's central
 > finding — the unified campaign (`composeCampaign`) IS the playable game now: real worldgen,

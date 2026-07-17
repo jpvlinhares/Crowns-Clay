@@ -134,6 +134,19 @@ AI's cooperation. Combat/siege engagement itself is unchanged by any of this (st
 existing "no active NAP ⇒ hostile" gate, M27/M30) — `atWar` layers negotiable, tracked diplomatic
 state on top, it isn't a new prerequisite for the fighting to start.
 
+**M53 delta (Phase 8; OQ-9/OQ-11):** two additions, both deliberately evaluator-reusing rather
+than new brains. (1) *Capital sieges:* with occupation now exempting defence-layer capitals, the
+military manager marks them as castles in its target list and — via the `spatialSiege` hook —
+assaults immediately once besieging (no bombardment breach can ever open against a layer capital;
+the spatial walk handles the walls itself). While a fallen capital's window is open the army
+simply waits: the outcome belongs to succession, not tactics. (2) *Capitulation decisions:* an AI
+loser whose keep fell decides through the SAME `evaluateVassalageDeal` the diplomacy command uses,
+with war exhaustion floored at `CAPITAL_FALLEN_EXHAUSTION_FLOOR` (40) — the fall itself is
+hopelessness. Long wars therefore end in submission (softer band, vassal persists); a lightning
+war can find a low-trust court defiant, and defiance is destruction. AI attackers evaluate the
+`lord` side of the same deal (in practice: nearly always take the homage). No plan, weight, or
+cadence changed — the harness wrapper opts out of the whole package (`succession: false`).
+
 ## §4. Economic & Event-Response AI
 
 - **Economy Manager** turns plan reservations into targets: food security first (N seasons of
