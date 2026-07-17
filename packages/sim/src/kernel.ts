@@ -349,10 +349,12 @@ export class Kernel {
       invariant(registered !== undefined, `restoreState: system '${saved.name}' not registered (composition mismatch)`);
       registered.rng.setState(saved.state);
     }
-    invariant(
-      state.systemRngs.length === this.systems.length,
-      `restoreState: ${this.systems.length} systems registered, save carries ${state.systemRngs.length}`,
-    );
+    // Registered systems ABSENT from the save are allowed: they were added after the save
+    // was written (M49's defence-genesis loading a 1.0 save was the first). Such a system
+    // keeps its registration-time fork — key-derived from (fresh root, name), identical on
+    // every load site by the PRNG fork contract — so tolerating it is deterministic. The
+    // reverse (a save carrying a system this composition lacks) stays the hard mismatch
+    // rejected per-name above.
     this.nextSeqByIssuer.clear();
     for (const [issuer, seq] of state.nextSeq) this.nextSeqByIssuer.set(issuer, seq);
     this.pending = [...state.pending];

@@ -337,6 +337,39 @@ export class VillageOps {
     ctx.events.publish({ type: 'building.demolished', tick: ctx.tick, data: { building: buildingId, def: def.id, village: villageId } });
     return true;
   }
+
+  /**
+   * M53 (ADR-4 §3): remove a village from the world entirely — every building
+   * despawned (occupancy vacated), the centre entry dropped, the village entity
+   * itself despawned. "Everything not carried is destroyed with the settlement —
+   * no ghost stockpiles": the caller owns the POLICY (loot first, ownership and
+   * kingdom consequences); this is only the mechanism. Building rows are snapshotted
+   * BEFORE the despawn loop — dense SoA storage swap-removes on despawn, so reading
+   * component data after the first despawn would walk relocated rows.
+   */
+  raze(ctx: TickContext, villageId: number): true | string {
+    const village = villageId as EntityId;
+    if (!this.world.isAlive(village) || !this.world.has(village, this.comps.VillageCore)) return 'no such village';
+    const vi = villageId & 0x3fffff;
+    const name = this.world.readObj(this.comps.VillageName).tryGet(vi) ?? `village ${vi}`;
+    const b = this.world.read(this.comps.BuildingCore);
+    const doomed: { entity: number; def: BuildingDef; x: number; y: number }[] = [];
+    this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
+      if (((b.village[i] as number) & 0x3fffff) !== vi) return;
+      doomed.push({ entity: entity as number, def: this.buildingDef(b.def[i] as number), x: b.x[i] as number, y: b.y[i] as number });
+    });
+    for (const d of doomed) {
+      for (let dy = 0; dy < d.def.footprint.h; dy++) {
+        for (let dx = 0; dx < d.def.footprint.w; dx++) this.occupancy.delete(this.tileIndex(d.x + dx, d.y + dy));
+      }
+      this.world.despawn(d.entity as EntityId);
+    }
+    const at = this.centers.findIndex((c) => c.village === village);
+    if (at >= 0) this.centers.splice(at, 1);
+    this.world.despawn(village);
+    ctx.events.publish({ type: 'village.razed', tick: ctx.tick, data: { village: villageId, name } });
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------- system

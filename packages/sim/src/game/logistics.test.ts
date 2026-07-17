@@ -122,6 +122,26 @@ test('haul: without haulers, food rots at the farm and the village starves', () 
   assert.equal(stranded.stockOf(foodCode), 0, 'no food ever reached the stranded stockpile');
 });
 
+test('haul: a full production chain never deadlocks haulers into starvation (regression)', () => {
+  // The M-era famine deadlock: once EVERY non-food stockpile capped, haulers that
+  // grabbed un-depositable goods parked forever, the farm outbox stranded, and the
+  // village starved amid full warehouses. Build the whole chain and run three years —
+  // food must keep flowing the entire time.
+  const buildings = [
+    { def: 'base:building.house', x: 28, y: 30 },
+    { def: 'base:building.house', x: 32, y: 30 },
+    { def: 'base:building.granary', x: 30, y: 28 },
+    { def: 'base:building.farm', x: 41, y: 29 },
+    { def: 'base:building.lumber-camp', x: 41, y: 31 },
+    { def: 'base:building.quarry', x: 41, y: 33 },
+    { def: 'base:building.sawmill', x: 41, y: 27 },
+  ];
+  const roadTo = buildings.map((b) => ({ x: b.x, y: b.y }));
+  const v = makeVillage({ haulerTarget: 4, food: 120, buildings, roadTo });
+  v.days(1080); // three years — long past the point every non-food stockpile caps
+  assert.ok(v.security() > 0.9, `village must stay fed once warehouses fill (security ${v.security().toFixed(2)})`);
+});
+
 // ---------------- the T objective: no starvation with roads ----------------
 
 test('roads: a cart-limited village starves on mud and eats on pavement', () => {

@@ -8,7 +8,7 @@ mod entirely (it can't be identified, so it can't be reported against anyone els
   "id": "aria:river-lords",
   "name": "River Lords",
   "version": "1.2.0",
-  "gameVersion": ">=0.1 <1.0",
+  "gameVersion": ">=1.0 <2.0",
   "dependencies": [{ "id": "aria:core-lib", "version": "^1.0" }],
   "loadAfter": ["base"],
   "conflicts": ["someone:total-war-overhaul"],
@@ -22,7 +22,7 @@ mod entirely (it can't be identified, so it can't be reported against anyone els
 | `id` | string | yes | `namespace:name` — pick a namespace unique to you (your handle, studio name, …); every def you ship must be prefixed `yournamespace:`. |
 | `name` | string | yes | Display name shown in the Mods screen. |
 | `version` | string | yes | Semver (`major.minor.patch`, e.g. `"1.2.0"`; `"1.2"` is read as `"1.2.0"`). Bump it when you change your mod's content in a way another mod's `dependencies` range should notice. |
-| `gameVersion` | string | yes | Semver *range* against the engine's own version (e.g. `">=0.1 <1.0"`). If it doesn't satisfy, your mod is disabled with a clear reason — never silently loaded against an incompatible engine. |
+| `gameVersion` | string | yes | Semver *range* against the engine's own version (e.g. `">=1.0 <2.0"`). If it doesn't satisfy, your mod is disabled with a clear reason — never silently loaded against an incompatible engine. |
 | `dependencies` | `{id, version}[]` | no | Other mods yours needs, and the semver range of their `version` you require. A missing, disabled, or version-mismatched dependency disables your mod too, with the exact reason named. |
 | `loadAfter` | `string[]` | no | Mod ids your content should merge on top of, WITHOUT a hard dependency (your mod still loads if the named one is absent — this is ordering only, not a requirement). Use this to make sure your override/patch wins against a specific mod. |
 | `conflicts` | `string[]` | no | Mod ids that can't be enabled alongside yours — if one is present and enabled, yours is disabled with a named reason (and vice versa isn't implied; conflicts are one-directional per manifest, so declare it on whichever side knows about the incompatibility). |

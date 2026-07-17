@@ -41,7 +41,12 @@
     "name": "The Granaries Are Full",
     "pool": "tutorial",
     "scope": "village",
-    "trigger": { "stat": "village.foodSecurity", "gte": 0.8 },
+    // Gated on summer as well as food security: `village.foodSecurity` is an EMA seeded at 1.0
+    // (population.ts — new villages read as fed until proven otherwise), so a bare `gte 0.8` was
+    // true on day 1 and this fired at game start. Requiring summer means it only lands once the
+    // village has genuinely held food security through a real season — same pattern as the
+    // "Bountiful Harvest" event (opportunity.json5) and the tutorial's own seasonal cadence.
+    "trigger": { "all": [{ "season": "summer" }, { "stat": "village.foodSecurity", "gte": 0.8 }] },
     "weight": 40,
     "once": true,
     "text": {

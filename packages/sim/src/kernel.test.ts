@@ -193,15 +193,63 @@ test('calendar: date math and boundary events', () => {
   assert.equal(years, 1);
 });
 
+// ---------------- restoreState across composition growth (M49) ----------------
+
+test('restoreState: a session with systems the save predates still restores (deterministically)', () => {
+  const { kernel: original } = makeKernel(7);
+  for (let t = 0; t < 20; t++) original.step();
+  const saved = original.saveState();
+
+  // the newer composition registers one EXTRA system the save has never heard of
+  const build = (): { kernel: Kernel; counter: CounterSystem; extraRuns: number[] } => {
+    const kernel = new Kernel(7);
+    const counter = new CounterSystem();
+    kernel.registerSystem(counter);
+    kernel.registerCommand<{ amount: number }>('counter.add', (_ctx, payload) => {
+      counter.value += payload.amount;
+    });
+    const extraRuns: number[] = [];
+    let extraValue = 0;
+    kernel.registerSystem({
+      name: 'added-after-save',
+      period: 1,
+      update(ctx: TickContext): void {
+        extraRuns.push(ctx.tick);
+        extraValue += ctx.rng.int(0, 3);
+      },
+      hash(fold: (v: number) => void): void {
+        fold(extraValue);
+      },
+    });
+    return { kernel, counter, extraRuns };
+  };
+  const a = build();
+  const b = build();
+  a.kernel.restoreState(saved); // must NOT throw on the extra system
+  b.kernel.restoreState(saved);
+  assert.equal(a.kernel.currentTick, 20);
+  for (let t = 0; t < 30; t++) {
+    a.kernel.step();
+    b.kernel.step();
+  }
+  // the added system's stream is (seed, name)-derived — identical on every load site
+  assert.equal(a.kernel.stateHash(), b.kernel.stateHash(), 'two load sites evolve identically');
+  assert.equal(a.extraRuns.length, 30, 'the added system runs from the restored tick');
+
+  // the reverse — a save carrying a system this composition lacks — still refuses
+  const bare = new Kernel(7);
+  assert.throws(() => bare.restoreState(saved), /system 'counter' not registered/);
+});
+
 // ---------------- driver ----------------
 
 test('driver: speed multiplies tick throughput', () => {
   const { kernel } = makeKernel();
   const driver = new TickDriver(kernel, { maxTicksPerAdvance: 1000 });
   driver.setSpeed(1);
-  assert.equal(driver.advance(1000).length, 10); // 10 tps
+  assert.equal(driver.advance(1000).length, 1); // 1 tps at normal speed (1 game-day = 24s)
   driver.setSpeed(8);
-  assert.equal(driver.advance(1000).length, 80); // 80 tps
+  assert.equal(driver.advance(1000).length, 8); // 8 tps at 8×
 });
 
 test('driver: pause executes nothing and clears owed time', () => {
@@ -216,9 +264,9 @@ test('driver: pause executes nothing and clears owed time', () => {
 test('driver: budget exhaustion dilates time instead of spiraling (TDD §6)', () => {
   const { kernel } = makeKernel();
   const driver = new TickDriver(kernel, { maxTicksPerAdvance: 4 });
-  driver.setSpeed(8); // owes 80 ticks for 1s, budget allows 4
+  driver.setSpeed(8); // owes 8 ticks for 1s (8 tps), budget allows 4
   assert.equal(driver.advance(1000).length, 4);
-  // owed time was dropped: a tiny next frame owes at most one new tick's worth
-  assert.equal(driver.advance(12.5).length, 1);
+  // owed time was dropped: a tiny next frame owes at most one new tick's worth (125ms @ 8 tps)
+  assert.equal(driver.advance(125).length, 1);
   assert.equal(driver.advance(0).length, 0);
 });

@@ -10,6 +10,10 @@ export const DAYS_PER_SEASON = 90;
 export const SEASONS_PER_YEAR = 4;
 export const TICKS_PER_SEASON = TICKS_PER_DAY * DAYS_PER_SEASON; // 2,160
 export const TICKS_PER_YEAR = TICKS_PER_SEASON * SEASONS_PER_YEAR; // 8,640
+/** A "month" is 30 days (the year is 360 days = 12 months); used by cadence tuning that speaks in
+ * months rather than seasons — no calendar month system exists, this is just the conversion. */
+export const DAYS_PER_MONTH = 30;
+export const TICKS_PER_MONTH = TICKS_PER_DAY * DAYS_PER_MONTH; // 720
 
 export const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
 export type SeasonName = (typeof SEASON_NAMES)[number];

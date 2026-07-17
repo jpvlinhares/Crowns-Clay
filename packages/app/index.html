@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Crowns &amp; Clay — dev build</title>
+  <title>Crowns &amp; Clay</title>
   <!-- roadmap M44 PWA polish (doc 03 §9, doc 05, doc 10) -->
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -34,7 +34,6 @@
              font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
     .statgrid .cell.n .v { min-width: 3.2ch; }
     .statgrid .cell.date .v { min-width: 17ch; text-align: left; color: #e8e0d0; }
-    .statgrid .cell.treasury .v { min-width: 20ch; text-align: left; }
     /* Per-village vitals: one fixed-column chip per village so numbers stay put. */
     #village-stats { display: flex; flex-wrap: wrap; gap: .25rem .4rem; font-variant-numeric: tabular-nums; }
     .vchip { display: inline-flex; align-items: baseline; gap: .3rem; padding: .05rem .4rem;
@@ -53,7 +52,7 @@
     #status.error { color: #e07070; }
     .hint { opacity: .6; }
     /* ---- M18 panel framework, toasts ---- */
-    #panel-dock { position: absolute; top: 0; left: 0; bottom: 0; width: 300px;
+    #panel-dock { position: absolute; top: 0; right: 0; bottom: 0; width: 300px;
                   display: flex; flex-direction: column; gap: .5rem; padding: .5rem;
                   pointer-events: none; z-index: 4; overflow-y: auto; }
     .panel { display: none; pointer-events: auto; background: rgba(26, 22, 17, .95);
@@ -70,6 +69,15 @@
     .panel-body .row { display: flex; gap: .4rem; align-items: center; margin: .3rem 0; flex-wrap: wrap; }
     .panel-body select { background: #1a1712; color: #e8e0d0; border: 1px solid #3a3226; font: inherit; padding: .15rem; }
     .panel-body button.armed { background: #d8b060; color: #14120f; }
+    /* ---- capacity gauges (M-era building inspector) ---- */
+    .panel-body .cap-row { margin: .25rem 0; }
+    .cap-head { display: flex; justify-content: space-between; font-size: 11px; }
+    .cap-label { text-transform: capitalize; color: #b8ae9a; }
+    .cap-val { font-variant-numeric: tabular-nums; color: #e8e0d0; }
+    .cap-track { height: 5px; background: #241f18; border: 1px solid #332d22;
+                 border-radius: 3px; overflow: hidden; margin-top: 2px; }
+    .cap-fill { height: 100%; background: #6fae5a; }
+    .cap-fill.over { background: #e0a070; }
     .ledger-heading { margin: .5rem 0 .2rem; font-size: 11px; text-transform: uppercase; color: #d8b060; }
     .ledger-list { max-height: 140px; overflow-y: auto; border-top: 1px solid #2a241b; }
     .ledger-row { padding: 1px 0; font-variant-numeric: tabular-nums; }
@@ -119,6 +127,12 @@
     #end-screen-backdrop { z-index: 10; } /* above the new-game screen and event dialogs */
     #event-dialog-choices { display: flex; flex-direction: column; gap: .3rem; }
     #event-dialog-choices button { text-align: left; padding: .4rem .6rem; }
+    #event-dialog-choices .choice-outcomes { display: flex; flex-wrap: wrap; gap: .25rem .5rem;
+             margin-top: .25rem; font-size: 11px; font-variant-numeric: tabular-nums; }
+    #event-dialog-choices .outcome { white-space: nowrap; }
+    #event-dialog-choices .outcome.gain { color: #9fc98a; }
+    #event-dialog-choices .outcome.loss { color: #e0a070; }
+    #event-dialog-choices .outcome.neutral { color: #b8ae9a; opacity: .8; }
     /* ---- M47.6: new-game screen — the first real world-creation surface ---- */
     #newgame-backdrop { position: absolute; inset: 0; z-index: 9; display: flex;
              align-items: center; justify-content: center; background: rgba(10, 9, 7, .82); }
@@ -148,7 +162,6 @@
       <div class="cell n"><span class="k">tick</span><span class="v" id="tick">0</span></div>
       <div class="cell date"><span class="k">date</span><span class="v" id="date">Year 0 · spring · day 1</span></div>
       <div class="cell n"><span class="k">folk</span><span class="v" id="entities">0</span></div>
-      <div class="cell treasury"><span class="k">treasury</span><span class="v" id="kingdom-stats">—</span></div>
     </div>
     <span class="group" id="ui-toolbar" role="toolbar" aria-label="Panels"></span>
     <span class="group" role="toolbar" aria-label="Save and load">

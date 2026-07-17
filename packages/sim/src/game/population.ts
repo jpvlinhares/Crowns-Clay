@@ -38,6 +38,52 @@ export const DEATH_ELDER = 0.0004;
 export const FAMINE_MORTALITY = 0.004; // extra daily mortality at fed = 0
 export const HAPPINESS_ALPHA = 0.08; // daily EMA
 
+// Joy is a MAIN driver of population (M-era): happiness scales fertility and, above/
+// below the neutral point, pulls settlers in or drives them out (net migration).
+export const JOY_NEUTRAL = 50; // happiness pivot: above → attract & higher fertility, below → people leave
+export const JOY_MIGRATION_RATE = 0.0015; // per-day share of population that migrates at |joyBalance| = 1
+// NOTE: JOY_MIGRATION_RATE / BIRTH_RATE magnitudes are revisited with day-length (prompt 6 / pace pass).
+
+// Happiness-target weights (the daily target the EMA chases). Exported so the Joy
+// panel breaks joy down with the SAME numbers the sim uses — one source of truth.
+export const HAPPINESS_FOOD_WEIGHT = 0.7; // fed fraction's share of the joy target
+export const HAPPINESS_SHELTER_WEIGHT = 0.3; // shelter's share
+export const SERVICE_JOY_CAP = 15; // max flat joy from service auras (taverns, GDD §5)
+export const HAPPINESS_DRIFT_TARGET = 'village.happinessDrift'; // edict/office modifier key
+
+/** Signed joy contributions in points (food + shelter + service + edicts ≈ the clamped
+ * target) — the breakdown the Joy panel renders, computed from live state. */
+export interface JoyBreakdown {
+  readonly food: number;
+  readonly shelter: number;
+  readonly service: number;
+  readonly edicts: number;
+}
+export function joyContributions(nutrition: number, shelter: number, serviceJoy: number, drift: number): JoyBreakdown {
+  return {
+    food: Math.max(FORAGE_FLOOR, nutrition) * HAPPINESS_FOOD_WEIGHT * 100,
+    shelter: shelter * HAPPINESS_SHELTER_WEIGHT * 100,
+    service: serviceJoy,
+    edicts: drift,
+  };
+}
+/** The daily happiness target the needs system EMAs toward. `morale` is the forage-floored
+ * fed fraction. This EXACT expression is shared with the needs system so determinism holds. */
+export function joyTarget(morale: number, shelter: number, serviceJoy: number, drift: number): number {
+  return Math.max(0, Math.min(100, (morale * HAPPINESS_FOOD_WEIGHT + shelter * HAPPINESS_SHELTER_WEIGHT) * 100 + serviceJoy + drift));
+}
+/** Joy's fertility multiplier on births (2× at max joy, ~0 when miserable). */
+export function joyFertility(happiness: number): number {
+  return Math.min(2, happiness / JOY_NEUTRAL);
+}
+/** Net migrants/day: content villages (> JOY_NEUTRAL) draw settlers into spare housing;
+ * unhappy ones (< JOY_NEUTRAL) bleed people. Positive is gated by housing headroom. */
+export function joyMigration(happiness: number, total: number, housingCap: number): number {
+  let migration = total * JOY_MIGRATION_RATE * ((happiness - JOY_NEUTRAL) / JOY_NEUTRAL);
+  if (migration > 0) migration = Math.min(migration, Math.max(0, housingCap - total));
+  return migration;
+}
+
 export interface StartingPopulation {
   readonly children: number;
   readonly adults: number;
@@ -187,7 +233,7 @@ export function registerPopulationGameplay(
         const def = defOf(b, i);
         housing.set(vi, (housing.get(vi) ?? 0) + (def.housing?.capacity ?? 0));
         if (def.serviceAura?.need === 'joy') {
-          serviceJoy.set(vi, Math.min(15, (serviceJoy.get(vi) ?? 0) + def.serviceAura.strength));
+          serviceJoy.set(vi, Math.min(SERVICE_JOY_CAP, (serviceJoy.get(vi) ?? 0) + def.serviceAura.strength));
         }
       });
       world.query([Population, VillageCore]).forEach((vi, village) => {
@@ -205,20 +251,23 @@ export function registerPopulationGameplay(
           tick: ctx.tick,
           data: { village: village as number, eaten, need, resource: foodCode },
         });
-        // FORAGE FLOOR: below it, foragers make up the difference (GDD §4)
-        const fed = Math.max(FORAGE_FLOOR, need > 0 ? eaten / need : 1);
+        // foodSecurity tracks REAL nutrition (un-floored): a village with no food
+        // trends toward 0, which halts births and drives starvation deaths in the
+        // population system — people genuinely die when the granaries run dry.
+        const nutrition = need > 0 ? eaten / need : 1;
         pop.foodSecurity[vi] =
-          (pop.foodSecurity[vi] as number) * (1 - HAPPINESS_ALPHA) + fed * HAPPINESS_ALPHA;
+          (pop.foodSecurity[vi] as number) * (1 - HAPPINESS_ALPHA) + nutrition * HAPPINESS_ALPHA;
 
         const shelter = Math.min(1, (housing.get(vi) ?? 0) / total);
-        // service auras (M15) and edict drifts (M16) shift the daily target
-        const target = Math.max(
-          0,
-          Math.min(100, (fed * 0.7 + shelter * 0.3) * 100 + (serviceJoy.get(vi) ?? 0) + mods.add('village.happinessDrift')),
-        );
+        // FORAGE FLOOR: foragers scrape the hedgerows, so MORALE never cliffs on hunger
+        // alone (GDD §4) — but survival (deaths, above) still sees true nutrition.
+        const morale = Math.max(FORAGE_FLOOR, nutrition);
+        // service auras (M15) and edict drifts (M16) shift the daily target (joyTarget
+        // is the exact same expression, shared with the Joy panel projection)
+        const target = joyTarget(morale, shelter, serviceJoy.get(vi) ?? 0, mods.add(HAPPINESS_DRIFT_TARGET));
         pop.happiness[vi] =
           (pop.happiness[vi] as number) * (1 - HAPPINESS_ALPHA) + target * HAPPINESS_ALPHA;
-        if (fed <= FORAGE_FLOOR && eaten < need) {
+        if (nutrition <= FORAGE_FLOOR && eaten < need) {
           ctx.events.publish({
             type: 'village.starving',
             tick: ctx.tick,
@@ -250,20 +299,31 @@ export function registerPopulationGameplay(
         const elders = pop.elders[vi] as number;
         const total = children + adults + elders;
         if (total <= 0) return;
-        const fed = pop.foodSecurity[vi] as number;
-        const shelter = Math.min(1, (housing.get(vi) ?? 0) / total);
-        const famine = FAMINE_MORTALITY * (1 - fed);
+        const fed = pop.foodSecurity[vi] as number; // real nutrition (0..1)
+        const happiness = pop.happiness[vi] as number; // 0..100
+        const housingCap = housing.get(vi) ?? 0;
+        const shelter = Math.min(1, housingCap / total);
+        const famine = FAMINE_MORTALITY * (1 - fed); // full strength when starving
+        // JOY drives growth: fertility scales with happiness (2× at max joy, ~0 when miserable)
+        const joyFactor = joyFertility(happiness);
 
-        const births = adults * BIRTH_RATE * fed * (0.5 + 0.5 * shelter);
+        const births = adults * BIRTH_RATE * fed * (0.5 + 0.5 * shelter) * joyFactor;
         const matured = children * MATURE_RATE;
         const senesced = adults * SENESCE_RATE;
         const deadChildren = children * (DEATH_CHILD + famine * 1.5);
         const deadAdults = adults * (DEATH_ADULT + famine);
         const deadElders = elders * (DEATH_ELDER + famine * 2);
 
-        pop.children[vi] = Math.max(0, children + births - matured - deadChildren);
-        pop.adults[vi] = Math.max(0, adults + matured - senesced - deadAdults);
-        pop.elders[vi] = Math.max(0, elders + senesced - deadElders);
+        // NET MIGRATION (joy as a main driver): a content village (happiness > JOY_NEUTRAL)
+        // draws settlers in — but only into spare housing — while an unhappy one
+        // (happiness < JOY_NEUTRAL) bleeds people who leave for better lands. Applied
+        // pro-rata across cohorts so the age structure is preserved. Deterministic.
+        const migration = joyMigration(happiness, total, housingCap);
+        const migShare = migration / total;
+
+        pop.children[vi] = Math.max(0, children + births - matured - deadChildren + children * migShare);
+        pop.adults[vi] = Math.max(0, adults + matured - senesced - deadAdults + adults * migShare);
+        pop.elders[vi] = Math.max(0, elders + senesced - deadElders + elders * migShare);
       });
     },
   };

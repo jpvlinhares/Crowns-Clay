@@ -203,6 +203,19 @@ too (AI Doc §5).
 siege tech and starvation; prevent turtle stalemates via victory conditions (§16) and siege
 attrition on defenders; cost tuned so a realm supports few great castles, not walls everywhere.
 
+**Phase 8 delta (ADR-4, ratified 2026-07-15; entered 2026-07-16).** 1.0 shipped this section's
+world-map realization (walls on the village grid, enclosure-derived `isCastle`). Phase 8
+(M49–M54, doc 12 R2) moves the castle grid OFF the world map: each kingdom's CAPITAL gains a
+dedicated ~100×100 defence layer (keep at centre, terrain-bearing, generated once from
+`hash(worldSeed, kingdomId)` and persisted), where walls/towers are placed and garrisons
+posted; siege ASSAULTS resolve spatially on it (§8's other phases unchanged); the world-map
+defence graph and on-map wall placement retire when M50–M51 make the layer the fortification
+surface. Interactions and balancing above otherwise stand. Kingdom death becomes capital-death
+at M53 (doc 14 OQ-9/OQ-11: vassalage-first, permadeath under ironman).
+*Phase 8 shipped in full 2026-07-17 (M49–M54; doc 12's scoping notes are the record): the layer,
+its panel, spatial assaults, templated AI defence, the loss/loot/succession chain, and intel —
+enemy layouts as stale scouting snapshots, garrisons as beliefs, for player and AI symmetrically.*
+
 ---
 
 ## §8. Combat
@@ -338,7 +351,9 @@ per-parameter overrides. Seeds shareable as strings.
 
 **Internal mechanics.** Pipeline stages (each deterministic from seed): heightmap (layered noise) →
 climate bands & moisture → biomes → rivers (downhill carving) → resource node scatter (biome-
-weighted) → start-site scoring (food, water, buildables, spacing) → kingdom placement (fairness
+weighted) → start-site scoring (food, water, woodland access, buildables, spacing — a wood-free
+start would soft-lock the Lumber Camp / raw-materials chain, so woodland within the tier-1 build
+radius is a strong bounded term in `scoreSite`) → kingdom placement (fairness
 solver: comparable start-site scores, minimum pairwise distance) → neutral features (ruins, sacred
 sites, mountain passes) → history seeding (initial opinions, minor lore tags).
 
@@ -409,6 +424,11 @@ snowballs.
 - **Prosperity** — reach prosperity/happiness thresholds realm-wide for X years.
 - **Chronicle (score)** — highest prestige at year limit.
 Defeat: lose your last village, or capital falls with no heir **[OQ-9]**.
+*Phase 8 delta (M53, per OQ-9's 2026-07-16 closure + OQ-11):* a defence-layer capital that falls
+offers the capitulation/vassalage path FIRST — submission spares the realm as a vassal; refusal
+(by either side) or the `ironman` flag makes it destruction: the capital razed, the realm seized,
+the treasury and storable loot sacked under `capOf` with the excess burned. Non-capital villages
+keep the occupation/capture path unchanged; new lords rise on vacant heartlands after a cooldown.
 
 **Internal mechanics.** Victory tracker evaluates conditions at daily cadence; approaching victories
 broadcast world events ("X begins the Grand Cathedral") so AI and player can react — every victory

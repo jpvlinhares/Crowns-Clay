@@ -7,13 +7,14 @@
  * the first thing the renderer shows is, deliberately, a world whose exact
  * evolution is pinned by committed fixtures.
  */
-import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
+import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelEnemyIntelRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
-  STANCES, TickDriver, composeCampaign, difficultyFromSettings, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  DEFENCE_MAP_SIZE, KEEP_DEF, STANCES, TickDriver, composeCampaign, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
+import { choiceOutcomes } from './eventOutcomes.js';
 import { SnapshotEmitter } from './snapshots.js';
 import { BuildingEmitter, RoadEmitter, TerritoryEmitter, VillageStatsEmitter } from './buildingEmitter.js';
 import { composeTerra, type ModSelection, type SandboxOptions } from './terra.js';
@@ -199,7 +200,86 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
       playerDefeated: victoryGame.isDefeated(playerId as never),
     };
 
-    return { kingdoms, units, armies, research, victory };
+    // ---- defence layer (M50): the PLAYER's own castle map, structures, and garrison posts ----
+    const defence = ((): PanelDefenceState | null => {
+      const map = cc.defenceGame.mapOf(0);
+      if (map === undefined) return null;
+      const s = world.read(cc.defenceGame.DefenceStructure);
+      const fort = world.read(cc.castleGame.Fortification);
+      const structures: PanelDefenceStructureRec[] = [];
+      world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
+        if ((s.kingdom[si] as number) !== 0) return;
+        const def = game.ops.buildingDef(s.def[si] as number);
+        structures.push({
+          id: entity as number,
+          defId: def.id,
+          name: def.name,
+          kind: def.defense?.kind ?? 'wall',
+          x: s.x[si] as number,
+          y: s.y[si] as number,
+          w: def.footprint.w,
+          h: def.footprint.h,
+          hp: fort.hp[idx(entity as number)] as number,
+          maxHp: fort.maxHp[idx(entity as number)] as number,
+        });
+      });
+      const post = world.read(cc.defenceGame.DefencePost);
+      const posts: PanelDefencePostRec[] = [];
+      world.query([cc.defenceGame.DefencePost, militaryGame.Unit]).forEach((pi, entity) => {
+        if ((u.kingdomId[pi] as number) !== playerId) return;
+        posts.push({ unitId: entity as number, x: post.x[pi] as number, y: post.y[pi] as number });
+      });
+      const buildable = [...db.buildings.values()]
+        .filter((def) => def.defense !== undefined && def.id !== KEEP_DEF)
+        .map((def) => ({
+          defId: def.id,
+          name: def.name,
+          kind: def.defense?.kind ?? 'wall',
+          w: def.footprint.w,
+          h: def.footprint.h,
+          cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount]),
+        }));
+      return { size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
+    })();
+
+    // ---- enemy intel (M54, ADR-4 §4): the player's STALE snapshot of each rival capital —
+    // structures as last seen (hp 0/0: state is not visible from outside the walls),
+    // garrison as the player's own noisy belief. Empty until first scouting contact. ----
+    const enemyIntel: PanelEnemyIntelRec[] = [];
+    if (cc.intelGame !== null) {
+      for (let k = 1; k < kingdomIds.length; k++) {
+        const snap = cc.intelGame.state.get(0, k);
+        const map = cc.defenceGame.mapOf(k);
+        if (snap === undefined || map === undefined) continue;
+        const vi = cc.villageOf(k);
+        const believed = cc.believedGarrisonOf(0, k);
+        enemyIntel.push({
+          kingdom: k,
+          name: vi !== null ? (names.tryGet(vi) ?? `Kingdom ${k}`) : `Kingdom ${k}`,
+          size: DEFENCE_MAP_SIZE,
+          tiles: encodeDefenceMap(map.tiles),
+          asOfTick: snap.tick,
+          structures: snap.structures.map((s) => {
+            const def = db.buildings.get(s.def);
+            return {
+              id: 0,
+              defId: s.def,
+              name: def?.name ?? s.def,
+              kind: def?.defense?.kind ?? 'wall',
+              x: s.x,
+              y: s.y,
+              w: s.w,
+              h: s.h,
+              hp: 0,
+              maxHp: 0,
+            };
+          }),
+          believedGarrison: believed === undefined ? null : Math.round(believed),
+        });
+      }
+    }
+
+    return { kingdoms, units, armies, research, victory, defence, enemyIntel };
   };
 }
 
@@ -252,7 +332,12 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
       id: def.id,
       title: locale.resolve(def.text.title),
       body: locale.resolve(def.text.body),
-      choices: def.choices.map((choice) => ({ id: choice.id, text: locale.resolve(choice.text) })),
+      ...(def.blocking === true ? { blocking: true } : {}), // only blocking events pause the sim (M-era)
+      choices: def.choices.map((choice) => {
+        // surface the choice's outcomes (from its effects) so each option states what it gains/costs
+        const outcomes = choiceOutcomes(choice.effects, (resId) => db.resources.get(resId)?.name ?? resId);
+        return { id: choice.id, text: locale.resolve(choice.text), ...(outcomes.length > 0 ? { outcomes } : {}) };
+      }),
     })),
   };
   const audioCatalog: AudioCatalog = {
@@ -348,7 +433,7 @@ export function createSession(
     terrain,
     world: c.world,
     buildingEmitter: new BuildingEmitter(c.world, c.game),
-    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db),
+    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods),
     roadEmitter: new RoadEmitter(c.logiGame.roads),
     territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, fog),
     saves: c.saves,

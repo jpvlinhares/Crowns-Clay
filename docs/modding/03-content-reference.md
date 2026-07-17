@@ -1,6 +1,6 @@
 # 03 — Content Reference
 
-Ten def kinds exist today. Each lives under its own `defs/<folder>/` path and has its own schema,
+Eleven def kinds exist today. Each lives under its own `defs/<folder>/` path and has its own schema,
 enforced at load. This doc gives the full field table for the two kinds most mods start with
 (**terrain** and **building** — everything else follows the exact same shape/error conventions),
 then a complete but terser field table for the rest.
@@ -258,6 +258,23 @@ An AI kingdom archetype. `weights` covers all 8 axes: `expansion`, `aggression`,
 | `planBiases` | `{ <PlanArchetype id>: multiplier 0..3 }` | *optional keys*, default 1 |
 | `taunts` | `{ <trigger tag>: string[] }` | flavour lines |
 | `tags` | string[] | |
+
+## Castle templates (`defs/castle-templates/*.json5`)
+
+An AI castle-layout archetype for the capital's defence layer (Phase 8): a build queue of
+defensive structures placed as offsets from the keep centre, walked one structure per day as the
+kingdom's stores allow. Tiles the local ground refuses (rock, water, occupied) are skipped —
+that's the terrain adaptation. Every `plan[].def` must name a building carrying a `defense`
+block (checked at load).
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `name`, `desc` | string | `desc` optional |
+| `plan` | `{ def, ring }` or `{ def, at: [[dx,dy],…] }`[] | exactly one of `ring`/`at`; built in array order |
+| `plan[].ring` | integer 1–45 | full square perimeter at that radius |
+| `plan[].at` | `[dx, dy]` pairs, each −50..50 | explicit offsets |
+| `garrisonAnchors` | `[dx, dy]` pairs | idle soldiers post here, in order |
+| `tags` | string[] | optional |
 
 ## A note on scripting
 

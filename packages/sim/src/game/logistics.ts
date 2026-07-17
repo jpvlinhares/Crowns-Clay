@@ -531,18 +531,25 @@ export function registerLogisticsGameplay(
           const route = paths.route(b.x[bi] as number, b.y[bi] as number, core.centerX[vi] as number, core.centerY[vi] as number);
           pathsOf.set(hi, route ?? []);
         } else if (state === TO_DROPOFF) {
-          // unload up to the effective cap; a full stockpile makes the hauler
-          // WAIT here, retrying daily as needs free headroom (conservation)
+          // unload up to the effective cap
           capOf ??= econ.capsView();
           const headroom = Math.max(0, capOf(vi, code) - (stock.get(code) ?? 0));
           const dropped = Math.min(h.carryAmount[hi] as number, headroom);
           stock.set(code, (stock.get(code) ?? 0) + dropped);
           h.carryAmount[hi] = (h.carryAmount[hi] as number) - dropped;
-          if ((h.carryAmount[hi] as number) <= 1e-9) {
-            h.carryAmount[hi] = 0;
-            h.carryCode[hi] = 0;
-            h.state[hi] = IDLE;
+          // A FULL stockpile must NOT park the hauler here forever: a resource whose
+          // consumers are also saturated stays capped indefinitely, and a hauler frozen
+          // on it is a hauler that never carries food again — the village starves amid
+          // full warehouses (root cause of the M-era famine deadlock). Instead, hand the
+          // remainder back to the source outbox and free the hauler (matter conserved).
+          if ((h.carryAmount[hi] as number) > 1e-9) {
+            const inventory = inventories.tryGet(index(h.building[hi] as number));
+            // source building gone mid-trip: leave the load on the stockpile (conserved)
+            (inventory ?? stock).set(code, ((inventory ?? stock).get(code) ?? 0) + (h.carryAmount[hi] as number));
           }
+          h.carryAmount[hi] = 0;
+          h.carryCode[hi] = 0;
+          h.state[hi] = IDLE;
         } else if (state === TO_DELIVERY) {
           if ((h.carryAmount[hi] as number) === 0) {
             // at the centre: load up (bounded by need buffer, capacity, stock)

@@ -5,7 +5,7 @@
   "id": "example:autumn-realm",
   "name": "Autumn Realm",
   "version": "1.0.0",
-  "gameVersion": ">=0.1 <1.0",
+  "gameVersion": ">=1.0 <2.0",
   "loadAfter": ["base"],
   "tags": ["example", "cosmetic"],
   "authors": ["Crowns & Clay team"],

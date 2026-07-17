@@ -35,6 +35,11 @@ export interface BuildingRec {
   readonly progress: number; // 0..1
   /** Owning village entity id (M18 — the player inspector's join key). */
   readonly village: number;
+  /** Capacity this building contributes, projected straight from its def so modded
+   * buildings surface it automatically (0/absent = none). Usage is village-pooled —
+   * the inspector pairs these with the owning village's live totals. */
+  readonly storageCapacity?: number; // per-resource stockpile headroom added
+  readonly housingCapacity?: number; // occupant slots added
 }
 
 // ---- player-facing content catalog (M18): defs the UI may offer ----
@@ -61,7 +66,18 @@ export interface CatalogEvent {
   readonly id: string;
   readonly title: string;
   readonly body: string;
-  readonly choices: readonly { readonly id: string; readonly text: string }[];
+  /** When true, the dialog HALTS the sim until answered (a genuine blocking decision).
+   * Absent/false → answerable at leisure while the game runs (M-era). Data-driven. */
+  readonly blocking?: boolean;
+  readonly choices: readonly {
+    readonly id: string;
+    readonly text: string;
+    /** What this choice GAINS or COSTS, as signed player-facing chips derived from its effects
+     * (grant/remove resource, stat/treasury nudge, standing) — so each option states its outcome,
+     * not just its label. Omitted when the choice has no mechanical effect; optional so
+     * older/modded projections stay compatible. */
+    readonly outcomes?: readonly { readonly label: string; readonly kind: 'gain' | 'loss' | 'neutral' }[];
+  }[];
 }
 /** A recruitable unit (M47.7 — the Military panel's palette; projected from UnitDefs). */
 export interface CatalogUnit {
@@ -130,12 +146,67 @@ export interface PanelVictoryState {
   readonly winner: { readonly kingdomIndex: number; readonly type: string } | null;
   readonly playerDefeated: boolean;
 }
+// ---- defence layer (M50; ADR-4; GDD §7 Phase 8 delta) — the player's OWN castle map.
+export interface PanelDefenceStructureRec {
+  readonly id: number;
+  readonly defId: string;
+  readonly name: string;
+  readonly kind: string; // wall | gate | tower | keep
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly hp: number;
+  readonly maxHp: number;
+}
+export interface PanelDefencePostRec {
+  readonly unitId: number;
+  readonly x: number;
+  readonly y: number;
+}
+export interface PanelDefenceState {
+  /** Map edge length in tiles. */
+  readonly size: number;
+  /** Run-length pairs [code, count, ...]: 0 open · 1 rock · 2 water. */
+  readonly tiles: readonly number[];
+  readonly structures: readonly PanelDefenceStructureRec[];
+  readonly posts: readonly PanelDefencePostRec[];
+  /** Placeable defensive defs; costs display-ready as [resource name, amount]. */
+  readonly buildable: readonly {
+    readonly defId: string;
+    readonly name: string;
+    readonly kind: string;
+    readonly w: number;
+    readonly h: number;
+    readonly cost: readonly (readonly [string, number])[];
+  }[];
+}
+
+/** M54 (ADR-4 §4): what the PLAYER last saw of a rival capital's walls — a STALE
+ * snapshot as of the last scouting contact, never the live layout. Structure hp is
+ * always 0/0 (state is not physically visible from outside); the garrison arrives
+ * as a noisy, confidence-decayed belief, null when never observed. Terrain tiles
+ * ride along in full — geography is permanent, not secret. */
+export interface PanelEnemyIntelRec {
+  readonly kingdom: number; // panel kingdom index (PanelKingdomRec.index)
+  readonly name: string;
+  readonly size: number;
+  readonly tiles: readonly number[]; // RLE pairs, same codec as PanelDefenceState
+  readonly asOfTick: number;
+  readonly structures: readonly PanelDefenceStructureRec[];
+  readonly believedGarrison: number | null;
+}
+
 export interface PlayerPanels {
   readonly kingdoms: readonly PanelKingdomRec[];
   readonly units: readonly PanelUnitRec[];
   readonly armies: readonly PanelArmyRec[];
   readonly research: PanelResearchState | null;
   readonly victory: PanelVictoryState | null;
+  /** null outside campaigns (terra has no defence layer). */
+  readonly defence: PanelDefenceState | null;
+  /** M54: rival capitals the player holds intel on (empty until first contact). */
+  readonly enemyIntel: readonly PanelEnemyIntelRec[];
 }
 
 // ---- audio (M41; doc 10 §3, doc 05 §8) ----
@@ -326,6 +397,25 @@ export type FromSimMessage =
         happiness: number;
         /** other stocked goods (M13 chains): display name → floored amount */
         goods?: Record<string, number>;
+        /** capacity totals for the inspector's used/total gauges (M-era): occupant slots
+         * (Σ housing.capacity of completed buildings) and per-resource stockpile cap
+         * (BASE_STORAGE + Σ storage.capacity). Optional for back-compat. */
+        housing?: number;
+        stockCap?: number;
+        /** Food's own cap (KEEP_FOOD_BUFFER + Σ storage.capacity) — smaller than stockCap
+         * because the keep's food larder is small; a granary is needed to hold more (M-era). */
+        foodCap?: number;
+        /** Joy breakdown for the Joy panel (M-era), projected from live sim state: the
+         * current level, the target it trends toward, each signed contribution (points),
+         * and joy's effect on population (net migrants/day, fertility multiplier). */
+        joy?: {
+          level: number;
+          target: number;
+          neutral: number;
+          factors: readonly { readonly label: string; readonly value: number }[];
+          migrationPerDay: number;
+          fertility: number;
+        };
         tier: number;
         taxRate: number;
         cx: number;

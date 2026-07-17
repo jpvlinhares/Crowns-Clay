@@ -141,6 +141,11 @@ export interface VictoryTrackProgress {
 export interface VictoryGameplay {
   winner(): VictoryResult | null;
   isDefeated(kingdomId: EntityId): boolean;
+  /** M53 (new-lords-rising): a fresh lord takes the dead kingdom's slot — clear its
+   * defeated mark so the tracker follows the new banner. `everFounded` deliberately
+   * stays: the riser founds a village the moment it exists, and "had one, now has
+   * none" must keep meaning defeat for the NEW banner too. */
+  revive(kingdomId: EntityId): void;
   prestigeOf(kingdomId: EntityId): number;
   /** Save/restore (M47.6): the tracker's closure state, for the unified campaign's save section. */
   save(): VictorySaveState;
@@ -427,6 +432,9 @@ export function registerVictoryGameplay(
   return {
     winner: () => winner,
     isDefeated: (kingdomId: EntityId) => defeated.has(kingdomId as number),
+    revive: (kingdomId: EntityId) => {
+      defeated.delete(kingdomId as number);
+    },
     prestigeOf: (kingdomId: EntityId) => prestigeOf(kingdomId as number),
     enabledTypes: () => VICTORY_TYPES.filter((t) => enabled.has(t)),
     tracksOf,

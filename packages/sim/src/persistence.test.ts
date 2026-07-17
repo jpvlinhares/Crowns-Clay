@@ -79,6 +79,9 @@ function liveIn(r: ReturnType<typeof makeRealm>): number {
   r.submit('village.build', { villageId, def: 'base:building.farm', x: 36, y: 27 });
   r.submit('village.build', { villageId, def: 'base:building.sawmill', x: 44, y: 32 });
   r.submit('village.build', { villageId, def: 'base:building.house', x: 37, y: 32 });
+  // a granary: food storage beyond the keep's 50-food larder (M-era) — needed to hold
+  // the cargo a settler party carries (SETTLER_CARRY food) before it can be dispatched
+  r.submit('village.build', { villageId, def: 'base:building.granary', x: 40, y: 33 });
   r.submit('village.buildRoad', { villageId, x: 42, y: 30 });
   r.submit('village.buildRoad', { villageId, x: 43, y: 30 });
   r.days(12); // build out, staff up, haul
@@ -180,6 +183,35 @@ test('migrations: an old section payload is lifted step by step, in order', () =
   const stale = saves2.snapshot();
   stale.sections['thing'] = { version: 1, data: {} };
   assert.throws(() => saves2.hydrate(stale), /no migration for section 'thing' v1/);
+});
+
+// ---------------- optional sections (OQ-9 item 1) ----------------
+
+test('optional sections: absent in an older save ⇒ skipped with a report line; required ones still refuse', () => {
+  const kernel = new Kernel(1);
+  const saves = new SaveManager(kernel);
+  let loadedData: unknown = 'untouched';
+  saves.register({ key: 'core', version: 1, save: () => 42, load: () => undefined });
+  saves.register({ key: 'capitals', version: 1, optional: true, save: () => [[0, 7]], load: (d) => (loadedData = d) });
+
+  // a save written before the optional section existed: load() must never run (fallback applies)
+  const old = saves.snapshot();
+  delete old.sections['capitals'];
+  const report = saves.hydrate(old);
+  assert.equal(loadedData, 'untouched', 'absent optional section is skipped, not loaded as undefined');
+  assert.deepEqual(report, ['capitals: absent (save predates this section) — composition fallback applies']);
+
+  // a current save round-trips through load()
+  const fresh = saves.snapshot();
+  assert.deepEqual(saves.hydrate(fresh), []);
+  assert.deepEqual(loadedData, [[0, 7]]);
+
+  // a missing REQUIRED section is still a hard refusal
+  const strict = new SaveManager(new Kernel(1));
+  strict.register({ key: 'core', version: 1, save: () => 0, load: () => undefined });
+  const missing = strict.snapshot();
+  delete missing.sections['core'];
+  assert.throws(() => strict.hydrate(missing), /missing section 'core'/);
 });
 
 // ---------------- guards ----------------

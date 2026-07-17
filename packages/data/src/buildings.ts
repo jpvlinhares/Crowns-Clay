@@ -49,12 +49,15 @@ export interface BuildingDef {
    * own). doc 06 §2; drillRate (training-quality) stays deferred. */
   readonly military?: { readonly recruits?: readonly string[]; readonly garrisonCap?: number };
   /** M28: wall/gate/tower/keep segments (doc 06 §2). `kind` feeds the defence graph
-   * and enclosure algorithm (game/castles.ts); `rangedArc` stays inert until Sieges (M29). */
+   * and enclosure algorithm (game/castles.ts); `rangedArc` (inert since M29) is consumed by
+   * the M51 spatial assault — tower fire on the storming column. `holdStrength` (M51, keeps
+   * only): the surviving attacker strength required at the keep to take the castle. */
   readonly defense?: {
     readonly hp: number;
     readonly armor: number;
     readonly kind: 'wall' | 'gate' | 'tower' | 'keep';
     readonly rangedArc?: { readonly range: number; readonly damage: number };
+    readonly holdStrength?: number;
   };
   /** M32: scholar buildings (scribe's hut → library → university, GDD §9) generate
    * research points daily; game/research.ts sums this across a kingdom's completed,
@@ -103,8 +106,9 @@ const defenseValidator = v.object(
     armor: v.number({ min: 0 }),
     kind: v.literal('wall', 'gate', 'tower', 'keep'),
     rangedArc: v.object({ range: v.number({ min: 1 }), damage: v.number({ min: 0 }) }),
+    holdStrength: v.number({ min: 0 }),
   },
-  { optional: ['rangedArc'] },
+  { optional: ['rangedArc', 'holdStrength'] },
 );
 
 export const buildingValidator: Validator<BuildingDef> = v.object(

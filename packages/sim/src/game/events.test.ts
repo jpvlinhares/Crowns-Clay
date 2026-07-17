@@ -35,7 +35,7 @@ const plain: TerrainAccessor = {
   movementCostAt: () => 1,
 };
 
-function makeKingdom(options: { seed?: number } = {}) {
+function makeKingdom(options: { seed?: number; specialEvents?: { startGateMonths?: number; avgPerMonth?: number } } = {}) {
   const kernel = new Kernel(options.seed ?? 71);
   const world = new World(512);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
@@ -47,15 +47,16 @@ function makeKingdom(options: { seed?: number } = {}) {
   const opinionDeltas: { kingdom: number; delta: number }[] = [];
   const eventGame = registerEventGameplay(kernel, world, db, game, popGame, kingdomGame, {
     diplomacy: { applyOpinionDelta: (kingdomId, delta) => opinionDeltas.push({ kingdom: kingdomId as number, delta }) },
+    ...(options.specialEvents ? { specialEvents: options.specialEvents } : {}),
   });
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
 
   const rejections: string[] = [];
-  const fired: { type: string; data: unknown }[] = [];
+  const fired: { type: string; data: unknown; tick: number }[] = [];
   kernel.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rejections.push(`${e.data.what}: ${e.data.reason}`));
   for (const type of ['event.fired', 'event.resolved']) {
-    kernel.subscribe(type, (e) => fired.push({ type, data: e.data }));
+    kernel.subscribe(type, (e) => fired.push({ type, data: e.data, tick: e.tick }));
   }
 
   const submit = (type: string, issuer: number, payload: unknown): void => {
@@ -139,6 +140,36 @@ test('evaluatePredicate: comparators, season, hasEdict/hasTech, and combinators 
   assert.equal(evaluatePredicate({ all: [{ chance: 0.5 }, { season: 'winter' }] }, fakeContext({ chance: () => true, season: () => 'summer' })), false);
   assert.equal(evaluatePredicate({ any: [{ season: 'winter' }, { season: 'summer' }] }, fakeContext({ season: () => 'summer' })), true);
   assert.equal(evaluatePredicate({ not: { season: 'winter' } }, fakeContext({ season: () => 'summer' })), true);
+});
+
+test('tutorial "Granaries Are Full" cannot fire from the initial state (foodSecurity seeds at 1.0)', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const economy = db.events.get('base:event.tutorial.economy');
+  assert.ok(economy, 'tutorial economy event exists');
+  const trigger = economy.trigger;
+
+  // A freshly-founded village on day 1 (spring): foodSecurity is seeded at its EMA max of 1.0
+  // and happiness at 60. This is exactly the state that made the bare `foodSecurity >= 0.8`
+  // trigger fire at t=0. The season gate must keep it FALSE here even at maximum food security.
+  const initialState = fakeContext({
+    season: () => 'spring',
+    statOf: (s) => (s === 'village.foodSecurity' ? 1 : s === 'village.happiness' ? 60 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, initialState), false, 'must not fire from the initial state');
+
+  // A genuinely food-secure village once summer has come around → fires as intended.
+  const genuineSurplus = fakeContext({
+    season: () => 'summer',
+    statOf: (s) => (s === 'village.foodSecurity' ? 0.95 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, genuineSurplus), true, 'fires on a genuine, earned surplus');
+
+  // …but summer alone is not enough — a starving village in summer still stays quiet.
+  const summerButStarving = fakeContext({
+    season: () => 'summer',
+    statOf: (s) => (s === 'village.foodSecurity' ? 0.3 : 0),
+  });
+  assert.equal(evaluatePredicate(trigger, summerButStarving), false, 'food security is still required');
 });
 
 // ---------------------------------------------------------------- DSL fuzzing: applyEffect
@@ -225,6 +256,40 @@ test('pacing governor: over many seasons, real per-kingdom fire counts land insi
   void kingdomId;
 });
 
+// ---------------------------------------------------------------- special-event levers (start gate + frequency)
+
+const isSpecialFire = (f: { type: string; data: unknown }): boolean =>
+  f.type === 'event.fired' && !(f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.');
+const isTutorialFire = (f: { type: string; data: unknown }): boolean =>
+  f.type === 'event.fired' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.');
+
+test('special events: START GATE keeps them silent until 6 months elapse; ordinary tutorial events are not gated', () => {
+  const k = makeKingdom({ seed: 3 }); // defaults: startGateMonths 6, avgPerMonth 0.5
+  const GATE = 6 * 720; // 6 months × TICKS_PER_MONTH(720) = 4320
+  for (let t = 0; t < GATE; t++) k.kernel.step();
+  assert.ok(k.fired.every((f) => !isSpecialFire(f)), 'no special event may fire before the gate');
+  assert.ok(k.fired.some(isTutorialFire), 'ordinary tutorial events still fire during the gated window');
+
+  for (let t = 0; t < 30 * TICKS_PER_SEASON; t++) k.kernel.step();
+  const special = k.fired.filter(isSpecialFire);
+  assert.ok(special.length > 0, 'special events do fire once past the gate');
+  assert.ok(special.every((f) => f.tick >= GATE), 'every special fire lands at or after the gate tick');
+});
+
+test('special events: FREQUENCY lever scales the cadence and leaves ordinary events untouched', () => {
+  const measure = (avgPerMonth: number) => {
+    const k = makeKingdom({ seed: 5, specialEvents: { startGateMonths: 0, avgPerMonth } });
+    for (let t = 0; t < 40 * TICKS_PER_SEASON; t++) k.kernel.step();
+    return { special: k.fired.filter(isSpecialFire).length, tutorial: k.fired.filter(isTutorialFire).length };
+  };
+  const low = measure(0.5);
+  const high = measure(2);
+  assert.ok(high.special > low.special, `higher avgPerMonth must fire more special events (saw ${low.special} vs ${high.special})`);
+  assert.ok(low.special > 0, 'the default-ish rate still fires special events over a long run');
+  // the frequency lever is special-only — the tutorial (ordinary) count is identical either way
+  assert.equal(low.tutorial, high.tutorial, 'ordinary tutorial events are unaffected by the special frequency lever');
+});
+
 // ---------------------------------------------------------------- commands & mechanics
 
 test('event.choose: rejects unknown event, unknown choice, no pending instance, and unmet requirements', () => {
@@ -264,10 +329,12 @@ test('event.choose: applies effects, resolves the pending instance, and rejects 
 });
 
 test('event.choose: a grantResource/removeResource effect actually moves the village stockpile', () => {
-  const { kernel, submit, world, game, villageId, kingdomId, eventGame } = makeKingdom({ seed: 4 });
+  // this exercises effect application, not the start gate — open the gate so the special
+  // traveling-merchant event can fire promptly (avgPerMonth left at default)
+  const { kernel, submit, world, game, villageId, kingdomId, eventGame } = makeKingdom({ seed: 4, specialEvents: { startGateMonths: 0, avgPerMonth: 1 } });
   let tries = 0;
   let target: { eventId: string; choiceIds: readonly string[] } | undefined;
-  while (target === undefined && tries < 2000) {
+  while (target === undefined && tries < 4000) {
     kernel.step();
     tries++;
     target = eventGame.pendingChoices(kingdomId as never).find((e) => e.eventId === 'base:event.opportunity.traveling-merchant');
@@ -283,6 +350,18 @@ test('event.choose: a grantResource/removeResource effect actually moves the vil
   const stockAfter = world.readObj(game.comps.Stockpile).get(villageId & 0x3fffff);
   assert.ok(Math.abs((stockAfter.get(woodCode) ?? 0) - (woodBefore - 20)) < 1e-9);
   assert.ok(Math.abs((stockAfter.get(toolsCode) ?? 0) - (toolsBefore + 8)) < 1e-9);
+});
+
+test('event def: disasters opt into BLOCKING (halt the sim); routine events do not', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  // genuine crises with real trade-offs pause the game for the decision (M-era)
+  for (const id of ['base:event.disaster.blight', 'base:event.disaster.storm', 'base:event.disaster.fire']) {
+    assert.equal(db.events.get(id)?.blocking, true, `${id} should be blocking`);
+  }
+  // informational/leisurely events must NOT pause — the default is non-blocking
+  for (const id of ['base:event.tutorial.welcome', 'base:event.opportunity.traveling-merchant', 'base:event.unrest.grumbling']) {
+    assert.notEqual(db.events.get(id)?.blocking, true, `${id} should not pause the game`);
+  }
 });
 
 // ---------------------------------------------------------------- tutorial (roadmap M43)
@@ -309,9 +388,19 @@ test('tutorial: all 6 steps are reachable and resolvable in sequence through the
   // 1. welcome — trigger is unconditionally true from day 1
   resolve('base:event.tutorial.welcome', waitForPending('base:event.tutorial.welcome', 5000).choiceIds[0] as string);
 
-  // 2. economy — force foodSecurity healthy, then wait
-  k.world.write(k.popGame.Population).foodSecurity[vi] = 0.9;
-  resolve('base:event.tutorial.economy', waitForPending('base:event.tutorial.economy', 5000).choiceIds[0] as string);
+  // 2. economy — now gated on SUMMER as well as food security (so it can't fire from the day-1
+  // foodSecurity=1.0 seed). This village has no food income, so its EMA would decay before summer
+  // arrives — pin it healthy each tick to isolate the season gate this step now depends on.
+  {
+    let target: { eventId: string; choiceIds: readonly string[] } | undefined;
+    for (let tries = 0; target === undefined && tries < 6000; tries++) {
+      k.world.write(k.popGame.Population).foodSecurity[vi] = 0.9;
+      k.kernel.step();
+      target = k.eventGame.pendingChoices(k.kingdomId as never).find((e) => e.eventId === 'base:event.tutorial.economy');
+    }
+    assert.ok(target !== undefined, 'expected economy to fire once summer arrives with food secure');
+    resolve('base:event.tutorial.economy', target.choiceIds[0] as string);
+  }
 
   // 3/4/5 — season-gated (spring is tick 0; summer/autumn/winter arrive as ticks advance
   // naturally); autumn's tax step needs no extra state, winter's edicts step needs treasury ≥ 20

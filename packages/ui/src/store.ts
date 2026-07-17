@@ -13,6 +13,21 @@ export interface VillageInfo {
   readonly food: number;
   readonly happiness: number;
   readonly goods: Record<string, number>;
+  /** occupant slots (Σ housing.capacity) and per-resource stockpile cap for the
+   * inspector's used/total gauges (M-era). */
+  readonly housing: number;
+  readonly stockCap: number;
+  /** Food's own cap (keep buffer + granary capacity), smaller than stockCap. */
+  readonly foodCap: number;
+  /** Joy breakdown for the Joy panel (M-era), projected from live sim state. */
+  readonly joy?: {
+    readonly level: number;
+    readonly target: number;
+    readonly neutral: number;
+    readonly factors: readonly { readonly label: string; readonly value: number }[];
+    readonly migrationPerDay: number;
+    readonly fertility: number;
+  };
   readonly tier: number;
   readonly taxRate: number;
   readonly cx: number;

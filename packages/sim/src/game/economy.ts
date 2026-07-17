@@ -33,6 +33,10 @@ import type { VillageGameplay } from './villages.js';
 
 export const BASE_STORAGE = 150; // per resource, before storage buildings
 export const OUTBOX_DAYS = 2; // building inventory holds this many days of output before stalling
+// The keep's built-in FOOD larder. Food beyond this needs granary (storage) capacity to be
+// held; without it, the surplus spoils (GDD §3 — a granary is an early priority). Food is the
+// only resource with a reduced base cap; every other good still starts from BASE_STORAGE.
+export const KEEP_FOOD_BUFFER = 50;
 
 /**
  * Read-side of the kingdom's StatModifiers board (M16) — structural so the
@@ -54,9 +58,10 @@ export interface ResourceFlows {
   spoiled: number; // daily decay
   built: number; // construction costs reserved at placement
   settled: number; // carried away by settler parties (M15) — returns count negative
+  looted: number; // sack plunder received into this village's stockpile (M53)
 }
 
-const zeroFlows = (): ResourceFlows => ({ produced: 0, consumed: 0, eaten: 0, spoiled: 0, built: 0, settled: 0 });
+const zeroFlows = (): ResourceFlows => ({ produced: 0, consumed: 0, eaten: 0, spoiled: 0, built: 0, settled: 0, looted: 0 });
 
 /**
  * Per-village, per-resource flow accounting since the last drain. Derived
@@ -130,6 +135,9 @@ export function registerEconomyGameplay(
   const index = (id: number): number => id & 0x3fffff;
   const defOf = (b: { def: ArrayLike<number> }, i: number): BuildingDef =>
     game.ops.buildingDef(b.def[i] as number);
+  const foodCode = game.ops.resourceCode('base:resource.food') as number;
+  // food alone has the smaller keep buffer; every other resource keeps BASE_STORAGE
+  const baseCapFor = (code: number): number => (code === foodCode ? KEEP_FOOD_BUFFER : BASE_STORAGE);
 
   // decaying resources, resolved once (defs are immutable after load)
   const decayByCode: [number, number][] = [];
@@ -163,10 +171,12 @@ export function registerEconomyGameplay(
     ledger.record(index(event.data.village), event.data.resource, 'eaten', event.data.eaten);
   });
 
+  // Σ storage.capacity (granaries/storehouses) per village — the building contribution
+  // ON TOP of each resource's base cap (BASE_STORAGE, or KEEP_FOOD_BUFFER for food).
   const storageCaps = (): Map<number, number> => {
     const caps = new Map<number, number>();
     const b = world.read(BuildingCore);
-    world.query([VillageCore]).forEach((vi) => caps.set(vi, BASE_STORAGE));
+    world.query([VillageCore]).forEach((vi) => caps.set(vi, 0));
     world.query([BuildingCore]).forEach((i) => {
       if ((b.complete[i] as number) !== 1) return;
       const vi = index(b.village[i] as number);
@@ -175,9 +185,10 @@ export function registerEconomyGameplay(
     return caps;
   };
 
-  const limitOf = (vi: number, code: number, storage: number): number => {
+  const limitOf = (vi: number, code: number, buildingStorage: number): number => {
+    const cap = baseCapFor(code) + buildingStorage;
     const limit = world.readObj(StockLimits).tryGet(vi)?.get(code);
-    return limit === undefined ? storage : Math.min(storage, limit);
+    return limit === undefined ? cap : Math.min(cap, limit);
   };
 
   // ---------------- hourly: recipe production (local-first, M14) ----------------
@@ -294,12 +305,11 @@ export function registerEconomyGameplay(
     BuildingInventory,
     ledger,
     capOf(vi: number, code: number): number {
-      const storage = storageCaps().get(vi) ?? BASE_STORAGE;
-      return limitOf(vi, code, storage);
+      return limitOf(vi, code, storageCaps().get(vi) ?? 0);
     },
     capsView(): (vi: number, code: number) => number {
       const caps = storageCaps();
-      return (vi, code) => limitOf(vi, code, caps.get(vi) ?? BASE_STORAGE);
+      return (vi, code) => limitOf(vi, code, caps.get(vi) ?? 0);
     },
     totalOf(vi: number, code: number): number {
       let total = world.readObj(Stockpile).tryGet(vi)?.get(code) ?? 0;

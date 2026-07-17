@@ -9,7 +9,7 @@
   "id": "frontier:march-wardens",
   "name": "March Wardens",
   "version": "1.0.0",
-  "gameVersion": ">=0.1 <1.0",
+  "gameVersion": ">=1.0 <2.0",
   "loadAfter": ["base", "example:autumn-realm"],
   "tags": ["example", "military"],
   "authors": ["A Third-Party Author"],

@@ -5,15 +5,29 @@ elsewhere defers to the tables below.
 
 ## §1. Time Progression
 
-| Unit | Definition | Real time @1× (10 tps) | @8× |
+| Unit | Definition | Real time @1× (1 tps) | @8× |
 |---|---|---|---|
-| Tick | 1 in-game hour | 0.1 s | 12.5 ms |
-| Day | 24 ticks | 2.4 s | 0.3 s |
-| Season | 90 days | ~3.6 min | ~27 s |
-| Year | 4 seasons (360 days) | ~14.4 min | ~1.8 min |
+| Tick | 1 in-game hour | 1 s | 125 ms |
+| Day | 24 ticks | 24 s | 3 s |
+| Season | 90 days | 36 min | 4.5 min |
+| Year | 4 seasons (360 days) | 2.4 h | 18 min |
 
 Fixed timestep; speed changes multiply ticks/second, never tick length (TDD §6). Pause halts the
 sim; UI and camera remain live. Target campaign length: 40–120 in-game years (Vision §2).
+
+**Felt pace is one knob:** `REAL_SECONDS_PER_DAY` (config, default **24**) sets how long an in-game
+day takes at normal speed; the driver derives its rate as `BASE_TICKS_PER_SECOND = TICKS_PER_DAY /
+REAL_SECONDS_PER_DAY` (= 1 tps by default). Because production and growth are expressed **per
+game-day** (recipe `perDay` rates split across `TICKS_PER_DAY`; births/deaths/needs run once per
+game-day) rather than on real-time timers, stretching the day scales the felt speed of everything
+proportionally — with no per-building retuning and no change to tick content (determinism untouched;
+the rate is presentation-only, so goldens are unaffected).
+
+**Starting setup is data-driven** (`DEFAULT_STARTING_SETUP` in `terra.ts`, overridable per compose):
+the player begins with the **keep only** (no pre-built farm/quarry/etc.) and `{ 200 wood, 100 stone,
+50 food }` in the stockpile — the 50 food being the keep's larder (§4). Genesis funds the keep's own
+cost on top of that stock, so the player is left holding exactly the configured resources once the
+centre is placed (conservation intact).
 
 ## §2. Update Pipeline & Frequencies
 
@@ -100,12 +114,62 @@ limits, spoilage applies daily to decaying goods. Daily roll-up computes village
 (production value + trade + happiness factor) feeding taxes. Conservation invariant: every unit of
 resource created/consumed/moved reconciles in the ledger (property-tested, TDD §13).
 
+**Storage caps are per-resource:** `cap(vi, code) = base(code) + Σ storage.capacity` of completed
+storage buildings, then floored by any player-set stock limit. Every good's base is `BASE_STORAGE`
+(150) **except food**, whose base is the keep's small larder `KEEP_FOOD_BUFFER` (50, a config value).
+So a village can hold only 50 food until it raises a **granary** — surplus food has nowhere to go and
+simply can't be stored (haulers can't deposit past the cap, so the farm's overflow stalls in its
+outbox rather than accumulating). This makes a granary an early priority (GDD §3). Food alone carries
+the reduced base; wood/stone/planks/tools are unchanged. The cap is deposit-time (not a retroactive
+purge), so it is fully deterministic.
+
+Production overflows into per-building outboxes (`OUTBOX_DAYS`) which haulers drain into the
+stockpile. **A hauler that reaches a full stockpile must NOT park indefinitely** holding its cargo:
+when a resource's consumers are also saturated it stays capped forever, and a hauler frozen on it is a
+hauler that never carries food again — the classic "starve amid full warehouses" deadlock (haulers
+freeze one by one as each stockpile caps, until the farm outbox strands and the village starves).
+Instead the hauler deposits what fits, **returns the remainder to the source outbox, and goes idle**
+(matter conserved) — free to service the always-hungry food route (`game/logistics.ts`, `TO_DROPOFF`).
+
 ## §5. Population Growth
 
-Daily cohort update: `births = adults × baseRate × foodSecurity × housing × health`,
-`deaths = cohort × mortality(ageBand) × (famine|disease|winter modifiers)`; migration flows toward
-prosperity/reputation and away from unrest/war (bounded per day). Aging promotes cohorts on year
-boundaries. Named individuals resample from cohorts on demand [OQ-2].
+Daily cohort update (`game/population.ts`):
+`births = adults × BIRTH_RATE × foodSecurity × (0.5 + 0.5·shelter) × joyFactor`,
+`deaths = cohort × mortality(ageBand) × (famine|disease|winter modifiers)`. Aging promotes cohorts on
+year boundaries. Named individuals resample from cohorts on demand [OQ-2].
+
+**Joy is a main driver of population (M-era).** `joyFactor = min(2, happiness/JOY_NEUTRAL)` scales
+fertility (a happy village births ~2× a neutral one; a miserable one ≈0). On top of natural
+demographics, a **net-migration** term keys on the same `happiness` stat around the neutral pivot
+`JOY_NEUTRAL = 50`: `migration = total × JOY_MIGRATION_RATE × (happiness − 50)/50`. Above neutral a
+content village **draws settlers in — but only into spare housing** (`min(migration, housingCap − total)`,
+so capacity gates immigration); below neutral an unhappy village **bleeds people who leave** (emigration,
+ungated). Migration is applied pro-rata across cohorts so the age pyramid is preserved, and is fully
+deterministic (a pure function of state — no RNG). `JOY_MIGRATION_RATE`/`BIRTH_RATE` magnitudes are
+tuned against day-length in the pace pass.
+
+The target, fertility, and migration formulas are exported as pure helpers (`joyContributions`,
+`joyTarget`, `joyFertility`, `joyMigration`) that the needs/population systems call with their exact
+expressions — so the UI's Joy panel breaks joy down (Food/Shelter/Services/Edicts contributions,
+net migrants/day, fertility ×) using the very numbers the sim applies, with no second implementation
+to drift. Contribution weights are named constants (`HAPPINESS_FOOD_WEIGHT` 0.7, `HAPPINESS_SHELTER_WEIGHT`
+0.3, `SERVICE_JOY_CAP` 15) rather than inline literals.
+
+**Starvation is lethal.** `foodSecurity` is a daily EMA of the fed fraction — now tracking **real,
+un-floored nutrition** so a village with no food trends toward `0`, which halts births and drives
+famine mortality at full strength (`famine = FAMINE_MORTALITY × (1 − foodSecurity)`): people genuinely
+die when the granaries run dry, a steady decline (bounded per day, never an instant cliff) rather than
+the earlier hard floor. The **forage floor** (`FORAGE_FLOOR`, GDD §4) still applies — but only to
+*morale*: foragers scrape the hedgerows so happiness never cliffs on hunger alone, while *survival*
+sees true nutrition.
+
+`foodSecurity` is **seeded at its maximum `1.0`** so a brand-new village reads as fed rather than
+starving (this seed is load-bearing: `RECRUIT_MIN_FOOD_SECURITY`, `CRISIS_FOOD_SECURITY`, and births
+all key on it). Consequence for content authors: an event/tutorial trigger that keys on *high* food
+security (`foodSecurity gte …`) is trivially true on day 1 from that seed, so it must be **gated** (e.g.
+by season) or it fires from the initial state — the "Bountiful Harvest" (autumn) and tutorial
+"Granaries Are Full" (summer) events both do this. Low-water triggers (`lt …`, e.g. starvation/unrest)
+need no such gate; the max seed never satisfies them.
 
 ## §6. Resource Production & Construction
 
@@ -202,6 +266,24 @@ registered, so deriving the boundary directly avoids a fragile cross-module orde
 "On-trigger" alarm-style events stay out of scope this milestone (every event here is pool/
 cadence-driven; M31's `diplomacy.warDeclared`-style alarm events are the existing precedent for
 that shape, not owned by events.ts).
+
+**Special-event levers (`SpecialEventTuning`, `DEFAULT_SPECIAL_EVENT_TUNING`):** the six flavour
+pools (`opportunity`/`character`/`diplomatic`/`unrest`/`era`/`disaster`) are "special"; the
+`tutorial` pool is ordinary onboarding and is exempt from both levers below. Both are independent,
+data-driven, and overridable per composition via `EventGameplayOptions.specialEvents`:
+- **Start gate** (`startGateMonths`, default **6**): special pools do not roll until
+  `ctx.tick ≥ startGateMonths × TICKS_PER_MONTH` (6 × 720 = 4320 ticks); tutorial is never gated, so
+  a new realm is still guided. Measured: with the default, the first special event lands right at
+  month ~6 and zero fire before it.
+- **Frequency** (`avgPerMonth`, default **0.5** — one every ~two months): special pools' per-tick
+  fire probability is `weight × BASE_*_RATE × (avgPerMonth / SPECIAL_BASELINE_PER_MONTH)`, and they
+  **bypass the pacing governor** (whose boost/dampen would otherwise skew the average and act as soft
+  spacing). `SPECIAL_BASELINE_PER_MONTH` is the measured baseline (~1 special event/month at the raw
+  default rates), so `avgPerMonth = X ⇒ ~X special events/month` — probabilistic, natural month-to-
+  month variance, no hard cap or enforced spacing. Current effective rate BEFORE this change was
+  ~0.9–1.0/month starting from month ~1; AFTER it is ~`avgPerMonth`/month starting at month 6.
+The pacing governor now governs only the ordinary (tutorial) pool; special events set their own
+cadence, so ordinary events are provably untouched by either lever (unit-tested).
 
 ## §11. Determinism & Ordering Guarantees
 

@@ -12,9 +12,14 @@ import {
   registerEconomyGameplay,
   registerKingdomGameplay,
   StatModifiers,
+  INERT_MODIFIERS,
+  BASE_STORAGE,
+  KEEP_FOOD_BUFFER,
+  JOY_NEUTRAL,
+  TICKS_PER_DAY,
   type TerrainAccessor,
 } from '@crowns/sim';
-import { TerritoryEmitter } from './buildingEmitter.js';
+import { TerritoryEmitter, BuildingEmitter, VillageStatsEmitter } from './buildingEmitter.js';
 
 const plain: TerrainAccessor = {
   width: 128,
@@ -60,6 +65,66 @@ function makeTwoKingdoms() {
 
   return { kernel, world, game, kingdomGame };
 }
+
+test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and live state (M-era)', () => {
+  const kernel = new Kernel(3);
+  const world = new World(128);
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const game = registerVillageGameplay(kernel, world, db, plain, {
+    'base:resource.wood': 500, 'base:resource.stone': 200, 'base:resource.food': 100,
+  });
+  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 0, adults: 20, elders: 0 });
+  registerEconomyGameplay(kernel, world, db, game);
+  kernel.attachGuard(world);
+
+  const submit = (type: string, payload: unknown): void => { kernel.submit({ type, issuer: 1, payload }); kernel.step(); };
+  submit('village.found', { x: 40, y: 40, name: 'Cap' });
+  let vid = -1;
+  world.query([popGame.Population]).forEach((_i, e) => (vid = e as number));
+
+  const placeNear = (defId: string): void => {
+    const def = db.buildings.get(defId);
+    assert.ok(def);
+    for (let r = 2; r <= 10; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      if (!game.ops.validatePlacement(def, 40 + dx, 40 + dy, vid as never).ok) continue;
+      submit('village.build', { villageId: vid, def: defId, x: 40 + dx, y: 40 + dy });
+      return;
+    }
+    assert.fail(`no spot for ${defId}`);
+  };
+  placeNear('base:building.house');   // housing.capacity 5
+  placeNear('base:building.granary'); // storage.capacity 400
+  for (let t = 0; t < 6 * TICKS_PER_DAY; t++) kernel.step(); // let both finish construction
+
+  // BuildingEmitter surfaces each def's own capacity contribution, generically.
+  const recs = new BuildingEmitter(world, game).full();
+  const house = recs.find((r) => r.name === 'House');
+  const granary = recs.find((r) => r.name === 'Granary');
+  assert.equal(house?.housingCapacity, 5, 'house projects its housing capacity');
+  assert.equal(house?.storageCapacity, 0, 'a house has no storage capacity');
+  assert.equal(granary?.storageCapacity, 400, 'granary projects its storage capacity');
+
+  // VillageStatsEmitter surfaces the POOLED village totals used for the used/total gauges.
+  const stats = new VillageStatsEmitter(world, game, popGame.Population, db, INERT_MODIFIERS).delta();
+  const v = stats.find((s) => s.name === 'Cap');
+  assert.ok(v, 'village stats emitted');
+  assert.equal(v.housing, 5, 'village housing total = Σ completed housing capacity');
+  assert.equal(v.stockCap, BASE_STORAGE + 400, 'village stock cap = BASE_STORAGE + Σ completed storage capacity');
+  assert.equal(v.foodCap, KEEP_FOOD_BUFFER + 400, 'food cap = keep buffer + granary capacity (smaller base than other goods)');
+
+  // Joy breakdown is projected from live state (M-era): food + shelter factors present,
+  // level in range, neutral pivot exposed, and the population effect surfaced.
+  assert.ok(v.joy, 'joy breakdown emitted');
+  assert.equal(v.joy.neutral, JOY_NEUTRAL);
+  assert.ok(v.joy.level >= 0 && v.joy.level <= 100, 'joy level in 0..100');
+  const labels = v.joy.factors.map((f) => f.label);
+  assert.deepEqual(labels.slice(0, 2), ['Food', 'Shelter'], 'food and shelter are the base drivers');
+  // no active edicts and no joy auras here → only the two base factors
+  assert.equal(v.joy.factors.length, 2, 'no service auras or edicts → just food + shelter');
+  assert.equal(typeof v.joy.migrationPerDay, 'number');
+  assert.ok(v.joy.fertility >= 0 && v.joy.fertility <= 2, 'fertility multiplier in 0..2');
+});
 
 test('TerritoryEmitter: single-kingdom composition emits nothing (VillageOwner undefined)', () => {
   const kernel = new Kernel(1);

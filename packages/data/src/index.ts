@@ -20,6 +20,7 @@ export {
   type DefKindSpec,
 } from './mods.js';
 export { parseVersion, compareVersions, satisfies, type Version } from './semver.js';
+export { castleTemplateValidator, expandPlanEntry, type CastleTemplateDef, type CastleTemplatePlanEntry } from './castleTemplates.js';
 export { parseLocaleTable, loadLocaleTable } from './locale.js';
 export { resourceValidator, buildingValidator, type ResourceDef, type BuildingDef, type Recipe, type Yield } from './buildings.js';
 export { edictValidator, MODIFIER_TARGETS, type EdictDef, type ModifierDef, type ModifierTarget } from './edicts.js';

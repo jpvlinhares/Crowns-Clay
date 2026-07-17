@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import type { GameEvent } from '@crowns/protocol';
 import { UIStore, LEDGER_LOG_CAP } from './store.js';
 import { NotificationQueue, VISIBLE_CAP, LOG_CAP } from './notifications.js';
+import { PanelHost } from './panels.js';
 
 const village = (id: number, over: Partial<Parameters<UIStore['applyVillageStats']>[0][number]> = {}) => ({
   id,
@@ -18,6 +19,9 @@ const village = (id: number, over: Partial<Parameters<UIStore['applyVillageStats
   food: 100,
   happiness: 60,
   goods: {},
+  housing: 45,
+  stockCap: 550,
+  foodCap: 450,
   tier: 1,
   taxRate: 2,
   cx: id * 30,
@@ -82,6 +86,46 @@ test('store: ledger appends newest-last, caps at LEDGER_LOG_CAP, and resets on a
 
   store.applyFull({ buildings: [], edicts: [], events: [] }, undefined);
   assert.deepEqual(store.state.ledger, []);
+});
+
+// ---------------- panel host (single-open per side) ----------------
+
+// Minimal DOM stub: PanelHost only needs createElement + these element bits. The
+// full shell is exercised in the browser; the single-open INVARIANT lives here.
+class FakeEl {
+  className = '';
+  textContent = '';
+  title = '';
+  readonly dataset: Record<string, string> = {};
+  private readonly classes = new Set<string>();
+  readonly classList = {
+    add: (c: string) => void this.classes.add(c),
+    remove: (c: string) => void this.classes.delete(c),
+    contains: (c: string) => this.classes.has(c),
+  };
+  setAttribute(): void {}
+  append(): void {}
+  addEventListener(): void {}
+}
+
+test('panels: opening one closes the others (single-open per side)', () => {
+  (globalThis as unknown as { document: unknown }).document = { createElement: () => new FakeEl() };
+  const host = new PanelHost(new FakeEl() as unknown as HTMLElement, new FakeEl() as unknown as HTMLElement);
+  const a = host.register('a', 'A', '🅰');
+  const b = host.register('b', 'B', '🅱');
+  const c = host.register('c', 'C', '🅲');
+
+  a.open();
+  assert.ok(a.isOpen() && !b.isOpen() && !c.isOpen(), 'first open shows only A');
+
+  b.open();
+  assert.ok(b.isOpen() && !a.isOpen(), 'opening B replaces A — one panel per side');
+
+  c.toggle(); // toggle-open must also honour single-open
+  assert.ok(c.isOpen() && !b.isOpen() && !a.isOpen(), 'toggling C open closes B');
+
+  c.toggle(); // toggle-closed leaves the dock empty
+  assert.ok(!a.isOpen() && !b.isOpen() && !c.isOpen(), 'nothing open after closing the last');
 });
 
 // ---------------- notifications (GDD §1 severity tiers) ----------------

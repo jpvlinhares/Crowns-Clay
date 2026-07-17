@@ -10,10 +10,12 @@
  */
 import type { Rng } from '@crowns/core';
 
-export type FactKind = 'armyStrength' | 'treasury' | 'techLevel' | 'villageState' | 'intent';
+// 'garrisonStrength' (M54, ADR-4 §4) is APPENDED — pack() stores kinds positionally,
+// so appending keeps every pre-M54 save's fact indexes decoding unchanged.
+export type FactKind = 'armyStrength' | 'treasury' | 'techLevel' | 'villageState' | 'intent' | 'garrisonStrength';
 export type FactSource = 'scout' | 'trade' | 'envoy' | 'battle' | 'rumor';
 
-const FACT_KINDS: readonly FactKind[] = ['armyStrength', 'treasury', 'techLevel', 'villageState', 'intent'];
+const FACT_KINDS: readonly FactKind[] = ['armyStrength', 'treasury', 'techLevel', 'villageState', 'intent', 'garrisonStrength'];
 const FACT_SOURCES: readonly FactSource[] = ['scout', 'trade', 'envoy', 'battle', 'rumor'];
 const FIELDS_PER_FACT = 6;
 

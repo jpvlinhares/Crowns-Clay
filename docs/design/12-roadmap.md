@@ -1,7 +1,10 @@
-# 12 — Development Roadmap (48 Milestones + Integration Revision)
+# 12 — Development Roadmap (48 Milestones to 1.0 + Post-1.0 Phase 8)
 
 > **Revision R1 (M47.5 audit, 2026-07-11):** Phase 7 is split by four inserted integration
 > milestones (M47.6–M47.9) before M48. See the change record at the end of this document.
+>
+> **Revision R2 (ADR-4 ratification, 2026-07-15):** Phase 8 — The Castle (M49–M54) appended as
+> planned POST-1.0 scope. Nothing before M48 changes. See the change record.
 
 **Conventions applying to every milestone (stated once, binding always):**
 
@@ -130,6 +133,123 @@ harness-green.
 |---|---|---|---|
 | M48 | Release candidate → 1.0 | freeze, release notes, mod docs final, launch build — **entry gate: M47.6–M47.9 complete**; SC-1..6 verified against the unified campaign composition, not the sandbox | external RC playtest: SC-1..6 verified; ship |
 
+## Phase 8 — The Castle (M49–M54, post-1.0 — added by revision R2)
+
+Chartered by ADR-4 (doc 15, ratified 2026-07-15 with amendments). **1.0 ships the existing
+castle/siege stack unchanged — nothing in this phase precedes M48.** Entry gate: 1.0 shipped ·
+OQ-9's Phase-8 decision resolved (doc 14 — OQ-11 already CLOSED 2026-07-15: vassalage-first
+defeat, permadeath as the ironman opt-in). The M12 playability rule and ADR-3's
+composition rule bind here as everywhere: each milestone lands in the shipping campaign with a
+player surface, not merely harness-green.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
+| M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
+
+**M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
+Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
+on current-proximity contact with the target capital or by a besieging army (the camp is looking
+at the walls), hash-folded and saved (optional section). Garrison strength is NEVER truth: a
+`garrisonStrength` fact (appended FactKind — pack indexes stay save-compatible) through the same
+belief sensors, and the PLAYER now carries a KnowledgeModel like every AI (kingdom 0's UI reads
+its own noisy beliefs — the fog is symmetric in both directions). AI attackers consult
+`estimateAssaultResistance` over snapshot + belief via the military manager's `assaultAdvice`
+hook (assault / hold / lift at `ASSAULT_HOPELESS_FRACTION`); the battle report tells the
+belief-error story ("believed ~40; met 85" — `believedGarrison`/`actualGarrison` on
+`siege.assaultResolved`). The Castle panel gains the enemy-intel section (sepia-washed stale
+canvas, "as of day N", believed garrison). Personality-tag template mapping ships (martial →
+motte, economy → concentric, schemer → ridge-line, via TEMPLATE tags). The new
+`bench-assault.ts` matrix (`npm run bench:assault`) drove three real fixes: (1) whole-man
+casualty ROUNDING starved sustained chip damage (36 tower volleys into 60 men = zero loss; clash
+winners fought free) — replaced by a per-unit FRACTIONAL ACCUMULATOR that carries remainders
+between volleys, integrating chips into real men with no u16 hazard; (2) the WALK-PAST exploit —
+a raid slipping past a thinly-spread garrison took the keep bare-handed — closed by the
+LAST-STAND RALLY (surviving posts add their defence to the keep verdict; positioning still pays
+because posts on the approach bleed the column earlier, under tower fire); (3) the origin-
+dominance metric judges per-ORIGIN aggregates over contested configs with geography-sealed
+origins masked out (a blocked approach is ADR-4 §5 pricing at its limit, not an artefact).
+Bands (2 seeds): garrisoned templates repel 20-man raids at every origin; keep-only falls to a
+host from every reachable origin; concentric > motte > ridge-line in cost-to-crack; max origin
+deviation 34% (top-favoured across the four marginal configs — a content watch item, within
+tolerance). DECISIONS RECORDED: combat.ts's own u16 rounding stays PINNED (field battles are
+symmetric, its balance corpus is recorded; revisit only on cross-engine or matrix evidence) ·
+geography-priced origins are DELIVERED EMERGENTLY by the terrain-bearing maps (the matrix
+quantifies them; no explicit pricing mechanic needed) · AI-vs-AI conquest pacing (wars ending
+before capital sieges are mounted) is inherited pre-Phase-8 war-cadence tuning, out of Phase 8's
+scope — carried as a 1.x balance backlog item, not an open Phase 8 obligation.
+
+**M53 scoping note (shipped 2026-07-17):** capital death activates exactly as OQ-9 item 2 ruled —
+when a defence-layer capital falls (assault OR starvation: starving a capital out cannot dodge the
+rule), the siege FREEZES instead of flipping ownership and a `CAPITULATION_WINDOW_DAYS` (5) window
+opens. Vassalage-first (OQ-11): an AI loser decides through the SHIPPED `evaluateVassalageDeal`
+with its war exhaustion floored at `CAPITAL_FALLEN_EXHAUSTION_FLOOR` (40 — the keep falling IS
+hopelessness), so grinding wars end in submission while a lightning war can find a defiant court;
+a human loser submits via `kingdom.proposeVassalage`, a human attacker gets
+`siege.capitulationOffered` and accepts by `siege.acceptCapitulation` — silence until the deadline
+is refusal. Capitulation spares the capital (owner unchanged; fealty + M35 tribute are the price);
+refusal/expiry/`ironman` is DESTRUCTION: treasury transfers whole (ledger kind `loot`), goods carry
+into the attacker's capital under `capOf` with the excess BURNED (`siege.sacked` reports both), the
+capital is razed (`VillageOps.raze` — the twelfth-hour mechanism, policy stays in succession), the
+REALM IS SEIZED (remaining villages pass to the conqueror via ordinary `village.occupied` events —
+a decision the docs left open, resolved here: a dead kingdom must not linger as a zombie), armies
+dissolve, and the defence layer resets to keep-only ground. New lords rise `NEW_LORD_COOLDOWN_DAYS`
+(720) after ANY kingdom death near the slot's genesis heartland, politically blank-slated
+(diplomacy reset, defeat mark cleared, founding treasury restored), suppressed while any survivor
+sits at ≥80% of a victory track so conquest stays winnable. Occupation now EXEMPTS layer capitals
+(the countdown was a rule bypass) and the AI military manager targets/assaults them spatially —
+all switched by ONE `succession` flag so the harness wrapper (`succession: false`) keeps pinned
+pre-M53 semantics. Siege save section v2 (+`fallenDeadline`, v1 migration); optional `succession`
+section; no golden or corpus re-record was needed (the empty-state hash folds nothing). The
+50-year T matrix caught a LATENT M52 crash: military-upkeep's deserter despawn detaches whatever
+rides on the unit, and a broke kingdom's POSTED garrison tripped the access guard — fixed with
+kingdom.ts's M34 extension-point pattern (`registerUnitExtension`; defence.ts declares
+DefencePost). The matrix also confirms AI-vs-AI wars currently end (forced peace) without a
+single capital siege being mounted — verified IDENTICAL under pre-M53 rules (same winner, same
+tick), so it is inherited war pacing, not an M53 regression; it is squarely M54's balance-matrix
+question ("conquest reachable in AI hands", alongside its owned tuning constants).
+
+**M52 scoping note (shipped 2026-07-16):** castle templates ship as the ELEVENTH def kind
+(`defs/castle-templates/`, three archetypes: motte / concentric / ridge-line) — doc 07 §5's
+"template-based skeletons" finally load-bearing. Terrain adaptation is the skip rule: plan tiles
+the local ground refuses (rock/water/occupied) are simply not built — nature already walls them.
+Template choice is a seeded per-kingdom pick over the sorted ids (personality-TAG mapping is M54
+content polish if the matrix wants it); the manager builds one structure and posts one idle unit
+per day, with a stone reserve (`DEFENCE_STONE_RESERVE`) so fortification never starves ordinary
+construction, and the M51 draft rule releases garrison to army assembly automatically. The
+harness wrapper opts out (`aiDefence: false` — M22–M46 outcomes pinned). Two resolver findings
+fixed while testing at scale: fractional casualties written to the u16 `Unit.count` truncated a
+whole man per write (assault now applies WHOLE-man casualties; combat.ts carries the same latent
+truncation but its balance is pinned — flagged for M54), and tower fire re-scaled count-relative
+(a volley bites a 20-man raid, chips a 100-man host) so towers deter raids without melting hosts.
+
+**M51 scoping note (shipped 2026-07-16):** the resolver models the army as ONE column walking
+the flow field; garrison posts within `GARRISON_SUPPORT_RANGE` (2) of a contact join a single
+defending line (piecemeal picket duels let a concentrated column eat a garrison unit-by-unit —
+massing is the point of prepared ground). Capitals with a standing layer are SIEGE-ELIGIBLE
+without world-map walls (`SpatialAssaultHook.applicable` — ADR-4 §6's castle-ness derivation);
+non-capital castles keep the legacy breach-gated path verbatim. Interim loss rules unchanged
+per doc 14 OQ-9 item 2: a spatial capture is still an owner flip (capital-death is M53). The
+"battle-report replay" ships as a static trace overlay on the Castle panel's map (walk path +
+breach marks) — animation is M54 polish if wanted. Geography-priced origins (ADR-4 §5's second
+lever) are deferred to M54's balance matrix; origin is player-picked or derived from the
+besieger's true approach. Tower fire consumes the `rangedArc` content field (inert since M29 —
+its designed payoff). Fixed in passing, found by the new tests: `siege.captured` never updated
+the composition's plain ownership index or the capital re-binding (a latent M47.8 gap — assault
+captures were rare enough that nothing tripped it); both now subscribe to it.
+
+**M50 scoping note (shipped 2026-07-16):** the defence view ships as a 2D-canvas scene INSIDE the
+Castle panel, not a second `PixiRenderer` instance — a 100×100 static grid redrawn only when the
+`panels` projection changes needs no WebGL context, no chunk cache, and no per-frame work (the
+fps-gate leg of the T objective holds by construction: zero frame-loop cost). "Snapshot layer
+routing" landed as a `defence` block on the existing `PlayerPanels` projection rather than a new
+message kind, and the "view switch" is the PanelHost's own single-open toggle. Revisit a real
+second scene at M51 only if assault-trace playback outgrows the canvas.
+| M51 | Spatial assault resolution | deterministic flow-field resolver replacing `siege.assault`'s flat path (reuses combat.ts morale math + fortification HP math); keep points threshold; compact trace + battle-report replay; the warning chain (blocking auto-pause `siege.begun` notice deep-linking to the defence view); player bombard-target picker and sortie surface — closing the M47.7 gap (`siege.setTarget` is AI-only today and `siege.sortie` has no caller in the shipping game) | same seed + layouts + armies ⇒ identical outcome and trace across Chrome/Firefox/Node; GDD §8 siege-pacing bands still hold end-to-end |
+| M52 | AI defence | doc 07 §5 archetype templates (motte/concentric/ridge-line) as Mod Zero content; deterministic terrain adaptation; incremental build through the existing build-queue discipline; plan-driven garrison assignment from the shared soldier pool | harness: every AI kingdom's layout repels the baseline raid its economy tier should repel; templates visibly differ across terrain seeds |
+| M53 | Loss, loot & succession | capital-death rule per reopened OQ-9; defeat outcome per OQ-11's decision (vassalage-first via the shipped M35 mechanics; permadeath under the `ironman` flag); loot transfer under `capOf` with excess burned, ledger-explicit; new-lords-rising against world attrition | 50-year AI-vs-AI campaigns: kingdom count stays within the design band (vassal kingdoms persist; only refused capitulations destroy); conquest victory still reachable |
+| M54 | Intel & balance | stale-snapshot structure preview keyed to last scouting contact; garrison strength via ADR-2 `armyStrength` beliefs (the knowledge model's second consumer); AI attackers preview through the same fog queries; dedicated attack/defence balance matrix | balance bands hold across seeds × difficulties; no single-origin dominant strategy; belief-error stories legible in the battle report |
+
 ---
 
 ## Dependency & Risk Notes
@@ -168,3 +288,23 @@ harness-green.
   real terrain (R-B), unmeasured full-composition performance (R-C), UI scope owned by no
   milestone (R-D). Golden fixtures will be intentionally re-recorded at M47.6 per TDD §13's
   existing policy.
+
+**R2 — Phase 8 ("The Castle") appended as post-1.0 scope (ratified 2026-07-15, ADR-4).**
+
+- **Change:** six milestones (M49–M54, "Phase 8 — The Castle") appended after M48 as planned
+  POST-1.0 scope: a per-kingdom castle-defence layer replacing the on-map defence graph, spatial
+  assault resolution inside the existing siege phases, templated AI defence, and the
+  loss/loot/succession/intel work around it. M48 and everything before it are unchanged —
+  1.0 ships the existing castle/siege stack.
+- **Why:** ADR-4 (doc 15) — the honest realization of Vision USP-4, deliberately kept out of 1.0
+  by the M47.5 audit's own logic: a phase-sized combat rework at M47.9 would reopen M45 (content),
+  M46 (balance), and M47 (hardening).
+- **Affected documents:** this doc (12); doc 14 (OQ-9 reopened with pre-M48 groundwork decisions;
+  OQ-11 added, owner-decided, due at Phase 8 entry); doc 15 (ADR-4 PROPOSED → ACCEPTED with
+  amendments, defeat outcome carved out). GDD §7 and doc 07 §5 rewrites are deferred to Phase 8
+  entry — no design-doc change before then.
+- **Affected milestones:** none before M48; M48's entry gate is untouched. OQ-9's item 1 (make
+  "capital" explicit, persisted state) is a pre-M48 DECISION, not scheduled work — if taken, it
+  lands inside M48's freeze scope or is explicitly declined in the OQ-9 record.
+- **Risk impact:** none to 1.0. Codifies post-1.0 scope so the defence layer reads as planned
+  work rather than a gap.

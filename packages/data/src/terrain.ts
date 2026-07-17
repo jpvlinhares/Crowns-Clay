@@ -17,6 +17,7 @@ import { techValidator, ERA_ORDER, type TechDef } from './techs.js';
 import { eventValidator, type EventDef, type EffectExpr, type PredicateExpr } from './events.js';
 import { traitValidator, type TraitDef } from './traits.js';
 import { personalityValidator, type AIPersonalityDef } from './personalities.js';
+import { castleTemplateValidator, type CastleTemplateDef } from './castleTemplates.js';
 import { audioCueValidator, musicPlaylistValidator, type AudioCueDef, type MusicPlaylistDef } from './audio.js';
 
 export interface TerrainDef {
@@ -68,6 +69,8 @@ export class DefinitionDatabase {
     readonly personalities: ReadonlyMap<string, AIPersonalityDef>,
     readonly audioCues: ReadonlyMap<string, AudioCueDef>,
     readonly musicPlaylists: ReadonlyMap<string, MusicPlaylistDef>,
+    /** M52 (doc 07 §5): AI castle layout archetypes for the defence layer. */
+    readonly castleTemplates: ReadonlyMap<string, CastleTemplateDef>,
   ) {}
 
   /** Load a single-mod content set (convenience; delegates to the mod loader). */
@@ -93,9 +96,11 @@ export class DefinitionDatabase {
     const personalities = [...(defs.get('personality') as Map<string, unknown>).values()] as AIPersonalityDef[];
     const audioCues = [...(defs.get('audioCue') as Map<string, unknown>).values()] as AudioCueDef[];
     const musicPlaylists = [...(defs.get('musicPlaylist') as Map<string, unknown>).values()] as MusicPlaylistDef[];
+    const castleTemplates = [...(defs.get('castleTemplate') as Map<string, unknown>).values()] as CastleTemplateDef[];
     return {
       db: DefinitionDatabase.fromValidated(
         terrain, overlays, resources, buildings, edicts, units, techs, events, traits, personalities, audioCues, musicPlaylists,
+        castleTemplates,
       ),
       report,
     };
@@ -115,6 +120,7 @@ export class DefinitionDatabase {
     personalities: readonly AIPersonalityDef[] = [],
     audioCues: readonly AudioCueDef[] = [],
     musicPlaylists: readonly MusicPlaylistDef[] = [],
+    castleTemplates: readonly CastleTemplateDef[] = [],
   ): DefinitionDatabase {
     // referential integrity: unique ids, exact biome coverage, overlay kinds
     const byId = new Map<string, TerrainDef>();
@@ -317,12 +323,27 @@ export class DefinitionDatabase {
     if (integrity.length > 0) {
       throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
     }
+    // M52: castle templates — plan entries must name real DEFENSIVE buildings
+    const templateSeen = new Set<string>();
+    for (const ct of castleTemplates) {
+      if (templateSeen.has(ct.id)) integrity.push(`duplicate castle-template id '${ct.id}'`);
+      templateSeen.add(ct.id);
+      for (const [ei, entry] of ct.plan.entries()) {
+        const b = buildingMap.get(entry.def);
+        if (b === undefined) integrity.push(`castle-template '${ct.id}' plan[${ei}] references unknown building '${entry.def}'`);
+        else if (b.defense === undefined) integrity.push(`castle-template '${ct.id}' plan[${ei}] building '${entry.def}' is not defensive`);
+      }
+    }
+    if (integrity.length > 0) {
+      throw new Error(`content integrity failed:\n  ${integrity.join('\n  ')}`);
+    }
     const audioCueMap = new Map(audioCues.map((c) => [c.id, c]));
     const musicPlaylistMap = new Map(musicPlaylists.map((p) => [p.id, p]));
+    const castleTemplateMap = new Map(castleTemplates.map((ct) => [ct.id, ct]));
 
     return new DefinitionDatabase(
       byId, byCode, overlayMap, resourceMap, buildingMap, edictMap, unitMap, techMap, eventMap, traitMap, personalityMap,
-      audioCueMap, musicPlaylistMap,
+      audioCueMap, musicPlaylistMap, castleTemplateMap,
     );
   }
 }
@@ -341,4 +362,5 @@ export const TERRAIN_KINDS: readonly DefKindSpec<unknown>[] = [
   { kind: 'personality', pathPrefix: 'defs/personalities/', validator: personalityValidator as Validator<unknown> },
   { kind: 'audioCue', pathPrefix: 'defs/cues/', validator: audioCueValidator as Validator<unknown> },
   { kind: 'musicPlaylist', pathPrefix: 'defs/playlists/', validator: musicPlaylistValidator as Validator<unknown> },
+  { kind: 'castleTemplate', pathPrefix: 'defs/castle-templates/', validator: castleTemplateValidator as Validator<unknown> },
 ];

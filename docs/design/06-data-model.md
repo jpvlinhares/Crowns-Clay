@@ -52,6 +52,11 @@ BuildingDef { id, name, desc, category: housing|production|service|military|cast
               recipes?: [{ inputs: Yield[], outputs: Yield[] }],
               serviceAura?: { need: NeedType, strength: number, radius: number },
               housing?: { capacity: number, comfort: number },
+              storage?: { capacity: number }, // adds to every resource's per-village stockpile cap.
+              // Storage cap per (village, resource) = base + Σ storage.capacity of completed buildings.
+              // The base is BASE_STORAGE (150) for all goods EXCEPT food, whose base is the keep's
+              // KEEP_FOOD_BUFFER (50, config): a village stores only 50 food until it builds a
+              // granary (M-era, GDD §3) — surplus can't be deposited past the cap.
               military?: { recruits: Id<UnitDef>[], drillRate: number, garrisonCap: number },
               // M25 delta: `military.recruits` implemented (barracks gates recruitment
               // by def id). M28 delta: `garrisonCap` implemented as content (keep/tower)
@@ -440,7 +445,15 @@ Characters, M34; `startEvent` needs an event-chaining scheduler this milestone d
 `PredicateExpr` (doc 09 §4) is a small closed vocabulary — `all`/`any`/`not`, `season`,
 `hasEdict`, `hasTech` (ties directly into M32's `techsKnown`), `chance`, and `stat` with five
 comparators — validated at content load (`terrain.ts`'s `DefinitionDatabase`, alongside DAG-
-style referential checks: `hasEdict`/`hasTech`/resource references must be real). `EventState`
+style referential checks: `hasEdict`/`hasTech`/resource references must be real). **Choice-outcome legibility (outcome projection):** a choice's full trade-off is already
+described by its `effects`, so no separate "reason/cost" field is authored. `simPort.ts`'s catalog
+projection derives a per-choice signed outcome list from those effects
+(`packages/app/src/eventOutcomes.ts` — grant/remove resource, treasury/stat `add`/`mul` nudges,
+`opinionChange`→"standing") and the event dialog renders it under each button as colour-coded
+`gain`/`loss`/`neutral` chips, so EVERY option states what the player gains or suffers (a no-effect
+choice shows "No effect"). It's optional on the wire (`CatalogEvent.choices[].outcomes`) and covers
+modded events automatically; the `command` escape-hatch is skipped (no reliable human description).
+`EventState`
 is a plain relational class keyed by kingdom EntityId (same reasoning as `DiplomacyState`/
 `ResearchState`), tracking fired-history (cooldowns, `once`-flags), per-season fire counts (the
 pacing governor's input), and pending (unanswered) event instances — `kingdom.setActiveResearch`-

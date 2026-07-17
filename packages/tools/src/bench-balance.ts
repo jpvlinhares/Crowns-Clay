@@ -68,6 +68,11 @@ interface RunResult {
   readonly warsDeclared: number;
   readonly warsEnded: number;
   readonly occupations: number;
+  /** M53 loss-chain telemetry (the M53 T objective): vassal kingdoms persist, only
+   * refused capitulations destroy, new banners refill the map. */
+  readonly capitulations: number;
+  readonly destructions: number;
+  readonly risings: number;
 }
 
 function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): RunResult {
@@ -110,6 +115,12 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       if (e.data.accepted) warsEnded++;
     });
     composed.kernel.subscribe('village.occupied', () => occupations++);
+    let capitulations = 0;
+    let destructions = 0;
+    let risings = 0;
+    composed.kernel.subscribe('kingdom.capitulated', () => capitulations++);
+    composed.kernel.subscribe('kingdom.destroyed', () => destructions++);
+    composed.kernel.subscribe('kingdom.newLordRisen', () => risings++);
 
     composed.kernel.step(); // genesis
     const totalTicks = YEARS * TICKS_PER_YEAR;
@@ -141,6 +152,9 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       warsDeclared,
       warsEnded,
       occupations,
+      capitulations,
+      destructions,
+      risings,
     };
   } catch (error) {
     return {
@@ -155,6 +169,9 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       warsDeclared: 0,
       warsEnded: 0,
       occupations: 0,
+      capitulations: 0,
+      destructions: 0,
+      risings: 0,
     };
   }
 }
@@ -181,6 +198,7 @@ for (const level of DIFFICULTY_LEVELS) {
       console.log(
         `OK     ${level.padEnd(6)} seed=${seed} k=${kc} · ${outcome} · eliminated=${r.kingdomsEliminated}/${kc} · ` +
           `wars ${r.warsDeclared}/${r.warsEnded} ended · occupations ${r.occupations} · ` +
+          `capitulated ${r.capitulations} · destroyed ${r.destructions} · risen ${r.risings} · ` +
           `pop=[${r.finalPopulations.map((p) => p.toFixed(0)).join(',')}] (${ms}ms)`,
       );
     }

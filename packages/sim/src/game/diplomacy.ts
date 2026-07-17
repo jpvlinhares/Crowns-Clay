@@ -433,6 +433,22 @@ export class DiplomacyState {
     return lord;
   }
 
+  /** M53 (new-lords-rising): a fresh banner inherits NOTHING of the dead kingdom's politics —
+   * every pairwise relation, the global reputation, and any vassalage (as vassal or lord)
+   * involving this kingdom id is erased back to the blank-slate defaults. */
+  resetKingdom(kingdomId: number): void {
+    const suffix = `:${kingdomId}`;
+    const prefix = `${kingdomId}:`;
+    for (const key of [...this.relations.keys()]) {
+      if (key.startsWith(prefix) || key.endsWith(suffix)) this.relations.delete(key);
+    }
+    this.reputation.delete(kingdomId);
+    this.vassalOf.delete(kingdomId);
+    for (const [vassal, lord] of [...this.vassalOf.entries()]) {
+      if (lord === kingdomId) this.vassalOf.delete(vassal);
+    }
+  }
+
   /** Sorted-key fold — deterministic regardless of mutation order (stateHash requirement). */
   fold(fold: (v: number) => void): void {
     for (const key of [...this.relations.keys()].sort()) {

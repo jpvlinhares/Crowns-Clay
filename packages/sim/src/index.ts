@@ -26,7 +26,7 @@ export {
   type EntityInspection,
 } from './ecs.js';
 export { EventBus } from './eventBus.js';
-export { TickDriver, BASE_TICKS_PER_SECOND, type Speed, type DriverOptions } from './driver.js';
+export { TickDriver, BASE_TICKS_PER_SECOND, REAL_SECONDS_PER_DAY, type Speed, type DriverOptions } from './driver.js';
 export {
   CalendarSystem,
   calendarFromTick,
@@ -106,6 +106,17 @@ export {
   FORAGE_FLOOR,
   BIRTH_RATE,
   FAMINE_MORTALITY,
+  JOY_NEUTRAL,
+  JOY_MIGRATION_RATE,
+  HAPPINESS_FOOD_WEIGHT,
+  HAPPINESS_SHELTER_WEIGHT,
+  SERVICE_JOY_CAP,
+  HAPPINESS_DRIFT_TARGET,
+  joyContributions,
+  joyTarget,
+  joyFertility,
+  joyMigration,
+  type JoyBreakdown,
   type PopulationGameplay,
   type PopulationComponent,
   type StartingPopulation,
@@ -115,6 +126,7 @@ export {
   registerEconomyGameplay,
   ResourceLedger,
   BASE_STORAGE,
+  KEEP_FOOD_BUFFER,
   OUTBOX_DAYS,
   type EconomyGameplay,
   type ResourceFlows,
@@ -254,7 +266,30 @@ export {
   STARVATION_THRESHOLD,
   STARVATION_SURRENDER_DAYS,
   type SiegeGameplay,
+  type CapitalFallHook,
 } from './game/siege.js';
+export {
+  registerDefenceIntel,
+  IntelState,
+  estimateAssaultResistance,
+  ESTIMATE_STRENGTH_PER_MAN,
+  ESTIMATE_TOWER_RESISTANCE,
+  ESTIMATE_WALL_RESISTANCE,
+  ASSAULT_HOPELESS_FRACTION,
+  type IntelGameplay,
+  type IntelSnapshot,
+  type IntelStructureRec,
+} from './game/intel.js';
+export {
+  registerSuccessionGameplay,
+  SuccessionState,
+  CAPITULATION_WINDOW_DAYS,
+  CAPITAL_FALLEN_EXHAUSTION_FLOOR,
+  NEW_LORD_COOLDOWN_DAYS,
+  NEW_LORD_SEARCH_RADIUS,
+  type SuccessionGameplay,
+  type SuccessionOptions,
+} from './game/succession.js';
 export {
   registerCastleGameplay,
   computeEnclosure,
@@ -264,6 +299,42 @@ export {
   type DefenseNode,
   type FortificationComponent,
 } from './game/castles.js';
+export {
+  registerDefenceGameplay,
+  KEEP_DEF,
+  DEFENCE_KEEP_CENTRE,
+  type DefenceGameplay,
+  type DefenceMapState,
+  type DefenceStructureComponent,
+  type DefencePostComponent,
+} from './game/defence.js';
+export { registerAiDefenceManager, expandTemplate, DEFENCE_STONE_RESERVE, type AiDefenceOptions } from './ai/defence.js';
+export {
+  resolveSpatialAssault,
+  publishAssaultResolved,
+  ASSAULT_ORIGINS,
+  DEFAULT_KEEP_HOLD_STRENGTH,
+  ASSAULT_WALL_DAMAGE,
+  TOWER_ATTACK,
+  TOWER_RANGE,
+  GARRISON_DEFENCE_BONUS,
+  MAX_ASSAULT_ROUNDS,
+  type AssaultOrigin,
+  type AssaultResult,
+  type AssaultTraceStep,
+} from './game/assault.js';
+export {
+  DEFENCE_MAP_SIZE,
+  DEFENCE_MAP_VERSION,
+  DEFENCE_TILE,
+  KEEP_CLEARING_RADIUS,
+  defenceMapSeed,
+  generateDefenceMap,
+  digestDefenceMap,
+  encodeDefenceMap,
+  decodeDefenceMap,
+  type DefenceTileCode,
+} from './worldgen/defenceMap.js';
 export {
   registerCombatGameplay,
   CombatState,
@@ -328,6 +399,9 @@ export {
   BASE_WEEKLY_RATE,
   PACING_TARGET_MIN,
   PACING_TARGET_MAX,
+  SPECIAL_POOLS,
+  DEFAULT_SPECIAL_EVENT_TUNING,
+  type SpecialEventTuning,
   type EventContext,
   type EventEffectContext,
   type EventGameplay,

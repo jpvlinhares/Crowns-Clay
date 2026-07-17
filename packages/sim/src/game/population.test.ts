@@ -6,8 +6,11 @@ import { Kernel } from '../kernel.js';
 import { World } from '../ecs.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
-import { registerPopulationGameplay, FOOD_PER_PERSON_DAY, FORAGE_FLOOR } from './population.js';
-import { registerEconomyGameplay } from './economy.js';
+import {
+  registerPopulationGameplay, FOOD_PER_PERSON_DAY, JOY_NEUTRAL,
+  joyContributions, joyTarget, joyFertility, joyMigration,
+} from './population.js';
+import { registerEconomyGameplay, type StatModifierView } from './economy.js';
 import { registerLogisticsGameplay } from './logistics.js';
 
 /** Open farmable plain everywhere — population math without terrain noise. */
@@ -21,7 +24,7 @@ const plain: TerrainAccessor = {
 
 const START_POP = { children: 12, adults: 30, elders: 5 };
 
-function makeVillage(options: { food?: number; farms?: number; houses?: number } = {}) {
+function makeVillage(options: { food?: number; farms?: number; houses?: number; mods?: StatModifierView } = {}) {
   const kernel = new Kernel(7);
   const world = new World(256);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
@@ -31,7 +34,7 @@ function makeVillage(options: { food?: number; farms?: number; houses?: number }
     'base:resource.food': options.food ?? 200,
   };
   const game = registerVillageGameplay(kernel, world, db, plain, stock);
-  const popGame = registerPopulationGameplay(kernel, world, db, game, START_POP);
+  const popGame = registerPopulationGameplay(kernel, world, db, game, START_POP, options.mods);
   const econ = registerEconomyGameplay(kernel, world, db, game);
   const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
   const logi = registerLogisticsGameplay(kernel, world, db, game, popGame, econ, Position);
@@ -157,7 +160,8 @@ test('growth: a fed, housed village grows a few percent per year with a sane pyr
   v.days(720); // two years
   const end = v.pop();
   const growth = end.total / start - 1;
-  assert.ok(growth > 0.02 && growth < 0.15, `2-year growth ${(growth * 100).toFixed(1)}% outside (2%, 15%)`);
+  // joy-driven growth (fertility × happiness, plus migration into spare housing)
+  assert.ok(growth > 0.08 && growth < 0.4, `2-year growth ${(growth * 100).toFixed(1)}% outside (8%, 40%)`);
   assert.ok(end.adults > end.children && end.adults > end.elders, 'adults remain the largest cohort');
   assert.ok(end.happiness > 70, `fed+housed happiness ${end.happiness.toFixed(0)} should exceed 70`);
   assert.ok(end.foodSecurity > 0.95);
@@ -174,9 +178,9 @@ test('growth: proportional to food security — the fed village outgrows the hun
   );
 });
 
-// ---------------- famine floor (the M12 test objective) ----------------
+// ---------------- starvation (people die when the food is gone) ----------------
 
-test('famine: floor bounds mortality — decline without a cliff, then recovery', () => {
+test('starvation: no food is lethal — a steady, un-floored decline, then recovery', () => {
   const v = makeVillage({ food: 10, houses: 8 }); // no farms: famine in days
   const start = v.pop().total;
   let previous = start;
@@ -188,15 +192,17 @@ test('famine: floor bounds mortality — decline without a cliff, then recovery'
     previous = now;
   }
   const afterFamineYear = v.pop();
-  assert.ok(afterFamineYear.total > start * 0.3, `floor failed: ${afterFamineYear.total.toFixed(1)} of ${start}`);
-  assert.ok(afterFamineYear.total < start * 0.95, 'a famine year must actually hurt');
-  assert.ok(worstDailyLoss < 0.01, `single-day loss ${(worstDailyLoss * 100).toFixed(2)}% breaches the 1% bound`);
-  assert.ok(afterFamineYear.foodSecurity <= FORAGE_FLOOR + 0.05, 'security pinned near the forage floor');
-  // v1 happiness = fed×0.7 + shelter×0.3: with full housing the floor is ~58
-  assert.ok(afterFamineYear.happiness < 62, `starving happiness ${afterFamineYear.happiness.toFixed(0)} should sit near the famine floor`);
+  // people genuinely die when the granaries run dry: most of the village is lost
+  assert.ok(afterFamineYear.total < start * 0.4, `starvation should be lethal: ${afterFamineYear.total.toFixed(1)} of ${start}`);
+  // …but it is a decline, not an instant cliff — no single day wipes the village
+  assert.ok(worstDailyLoss < 0.015, `single-day loss ${(worstDailyLoss * 100).toFixed(2)}% is a cliff`);
+  // real (un-floored) nutrition craters toward zero with no food
+  assert.ok(afterFamineYear.foodSecurity < 0.1, `security ${afterFamineYear.foodSecurity.toFixed(2)} should crater with no food`);
+  // foragers still soften MORALE (GDD §4): happiness sits above the pure-hunger floor
+  assert.ok(afterFamineYear.happiness < 62, `starving happiness ${afterFamineYear.happiness.toFixed(0)} should sit low`);
 
   // relief: build farms — mortality tails off through the security EMA, so the
-  // curve dips ~30 more days, TROUGHS, then turns: assert the turn, not the day
+  // curve dips a little more, TROUGHS, then turns: assert the turn, not the day
   v.placeNear('base:building.farm');
   v.placeNear('base:building.farm');
   let trough = v.pop().total;
@@ -206,6 +212,59 @@ test('famine: floor bounds mortality — decline without a cliff, then recovery'
   }
   assert.ok(v.pop().total > trough * 1.01, `population must rise off the trough (${v.pop().total.toFixed(1)} vs ${trough.toFixed(1)})`);
   assert.ok(v.pop().foodSecurity > 0.8, 'food security climbs back');
+});
+
+// ---------------- migration (joy is a main driver) ----------------
+
+test('migration: joy draws settlers into spare housing (immigration)', () => {
+  const roomy = makeVillage({ food: 400, farms: 3, houses: 30 }); // lots of spare housing
+  const tight = makeVillage({ food: 400, farms: 3, houses: 10 }); // little spare housing
+  const start = roomy.pop().total;
+  roomy.days(360);
+  tight.days(360);
+  // a happy village with room draws newcomers — it outgrows an equally-fed but
+  // cramped one, and rises well past what a year of births alone could add
+  assert.ok(roomy.pop().total > tight.pop().total * 1.3, `roomy ${roomy.pop().total.toFixed(1)} should outdraw tight ${tight.pop().total.toFixed(1)}`);
+  assert.ok(roomy.pop().total > start * 1.4, `immigration should visibly grow the village (${roomy.pop().total.toFixed(1)} from ${start})`);
+  assert.ok(roomy.pop().happiness > JOY_NEUTRAL, 'a village drawing settlers is a happy one');
+});
+
+test('migration: unhappy villages (joy < neutral) bleed people even when well fed', () => {
+  // a fed, housed village can't naturally fall below neutral joy (food alone floors
+  // morale), so isolate EMIGRATION with a standing discontent modifier — the loss is
+  // people leaving, not famine.
+  const gloom: StatModifierView = { add: (t) => (t === 'village.happinessDrift' ? -70 : 0), mul: () => 1 };
+  const v = makeVillage({ food: 400, farms: 3, houses: 10, mods: gloom });
+  const start = v.pop().total;
+  v.days(360);
+  const end = v.pop();
+  assert.ok(end.happiness < JOY_NEUTRAL, `discontent should hold joy below neutral (${end.happiness.toFixed(0)})`);
+  assert.ok(end.foodSecurity > 0.9, 'the village is well fed — the loss is emigration, not starvation');
+  assert.ok(end.total < start * 0.95, `an unhappy village should shrink via emigration (${end.total.toFixed(1)} from ${start})`);
+});
+
+// ---------------- joy helpers (shared by the sim and the Joy panel) ----------------
+
+test('joy helpers: contributions, target, fertility, and migration follow the model', () => {
+  // fully fed, fully housed, no services/edicts → food 70 + shelter 30 = target 100
+  const c = joyContributions(1, 1, 0, 0);
+  assert.equal(c.food, 70);
+  assert.equal(c.shelter, 30);
+  assert.equal(joyTarget(1, 1, 0, 0), 100);
+  // forage floor lifts a starving village's food factor off zero (morale, not survival)
+  assert.equal(joyContributions(0, 0, 0, 0).food, 0.4 * 0.7 * 100);
+
+  // fertility: 1 at neutral, 2 at max joy, 0 when miserable
+  assert.equal(joyFertility(JOY_NEUTRAL), 1);
+  assert.equal(joyFertility(100), 2);
+  assert.equal(joyFertility(0), 0);
+
+  // migration: a content village draws people into SPARE housing (gated by room)…
+  assert.ok(joyMigration(80, 40, 60) > 0, 'happy + spare housing → immigration');
+  assert.equal(joyMigration(80, 40, 40), 0, 'happy but full → no immigration');
+  // …and an unhappy one bleeds people (negative, ungated by housing)
+  assert.ok(joyMigration(20, 40, 40) < 0, 'unhappy → emigration');
+  assert.equal(joyMigration(JOY_NEUTRAL, 40, 60), 0, 'neutral joy → no net migration');
 });
 
 // ---------------- determinism ----------------

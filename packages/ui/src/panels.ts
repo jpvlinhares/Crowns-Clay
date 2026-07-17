@@ -4,6 +4,10 @@
  * with an id/title/icon and get a body element plus open/close/toggle. No
  * virtual DOM — panels re-render their body on store changes (villages are
  * small; legibility beats cleverness until the M42 UX pass).
+ *
+ * SINGLE-OPEN INVARIANT: the dock shows at most ONE panel at a time — opening a
+ * panel closes whichever was open. Every future panel (joy, capacity, kingdom
+ * resources) docks here rather than being bespoke, so they all inherit this.
  */
 
 export interface Panel {
@@ -54,6 +58,8 @@ export class PanelHost {
       id,
       body,
       open: () => {
+        // single-open per side: replace whatever else is showing in the dock
+        for (const [otherId, other] of this.panels) if (otherId !== id) other.close();
         root.classList.add('open');
         toolbarButton.classList.add('active');
         toolbarButton.setAttribute('aria-pressed', 'true');

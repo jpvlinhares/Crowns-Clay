@@ -123,6 +123,78 @@ village and now owns none is out. Dynastic (capital+heir) defeat stays the defer
 rule this recommendation always said it'd be; nothing in M34's Character system or M37's tracker
 forces it. Sandbox mode's independent `defeatEnabled` toggle (GDD §17) ships alongside it.
 
+**ADR-4 ratification delta (2026-07-15) — REOPENED.** ADR-4 (doc 15, accepted with amendments)
+makes the CAPITAL the defended-and-decisive settlement: Phase 8's defence layer guards the
+capital only, and "capital death = kingdom death" replaces last-village as the kingdom-death
+condition when that phase lands. This cannot be parked behind Phase 8, because "capital" is
+barely real in the current codebase: it exists only as genesis bookkeeping — the kingdom→
+first-village binding (`campaign.ts`'s `villageIndexByKingdom`, rebuilt from `VillageOwner` on
+load and re-bound to the next-oldest village when the first is occupied), plus the
+history-seeding reveal target. Nothing marks a capital in components, saves, victory math, or
+the UI, and occupying a capital today is mechanically identical to occupying any other village.
+**Decisions this needs, in order:**
+1. *Pre-M48 (1.0) — RESOLVED (2026-07-16, project owner): Option A, minimal form.* The existing
+   runtime kingdom→capital binding (`campaign.ts`'s `villageIndexByKingdom`) is PERSISTED before
+   M48: a small save section (kingdom index → village index) restored in `afterLoad`, in the
+   `SiegeState.save()/restore()` shape. **Chartered as a 1.0 DEFECT FIX, not new scope:** a
+   divergence trace (2026-07-16) confirmed the runtime binding and the on-load re-derivation
+   disagree across capture-and-recapture histories — the runtime rebind fires only when the
+   bound capital is LOST and never resets on reconquest, while `afterLoad` re-derives
+   "oldest still-owned village" — so a reload re-anchors the whole AI brain (construction/
+   planner/research/events read their home village through this map, and the planner resumes
+   from the re-derived village's stale `AiPlanState` slot, a hashed component) and can rename or
+   flip the discovered-status of a rival in the diplomacy panel (`simPort.ts` names kingdoms by
+   capital and fog-gates on it). That violates the M47.6 objective stated in `campaign.ts`'s own
+   header: save→load→resume behaviourally identical to an uninterrupted run. Reachable in normal
+   play (AI reconquest of a lost village is in-behaviour; any autosave after it triggers the
+   divergence). No new ECS component and no new hash source — no state-hash change, no golden
+   re-record. **Compatibility, explicitly accepted:** saves predating the new section fall back
+   to today's derivation (oldest still-owned village), and any save already mid-divergence will
+   re-derive — the capital SNAPS to the derived village on its first load under the fix. This
+   one-time snap is accepted and recorded here rather than left implicit. The FULL stamp — an
+   ECS component, a UI crown marker, capital rules — stays DECLINED for 1.0 and lands in
+   Phase 8. *Implemented 2026-07-16:* the `'capitals'` section in `campaign.ts` plus
+   absence-tolerant (`optional`) section support in `persistence.ts`; two behavioural
+   save/load tests in `campaign.test.ts` build both divergence histories through ordinary
+   commands and prove binding + AI-behaviour + hash lockstep after load (both fail against
+   the pre-fix code). No golden fixture covers a save/load-after-reconquest path (goldens
+   are pure command replays and never hydrate; the corpus's committed saves predate any
+   reconquest and exercise the unchanged fallback) — all four goldens and the corpus verify
+   green with no re-recording.
+2. *Phase 8 entry — RESOLVED (2026-07-16, at Phase 8 entry, per ADR-4's ratified shape):*
+   **capital death = kingdom death** is ratified as Phase 8's kingdom-death condition,
+   ACTIVATING AT M53 (loss & succession) — not before. Interim semantics (M49–M52): capturing
+   any village, capitals included, keeps today's rules exactly (occupation/siege owner flip +
+   persisted binding re-bind; last-village defeat stays the live rule), so the phase's early
+   milestones change no loss behaviour. At M53: a capital whose keep falls on the defence
+   layer is destroyed, the kingdom dies (outcome per OQ-11 — vassalage-first, permadeath under
+   ironman), and non-capital villages keep the occupation/capture path unchanged.
+   **Save compatibility:** 1.0 saves load into Phase-8 builds; the capital binding is already
+   persisted (item 1), so the rule switch needs no data migration — a 1.0 save loaded at ≥M53
+   simply plays under the new defeat rule from that point (the same forward-rules policy every
+   balance change already follows; no attempt to replay old-rule history).
+   *Implemented 2026-07-17 (M53):* `game/succession.ts` + siege.ts's `CapitalFallHook`; the
+   whole rule package (fall window, occupation exemption for layer capitals, AI capital-siege
+   targeting) switches on one `succession` composition flag — the harness wrapper opts out.
+   The forward-rules policy held as written: 1.0 saves load through a siege v1→v2 migration
+   (`fallenDeadline` defaults 0) and an optional `succession` section; the corpus's historical
+   saves verify against their PINNED resume hashes unchanged. One point the record left open
+   was decided at implementation and is written in doc 12's M53 note: on destruction the dead
+   kingdom's remaining villages pass to the conqueror (the realm is seized) rather than linger
+   under a dead banner.
+3. *With OQ-11 — since DECIDED (2026-07-15):* vassalage-first, permadeath as the ironman
+   opt-in (see OQ-11's decision record below).
+
+**Status: CLOSED (2026-07-16)** — all three items resolved; Phase 8's entry gate is satisfied
+(1.0 shipped `v1.0.0` · this record · OQ-11 decided). The capital-death rule itself lands at
+M53; M49–M52 change no loss behaviour.
+**What depends on it:** `game/victory.ts` (defeat bookkeeping and the Conquest/Hegemony
+village-share math once capitals can be DESTROYED rather than captured), `game/occupation.ts`
+(whether a capital can be occupied like any village), diplomacy's capitulation/vassalage path
+(what surrender protects), ADR-4's new-lords-rising trigger (fires on kingdom death), save
+headers/migrations, and Phase 8's M53 loss-condition milestone, which cannot start until this
+closes.
+
 ### OQ-10 — Float determinism vs. fixed-point migration trigger (Due: M26)
 Sim math is f64 under a strict policy (TDD §5). Define now the objective trigger for migrating hot
 systems to integer fixed-point.
@@ -133,6 +205,31 @@ is not a guarantee across engine updates.
 any reproducible cross-engine or cross-version hash divergence → migrate the diverging system(s)
 (combat math and economy accumulators are pre-identified candidates) behind their existing module
 boundaries.
+
+### OQ-11 — Defeat outcome when a capital falls: vassalage-first vs. permadeath (Owner: project owner · Due: Phase 8 entry, with OQ-9)
+Raised by ADR-4 (doc 15) and EXPLICITLY EXCLUDED from its 2026-07-15 ratification: when a lord's
+capital falls under Phase 8's defence layer, is the shipped capitulation/vassalage path offered
+first (the run survives, diminished — OQ-9's original "mop-up rarely occurs" design), does the
+lord die with the kingdom (permadeath, the proposal as received), or a mix (attacker's choice,
+or permadeath only under the existing `ironman` sandbox flag)?
+**Trade-offs:** vassalage-first preserves long-term progression and reuses shipped M35 mechanics,
+but softens war's stakes; permadeath makes sieges genuinely terminal and matches the proposal's
+intent, but ends a 10–30 h campaign on an auto-resolved event and invites save-scumming outside
+ironman. The same choice governs AI lords, so it also sets Phase 8's world-attrition rate
+(vassal kingdoms persist in the world; destroyed ones leave it).
+**ADR-4's advisory input (not binding at ratification):** vassalage-first, with permadeath as
+the ironman opt-in.
+**Decision (2026-07-15, project owner) — CLOSED:** the advisory input is accepted as the rule.
+A fallen capital offers the shipped capitulation/vassalage path FIRST — the lord (player or AI)
+survives, diminished, as a vassal; per ADR-4 §3's mechanism, refusal by either side (the loser
+declines submission, or the attacker wants blood) makes it destruction and death. Under the
+`ironman` sandbox flag, a fallen capital ends the lord outright — permadeath is opt-in.
+Sits outside DR-001 (which ratified OQ-1..10 only).
+**Consequences:** M53 (loss & succession) implements vassalage-first as the default and
+permadeath under ironman; the same rule governs AI lords, so Phase 8's world-attrition rate sits
+in the softer band (vassal kingdoms persist in the world; only refused capitulations destroy a
+kingdom) and new-lords-rising (ADR-4 §3) calibrates against that; OQ-9 becomes the only open
+question gating Phase 8 entry.
 
 ---
 
@@ -159,7 +256,7 @@ by the project owner. Binding consequences:
 | OQ-6 | Espionage cut from 1.0; knowledge-model hooks retained; Chancellor grants intelligence-quality bonus |
 | OQ-7 | Battle interactivity fixed at stance + 5-order vocabulary; ratify with M27 playtest data |
 | OQ-8 | Difficulty adjustable downward-only outside ironman, chronicled; ironman locks |
-| OQ-9 | Last-village defeat + AI capitulation/vassalage mechanics; dynastic defeat deferred post-M34 |
+| OQ-9 | Last-village defeat + AI capitulation/vassalage mechanics; dynastic defeat deferred post-M34 — **REOPENED 2026-07-15 by ADR-4 (see the OQ-9 delta above; rule unchanged for 1.0)** |
 | OQ-10 | f64 retained; cross-engine golden-replay CI is the sentinel; divergence triggers fixed-point migration of the diverging system |
 
 Cross-references in docs 02, 07, 08, 09 remain valid; where a doc said "[OQ-n]", read the row above

@@ -92,17 +92,49 @@ inspectable and makes every interaction loggable/replayable.
 ## §7. UI Subsystem (main thread, HTML)
 
 - Reactive views bound to a **UI Store** fed by snapshot deltas and GameEvents; issues commands via
-  the Command Bus only. Panel taxonomy: HUD (clock/resources/notifications), Inspector (any entity),
+  the Command Bus only. Panel taxonomy: HUD (clock/notifications), Inspector (any entity),
   Ledgers, Diplomacy table, Research tree, Army orders, Build palettes, Event dialogs, Menus.
 - **Interfaces:** `pick()` from renderer for world selection; localisation service for all strings
   (doc 10 §6); input focus arbitration with the Input Mapper (typing ≠ hotkeys).
-- **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk · treasury)
-  where each value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never
-  reflows its neighbours. Per-village vitals render as one bordered fixed-column chip per village on
-  their own full-width row (built via DOM, not string concat), keeping numbers legibly in place —
-  the "grids, text doesn't move even with different counts" requirement.
+- **Panel host (`@crowns/ui` `PanelHost`):** all on-demand windows dock on the **right** and obey a
+  **single-open invariant** — opening one (toolbar glyph, hotkey, or a selection that reveals a panel)
+  closes whichever was showing, so a side never stacks. Every panel — Village, Building inspector,
+  Kingdom, Joy/capacity (future) — registers here rather than being bespoke, inheriting the dock and
+  single-open for free. **Kingdom resources are NOT always-on:** treasury/net/ledger live in the
+  on-demand **Kingdom** panel (👑), fed from the `kingdom.rollup` event, not the top bar.
+- **Joy panel:** a right-docked panel (glyph 😊, hotkey **J**) explains the selected settlement's mood
+  from live state — current joy vs. the target it's drifting toward, a signed contribution breakdown
+  (Food / Shelter / Services / Edicts, only the non-zero ones), and joy's effect on population (net
+  migrants/day and the fertility multiplier). Every number is projected in the sim worker via the
+  population module's own exported helpers (`joyContributions`, `joyTarget`, `joyFertility`,
+  `joyMigration`), so the panel can never drift from the numbers the sim actually applies (doc 08 §5).
+- **Re-render clobber guard (`isInteracting`):** panel/toast surfaces are rebuilt wholesale
+  (`replaceChildren`) on store/snapshot updates. A rebuild must not clobber a surface the player is
+  mid-interaction with — replacing a live `<select>` snaps its dropdown shut, and replacing a **button
+  between mousedown and mouseup** means the `click` never fires (so the toast **×** and the two-click
+  **Demolish** appeared to work *only while paused*, because pausing halts the deltas). `isInteracting`
+  reports either condition — an editable control (`SELECT`/`INPUT`/`TEXTAREA`) inside the surface holds
+  focus, OR the pointer is hovering it — and callers skip the rebuild then, redrawing once the
+  interaction ends. Toasts additionally rebuild **only when a new one surfaces** (not every tick), so an
+  existing toast's × is never destroyed under the cursor.
+- **Pause policy (data-driven):** the sim pauses for a message **only** when the event def opts in with
+  `blocking: true` (genuine crises/decisions — the base disasters do); ordinary informational events and
+  notifications never pause, staying answerable while the game runs. The end-of-game screen still pauses
+  (the game is over).
+- **HUD stat layout:** the top bar is a fixed-column stat grid (fps · tick · date · folk) where each
+  value sits in a reserved, right-aligned, tabular-numeral slot, so a changing count never reflows its
+  neighbours. Per-village vitals render as one bordered fixed-column chip per village on their own
+  full-width row (built via DOM, not string concat), keeping numbers legibly in place — the "grids,
+  text doesn't move even with different counts" requirement.
 - **Building inspector + demolish:** clicking a building opens the Building panel (name · category ·
-  footprint · construction %) and offers a two-click-confirm **🧹 Demolish** that issues the
+  footprint · construction %). **Capacity gauges (M-era):** any completed building carrying capacity
+  shows a used/total bar sourced from live state — housing → village occupants / Σ housing (bar turns
+  amber when occupants exceed shelter), storage → each stocked good's amount / the per-resource
+  stockpile cap (`BASE_STORAGE + Σ storage.capacity`), plus the building's own contribution. The
+  numbers are projected straight from the def (`storage.capacity`/`housing.capacity` onto `BuildingRec`,
+  and village totals onto `villageStats`), so modded capacity-bearing buildings surface it for free —
+  no new capacity data is invented, only what the sim already tracks is surfaced. The panel also
+  offers a two-click-confirm **🧹 Demolish** that issues the
   `village.demolish` command (the same command a besieger's breach uses). Village-centre buildings
   are disabled up-front (the sim also refuses them, surfacing `village.rejected` as a toast); a
   successful raze emits `building.demolished`, which the notification table shows and the building
@@ -126,6 +158,21 @@ inspectable and makes every interaction loggable/replayable.
   the browser menu), re-selecting/picking a different building in the palette, or arming another
   tool (an army order clears the armed build). Only the primary mouse button places — right/middle
   never do.
+- **Placement while paused (cancelable blueprint ghosts):** a `village.build` can only execute on a
+  **tick** (`kernel.submit` stamps it for `tick + 1`), and running a tick would advance construction
+  and every other timed system — so a true sim-side commit while paused is impossible without breaking
+  replay determinism (the golden corpus re-runs the command log through normal ticks with no pause
+  information). So while paused the client does **not** submit at all: it holds each placement in a
+  `pausedPlacements` map (`villageId, def, x, y, w, h`, keyed by origin tile) and draws a **planned
+  ghost** — a translucent, blueprint-blue footprint at 0% — via `PixiRenderer.addPlanned`, so the
+  layout reads as committed while nothing in the sim moves. Because nothing was submitted, a placement
+  is freely **cancelable while paused**: clicking a ghost's footprint (armed → a toggle, or with no
+  tool armed) drops it from the map and calls `PixiRenderer.removePlanned(key)`. On **resume**
+  (`setSpeed 0 → nonzero`) every *still-planned* placement is submitted as a real `village.build`; the
+  buildings land in the first post-resume `snapshotDelta` and the handler calls `clearPlanned()`,
+  swapping the ghosts for the sim's authoritative buildings (a ghost with no committed building was a
+  placement the sim ultimately rejected — e.g. it outran the stockpile — and is dropped too). Purely
+  presentation: nothing enters the sim until resume, so no determinism surface and goldens untouched.
 - **Dismissible notifications:** every toast carries a **× close button** (`NotificationQueue.dismiss(id)`)
   that removes it from the on-screen `visible()` set immediately while leaving the scrollback `all()`
   history intact; automatic roll-off (VISIBLE_CAP) is unchanged. Applies to every severity tier, not

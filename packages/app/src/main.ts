@@ -9,7 +9,7 @@
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
 import { BASE_TICKS_PER_SECOND, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
-import { NotificationQueue, PanelHost, TooltipController, UIStore } from '@crowns/ui';
+import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
 import { EN_LOCALE } from './locale/en.js';
@@ -46,7 +46,6 @@ const hud = {
   entities: document.getElementById('entities') as HTMLElement,
   status: document.getElementById('status') as HTMLElement,
   villages: document.getElementById('village-stats') as HTMLElement,
-  kingdom: document.getElementById('kingdom-stats') as HTMLElement,
 };
 const villageStats = new Map<number, { name: string; population: number; food: number; happiness: number; goods?: Record<string, number> }>();
 
@@ -75,8 +74,31 @@ function renderVillageChips(): void {
   }
 }
 let speed: Speed = 1;
+// resuming from a pause: drop any pause-time placement ghosts on the first tick the sim runs,
+// where the real (queued) buildings commit — see the snapshotDelta handler and renderer.addPlanned.
+let clearGhostsOnResume = false;
+// Buildings placed while paused are held HERE (not submitted to the sim) so they can be freely
+// canceled while still paused — a real `village.build` can't commit until a tick runs (that would
+// break determinism; see the driver's pause note). Keyed by "x,y" origin tile; submitted on resume.
+const pausedPlacements = new Map<string, { villageId: number; def: string; x: number; y: number; w: number; h: number }>();
+/** Key of the planned placement whose footprint covers tile (x, y), or null — for click-to-cancel. */
+const pausedPlacementAt = (x: number, y: number): string | null => {
+  for (const [key, p] of pausedPlacements) {
+    if (x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h) return key;
+  }
+  return null;
+};
 const speedButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-speed]'));
 const setSpeed = (next: Speed): void => {
+  if (speed === 0 && next !== 0) {
+    // resuming: now a tick can commit them, so submit everything still planned (uncanceled) while
+    // paused, then let the first post-resume delta swap the ghosts for the sim's real buildings
+    for (const p of pausedPlacements.values()) {
+      command('village.build', { villageId: p.villageId, def: p.def, x: p.x, y: p.y });
+    }
+    pausedPlacements.clear();
+    clearGhostsOnResume = true;
+  }
   speed = next;
   send({ kind: 'setSpeed', speed: next });
   for (const b of speedButtons) {
@@ -170,7 +192,25 @@ function showNextEventDialog(): void {
     const choice = def.choices.find((c) => c.id === choiceId);
     if (choice === undefined) continue;
     const button = document.createElement('button');
-    button.textContent = choice.text;
+    button.append(choice.text);
+    // every option states its outcome (from the event def's effects): what the player gains or
+    // suffers, signed and colour-coded — a no-effect option (e.g. "Decline") says so explicitly
+    const summary = document.createElement('span');
+    summary.className = 'choice-outcomes';
+    if (choice.outcomes !== undefined && choice.outcomes.length > 0) {
+      for (const outcome of choice.outcomes) {
+        const chip = document.createElement('span');
+        chip.className = `outcome ${outcome.kind}`;
+        chip.textContent = outcome.label;
+        summary.append(chip);
+      }
+    } else {
+      const chip = document.createElement('span');
+      chip.className = 'outcome neutral';
+      chip.textContent = 'No effect';
+      summary.append(chip);
+    }
+    button.append(summary);
     button.addEventListener('click', () => {
       command('event.choose', { eventId: next.eventId, choiceId: choice.id });
       eventQueue.shift();
@@ -182,8 +222,9 @@ function showNextEventDialog(): void {
   }
   eventDialog.backdrop.hidden = false;
   firstButton?.focus(); // keyboard-complete from the moment it appears (M42 precedent)
-  setSpeed(0); // GDD §1's urgent-pause tier, same "never rushed" pillar (doc 01 §3) — a dialog is
-  // meant to be read, not ticked past; the player resumes deliberately when ready
+  // Only genuinely BLOCKING events (crises/decisions, opt-in per def) halt the sim; everything
+  // else stays answerable at leisure while the game runs (no more pausing on every message).
+  if (def.blocking === true) setSpeed(0);
 }
 
 const store = new UIStore();
@@ -197,12 +238,15 @@ const villagePanel = panels.register('village', 'Village', '🏘');
 const buildPanel = panels.register('build', 'Build', '🔨');
 const buildingPanel = panels.register('building', 'Building', '🏛');
 const kingdomPanel = panels.register('kingdom', 'Kingdom', '👑');
+const joyPanel = panels.register('joy', 'Joy', '😊');
 // M47.7 (doc 12 R1): the four "dark systems" get player surfaces — no action below
 // requires the debug injector. Campaign-only; the village sandbox shows a hint instead.
 const diplomacyPanel = panels.register('diplomacy', 'Diplomacy', '🤝');
 const militaryPanel = panels.register('military', 'Military', '⚔');
 const researchPanel = panels.register('research', 'Research', '📜');
 const victoryPanel = panels.register('victory', 'Victory', '🏆');
+// M50 (Phase 8): the capital's castle-defence layer — build palette + garrison posting
+const castlePanel = panels.register('castle', 'Castle', '🏰');
 const modsPanel = panels.register('mods', 'Mods', '🧩');
 const helpPanel = panels.register('help', 'Keybinds', '⌨');
 villagePanel.open();
@@ -308,7 +352,7 @@ function renderBuildPalette(): void {
     body.append(el('div', 'Waiting for the catalog…', 'hint'));
     return;
   }
-  body.append(el('div', 'Pick a building, then click map tiles to place copies. Right-click or Esc exits.', 'hint'));
+  body.append(el('div', 'Pick a building, then click map tiles to place copies. Right-click or Esc exits. While paused, placements are planned as blueprints — click one to cancel it before resuming.', 'hint'));
   for (const building of catalog.buildings) {
     const row = el('div', undefined, 'row');
     const b = document.createElement('button');
@@ -350,6 +394,20 @@ function selectBuilding(id: number | null): void {
   renderBuildingPanel();
 }
 
+/** A used/total gauge with a fill bar — the inspector's capacity readout. */
+function capacityRow(label: string, used: number, total: number): HTMLElement {
+  const row = el('div', undefined, 'cap-row');
+  const head = el('div', undefined, 'cap-head');
+  head.append(el('span', label, 'cap-label'), el('span', `${Math.floor(used)} / ${total}`, 'cap-val'));
+  const track = el('div', undefined, 'cap-track');
+  const fill = el('div', undefined, 'cap-fill');
+  fill.style.width = `${(total > 0 ? Math.min(1, used / total) : 0) * 100}%`;
+  if (used > total) fill.classList.add('over'); // e.g. occupants exceeding housing
+  track.append(fill);
+  row.append(head, track);
+  return row;
+}
+
 function renderBuildingPanel(): void {
   const body = buildingPanel.body;
   body.replaceChildren();
@@ -367,6 +425,34 @@ function renderBuildingPanel(): void {
   ));
   if (rec.progress < 1) {
     body.append(el('div', `under construction — ${Math.round(rec.progress * 100)}%`, 'row hint'));
+  }
+
+  // Capacity (M-era): used/total for capacity-bearing buildings. Housing and storage
+  // caps are POOLED per village, so pair the def's own contribution (from BuildingRec,
+  // straight off the def) with the owning village's live totals. Generic over the def
+  // fields, so modded buildings with capacity get this for free.
+  const housingCap = rec.housingCapacity ?? 0;
+  const storageCap = rec.storageCapacity ?? 0;
+  if (village !== undefined && rec.progress >= 1 && (housingCap > 0 || storageCap > 0)) {
+    body.append(el('div', 'Capacity', 'ledger-heading'));
+    if (housingCap > 0) {
+      body.append(tip(
+        capacityRow('housing', village.population, village.housing),
+        `Occupants across the village vs. total housing (Σ housing capacity).\nThis building provides ${housingCap} of those slots.`,
+      ));
+    }
+    if (storageCap > 0) {
+      // storage caps are shared across the village and applied PER resource, so surface
+      // each stocked good's fill against the cap. Food is special: it has the small keep
+      // buffer as its base (KEEP_FOOD_BUFFER), so it uses its own foodCap — surplus food
+      // beyond it spoils without a granary. Every number comes from live state.
+      body.append(capacityRow('food', village.food, village.foodCap));
+      for (const [good, amount] of Object.entries(village.goods)) body.append(capacityRow(good, amount, village.stockCap));
+      body.append(tip(
+        el('div', `+${storageCap} storage per resource from this building`, 'row hint'),
+        'Storage capacity is pooled across the village; food also draws on the keep\'s small larder, everything else on the base store.',
+      ));
+    }
   }
 
   const actions = el('div', undefined, 'row');
@@ -461,6 +547,58 @@ function renderKingdomPanel(): void {
     body.append(row);
   }
   renderLedger(body);
+}
+
+/** One joy contribution as a signed value + bar (points on the 0–100 joy scale). */
+function joyFactorRow(label: string, value: number): HTMLElement {
+  const row = el('div', undefined, 'cap-row');
+  const head = el('div', undefined, 'cap-head');
+  head.append(el('span', label, 'cap-label'), el('span', `${value > 0 ? '+' : ''}${value.toFixed(1)}`, 'cap-val'));
+  const track = el('div', undefined, 'cap-track');
+  const fill = el('div', undefined, 'cap-fill');
+  fill.style.width = `${Math.min(100, Math.abs(value))}%`;
+  if (value < 0) fill.classList.add('over'); // a reduction (e.g. a punitive edict) shows amber
+  track.append(fill);
+  row.append(head, track);
+  return row;
+}
+
+// Joy panel (M-era): explains the settlement's mood and how it drives population, all
+// from live sim state (the projection reuses the sim's own joy helpers — no drift).
+function renderJoyPanel(): void {
+  const body = joyPanel.body;
+  body.replaceChildren();
+  const v = store.selectedVillage();
+  if (v === null || v.joy === undefined) {
+    body.append(el('div', 'Joy appears once a settlement is founded.', 'hint'));
+    return;
+  }
+  const joy = v.joy;
+  body.append(tip(
+    el('div', `${v.name} — joy ${joy.level} / 100`, 'row'),
+    'The settlement\'s mood (0–100). It drifts daily toward the target below.',
+  ));
+  body.append(el('div', `trending toward ${joy.target}`, 'row hint'));
+
+  body.append(el('div', 'What drives joy', 'ledger-heading'));
+  for (const f of joy.factors) body.append(joyFactorRow(f.label, f.value));
+
+  body.append(el('div', 'Effect on population', 'ledger-heading'));
+  const mig = joy.migrationPerDay;
+  const migText = mig > 0.005
+    ? `+${mig.toFixed(2)} settlers/day arriving`
+    : mig < -0.005
+      ? `${mig.toFixed(2)} people/day leaving`
+      : 'no net migration';
+  body.append(tip(
+    el('div', migText, 'row'),
+    `Joy above ${joy.neutral} draws newcomers into spare housing; below ${joy.neutral} people leave for better lands.`,
+  ));
+  body.append(tip(
+    el('div', `births ×${joy.fertility.toFixed(2)}`, 'row'),
+    'Joy\'s fertility multiplier — a happier village raises more children (×2 at full joy, ~0 when miserable).',
+  ));
+  body.append(el('div', `neutral point is ${joy.neutral} — ${joy.level >= joy.neutral ? 'growing' : 'shrinking'}`, 'row hint'));
 }
 
 const LEDGER_KIND_LABELS: Record<string, string> = {
@@ -560,9 +698,15 @@ function renderModsPanel(): void {
 let panelsState: PlayerPanels | null = null;
 let selectedArmyVillage: number | null = null; // recruit/create-army target village
 /** Armed map action for an army: next map click resolves it (mirrors armedBuild). */
-let armedArmyAction: { kind: 'move' | 'siege'; armyId: number } | null = null;
+let armedArmyAction: { kind: 'move' | 'siege' | 'target'; armyId: number } | null = null;
+/** M51: the assault-origin picker's current choice ('auto' derives server-side). */
+let assaultOrigin = 'auto';
 const battleLog: string[] = [];
 const BATTLE_LOG_CAP = 30;
+/** M53: fallen enemy capitals whose court has offered homage to the PLAYER —
+ * castle village index → capitulation deadline tick. Rendered as accept rows in the
+ * Diplomacy panel; cleared when the siege resolves either way. */
+const pendingHomage = new Map<number, number>();
 let endScreenShown = false;
 
 const CAMPAIGN_ONLY_HINT = 'Available in campaign mode — start a New Game with 2+ kingdoms.';
@@ -577,6 +721,20 @@ function renderDiplomacyPanel(): void {
   if (panelsState.kingdoms.length === 0) {
     body.append(el('div', 'No rival kingdoms in this campaign.', 'hint'));
     return;
+  }
+  // M53: pending homage from fallen capitals the player felled — accept, or let it burn
+  for (const [castle] of [...pendingHomage.entries()].sort((a, b) => a[0] - b[0])) {
+    const row = el('div', undefined, 'row');
+    row.append(el('span', '⚑ A fallen court offers homage — ', 'hint'));
+    const accept = document.createElement('button');
+    accept.textContent = '👑 Accept capitulation';
+    tip(accept, 'The fallen lord survives as your vassal — tribute flows, the war ends.\nIgnore the offer and the city burns when the window closes.');
+    accept.addEventListener('click', () => {
+      command('siege.acceptCapitulation', { castle });
+      send({ kind: 'requestPanels' });
+    });
+    row.append(accept);
+    body.append(row);
   }
   for (const k of panelsState.kingdoms) {
     const row = el('div', undefined, 'row');
@@ -621,6 +779,10 @@ function renderDiplomacyPanel(): void {
     if (k.atWar) {
       act('🕊 Peace', 'Propose peace with a 25-gold tribute — acceptance depends on their war exhaustion', () =>
         command('kingdom.proposePeace', { targetKingdom: k.index, tribute: 25 }));
+      // M53 (ADR-4 §3 agency chain): submission is always on the table in a war — and it
+      // is THE choice when your keep has fallen (vassalage-first, before the window closes)
+      act('🏳 Submit', 'Offer to become their vassal — the run survives, diminished. A hopeless war (or a fallen keep) makes them accept.', () =>
+        command('kingdom.proposeVassalage', { counterpart: k.index, asVassal: true }), k.playerIsVassal);
     } else {
       act('⚔ War', 'Declare war (no casus belli: reputation and happiness pay for it — GDD §10)', () =>
         command('kingdom.declareWar', { targetKingdom: k.index }));
@@ -736,15 +898,46 @@ function renderMilitaryPanel(): void {
       });
       actions.append(besiege);
     } else {
+      // M51: assault takes an origin — Auto derives it from where the army stands
+      const originSelect = document.createElement('select');
+      originSelect.setAttribute('aria-label', 'Assault origin');
+      for (const [value, label] of [['auto', 'Auto origin'], ['left', 'From the west'], ['right', 'From the east'], ['top', 'From the north'], ['bottom', 'From the south']] as const) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        option.selected = assaultOrigin === value;
+        originSelect.append(option);
+      }
+      originSelect.addEventListener('change', () => { assaultOrigin = originSelect.value; });
+      tip(originSelect, 'Which side of the castle the column storms from (M51). Auto: wherever this army stands.');
+      actions.append(originSelect);
       const assault = document.createElement('button');
       assault.textContent = '⚔ Assault';
-      tip(assault, 'Storm the walls — bloody, but a breach makes it far cheaper (GDD §8).');
-      assault.addEventListener('click', () => { command('siege.assault', { armyId: army.id }); send({ kind: 'requestPanels' }); });
+      tip(assault, 'Storm the walls. A capital resolves on its defence layer — walls, towers, and garrison all fight (M51); elsewhere a breach makes it far cheaper (GDD §8).');
+      assault.addEventListener('click', () => {
+        command('siege.assault', { armyId: army.id, ...(assaultOrigin !== 'auto' ? { origin: assaultOrigin } : {}) });
+        send({ kind: 'requestPanels' });
+      });
+      // M51 (the M47.7 gap): the bombard-target picker — armed click on the castle's walls
+      const target = document.createElement('button');
+      target.textContent = armedArmyAction?.kind === 'target' && armedArmyAction.armyId === army.id ? '🎯 click wall…' : '🎯 Target walls';
+      tip(target, 'Then click one of the besieged castle\'s wall/gate/tower segments — daily bombardment pounds it toward a breach (M29). Esc cancels.');
+      target.addEventListener('click', () => {
+        if (store.state.armedBuild !== null) store.armBuild(null);
+        armedArmyAction = { kind: 'target', armyId: army.id };
+        renderMilitaryPanel();
+      });
       const lift = document.createElement('button');
       lift.textContent = '🏳 Lift siege';
       lift.addEventListener('click', () => { command('siege.lift', { armyId: army.id }); send({ kind: 'requestPanels' }); });
-      actions.append(assault, lift);
+      actions.append(assault, target, lift);
     }
+    // M51 (the M47.7 gap): sorties — the defender's gambit against a besieger in range
+    const sortie = document.createElement('button');
+    sortie.textContent = '🗡 Sortie';
+    tip(sortie, 'Sally out against an army besieging one of YOUR castles — this army must stand at the besieged castle (M29). Refused otherwise.');
+    sortie.addEventListener('click', () => { command('siege.sortie', { armyId: army.id }); send({ kind: 'requestPanels' }); });
+    actions.append(sortie);
     body.append(actions);
   }
 
@@ -836,18 +1029,288 @@ function showEndScreen(v: NonNullable<PlayerPanels['victory']>): void {
   (document.getElementById('end-screen-backdrop') as HTMLElement).hidden = true;
 });
 
+// ---------- castle panel (M50; ADR-4; GDD §7 Phase 8 delta) ----------
+// The defence layer draws on a plain 2D canvas INSIDE the panel — deliberately not a second
+// PixiRenderer instance (doc 12 M50 scoping note): a 100×100 static grid redrawn only on
+// `panels` messages needs no WebGL context, no chunk cache, and no per-frame work, so the
+// doc 11 fps gates are untouched by having the view open.
+type CastleAction =
+  | { mode: 'build'; def: string; w: number; h: number }
+  | { mode: 'demolish' }
+  | { mode: 'post'; unitId: number };
+let castleAction: CastleAction | null = null;
+/** M51: the last assault fought on OUR walls — its trace overlays the map as the replay. */
+let lastAssaultReport: {
+  outcome: string;
+  attackerLoss: number;
+  defenderLoss: number;
+  breaches: number;
+  /** M54: the attacker's belief vs. the truth — the "believed ~40; met 85" line. */
+  believedGarrison: number | null;
+  actualGarrison: number | null;
+  trace: { r: number; kind: string; x: number; y: number }[];
+} | null = null;
+
+const DEFENCE_TILE_COLORS = ['#232019', '#5a5348', '#3f7aa4'] as const; // open · rock · water
+const DEFENCE_KIND_COLORS: Record<string, string> = { keep: '#e8c860', tower: '#c08048', gate: '#a08858', wall: '#8a7a52' };
+
+function decodeRle(pairs: readonly number[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (let i = 0; i < pairs.length; i += 2) {
+    out.fill(pairs[i] as number, at, at + (pairs[i + 1] as number));
+    at += pairs[i + 1] as number;
+  }
+  return out;
+}
+
+function renderCastlePanel(): void {
+  const body = castlePanel.body;
+  body.replaceChildren();
+  const st = panelsState?.defence;
+  if (st === undefined || st === null) {
+    body.append(el('div', CAMPAIGN_ONLY_HINT, 'hint'));
+    return;
+  }
+  const tiles = decodeRle(st.tiles, st.size * st.size);
+  const structureAt = (tx: number, ty: number) =>
+    st.structures.find((r) => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
+
+  body.append(el('h3', 'Castle defence', 'ledger-heading'));
+  const status = el('div', undefined, 'hint');
+  status.textContent =
+    castleAction === null ? 'Pick a structure or unit below, then click the map. Esc cancels.'
+    : castleAction.mode === 'build' ? `Placing ${castleAction.def.split('.').pop() ?? ''} — click open ground`
+    : castleAction.mode === 'demolish' ? 'Demolishing — click one of your structures'
+    : 'Posting garrison — click the tile to hold';
+  body.append(status);
+
+  // -- the map --
+  const canvas = document.createElement('canvas');
+  const scale = 2.7; // 100 tiles into the 300px dock (minus padding)
+  canvas.width = Math.floor(st.size * scale);
+  canvas.height = Math.floor(st.size * scale);
+  canvas.style.cursor = castleAction === null ? 'default' : 'crosshair';
+  canvas.setAttribute('aria-label', 'Castle defence map');
+  const g = canvas.getContext('2d');
+  if (g !== null) {
+    for (let y = 0; y < st.size; y++) {
+      for (let x = 0; x < st.size; x++) {
+        g.fillStyle = DEFENCE_TILE_COLORS[tiles[y * st.size + x] as number] ?? DEFENCE_TILE_COLORS[0];
+        g.fillRect(x * scale, y * scale, scale + 0.5, scale + 0.5);
+      }
+    }
+    for (const r of st.structures) {
+      g.fillStyle = DEFENCE_KIND_COLORS[r.kind] ?? DEFENCE_KIND_COLORS['wall'] as string;
+      g.fillRect(r.x * scale, r.y * scale, r.w * scale, r.h * scale);
+      if (r.hp < r.maxHp) {
+        g.fillStyle = '#c05050';
+        g.fillRect(r.x * scale, r.y * scale, r.w * scale * (1 - r.hp / r.maxHp), 1.5);
+      }
+    }
+    g.fillStyle = '#7ac07a';
+    for (const p of st.posts) {
+      g.beginPath();
+      g.arc((p.x + 0.5) * scale, (p.y + 0.5) * scale, scale * 0.6, 0, Math.PI * 2);
+      g.fill();
+    }
+    // M51: the last assault's replay — the column's walk in red, breaches crossed
+    if (lastAssaultReport !== null) {
+      const walk = lastAssaultReport.trace.filter((t) => t.kind === 'enter' || t.kind === 'advance' || t.kind === 'keep');
+      if (walk.length > 1) {
+        g.strokeStyle = '#d06060';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(((walk[0] as { x: number }).x + 0.5) * scale, ((walk[0] as { y: number }).y + 0.5) * scale);
+        for (const t of walk.slice(1)) g.lineTo((t.x + 0.5) * scale, (t.y + 0.5) * scale);
+        g.stroke();
+      }
+      g.strokeStyle = '#f0e2b0';
+      for (const t of lastAssaultReport.trace.filter((x) => x.kind === 'breach')) {
+        g.beginPath();
+        g.moveTo(t.x * scale, t.y * scale);
+        g.lineTo((t.x + 1) * scale, (t.y + 1) * scale);
+        g.moveTo((t.x + 1) * scale, t.y * scale);
+        g.lineTo(t.x * scale, (t.y + 1) * scale);
+        g.stroke();
+      }
+    }
+  }
+  if (lastAssaultReport !== null) {
+    const r = lastAssaultReport;
+    // M54: the belief-error line — how wrong the attacker's scouts were (ADR-4 §4)
+    const intelLine =
+      r.actualGarrison === null
+        ? ''
+        : r.believedGarrison === null
+          ? ` They attacked BLIND — met ${r.actualGarrison} defenders.`
+          : ` They believed ~${r.believedGarrison} defenders; met ${r.actualGarrison}.`;
+    const summary = el(
+      'div',
+      `Last assault: ${r.outcome === 'captured' ? '⚰ the keep FELL' : '🛡 REPELLED'} — attacker lost ${r.attackerLoss}, garrison lost ${r.defenderLoss}, ${r.breaches} breach(es).${intelLine} The red path replays the column's walk.`,
+      'row',
+    );
+    const clear = document.createElement('button');
+    clear.textContent = '× clear';
+    clear.addEventListener('click', () => {
+      lastAssaultReport = null;
+      renderCastlePanel();
+    });
+    summary.append(clear);
+    body.append(summary);
+  }
+
+  canvas.addEventListener('click', (e) => {
+    if (castleAction === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const tx = Math.floor(((e.clientX - rect.left) / rect.width) * st.size);
+    const ty = Math.floor(((e.clientY - rect.top) / rect.height) * st.size);
+    if (castleAction.mode === 'build') {
+      command('defence.build', { def: castleAction.def, x: Math.min(tx, st.size - castleAction.w), y: Math.min(ty, st.size - castleAction.h) });
+    } else if (castleAction.mode === 'demolish') {
+      const target = structureAt(tx, ty);
+      if (target === undefined) return;
+      command('defence.demolish', { structureId: target.id });
+    } else {
+      command('defence.post', { unitId: castleAction.unitId, x: tx, y: ty });
+      castleAction = null; // posting is one-shot; build/demolish stay armed for runs
+    }
+    send({ kind: 'requestPanels' });
+  });
+  body.append(canvas);
+
+  // -- build palette --
+  body.append(el('h3', 'Build', 'ledger-heading'));
+  const palette = el('div', undefined, 'row');
+  for (const b of st.buildable) {
+    const btn = document.createElement('button');
+    const armed = castleAction?.mode === 'build' && castleAction.def === b.defId;
+    btn.textContent = `${armed ? '▶ ' : ''}${b.name}`;
+    tip(btn, `${b.name} (${b.w}×${b.h}) — costs ${b.cost.map(([n, a]) => `${a} ${n}`).join(', ')} from the capital's stores`);
+    btn.addEventListener('click', () => {
+      castleAction = armed ? null : { mode: 'build', def: b.defId, w: b.w, h: b.h };
+      renderCastlePanel();
+    });
+    palette.append(btn);
+  }
+  const demolishBtn = document.createElement('button');
+  demolishBtn.textContent = castleAction?.mode === 'demolish' ? '▶ Demolish' : '⛏ Demolish';
+  tip(demolishBtn, 'Then click one of your structures. The keep refuses.');
+  demolishBtn.addEventListener('click', () => {
+    castleAction = castleAction?.mode === 'demolish' ? null : { mode: 'demolish' };
+    renderCastlePanel();
+  });
+  palette.append(demolishBtn);
+  body.append(palette);
+
+  // -- garrison --
+  body.append(el('h3', 'Garrison', 'ledger-heading'));
+  const postedIds = new Set(st.posts.map((p) => p.unitId));
+  const idle = (panelsState?.units ?? []).filter((unit) => unit.complete && unit.armyId === 0 && !postedIds.has(unit.id));
+  if (idle.length === 0 && st.posts.length === 0) {
+    body.append(el('div', 'No idle units — recruit in the Military panel; garrison shares the same soldier pool.', 'hint'));
+  }
+  for (const unit of idle) {
+    const row = el('div', undefined, 'row');
+    row.append(el('span', `${unit.name} ×${unit.count}`));
+    const postBtn = document.createElement('button');
+    const armed = castleAction?.mode === 'post' && castleAction.unitId === unit.id;
+    postBtn.textContent = armed ? '▶ click map…' : 'Post';
+    tip(postBtn, 'Then click the defence-map tile this unit should hold.');
+    postBtn.addEventListener('click', () => {
+      castleAction = armed ? null : { mode: 'post', unitId: unit.id };
+      renderCastlePanel();
+    });
+    row.append(postBtn);
+    body.append(row);
+  }
+  for (const p of st.posts) {
+    const unit = panelsState?.units.find((x) => x.id === p.unitId);
+    const row = el('div', undefined, 'row');
+    row.append(el('span', `⚑ ${unit?.name ?? 'Unit'} at (${p.x}, ${p.y})`));
+    const unpostBtn = document.createElement('button');
+    unpostBtn.textContent = 'Unpost';
+    unpostBtn.addEventListener('click', () => {
+      command('defence.unpost', { unitId: p.unitId });
+      send({ kind: 'requestPanels' });
+    });
+    row.append(unpostBtn);
+    body.append(row);
+  }
+
+  // -- enemy intel (M54, ADR-4 §4): the STALE snapshot — walls as last seen, garrison
+  // as your scouts' noisy belief. Never live truth; the "as of" line is the warning. --
+  const intel = panelsState?.enemyIntel ?? [];
+  if (intel.length > 0) {
+    body.append(el('h3', 'Enemy castles (intel)', 'ledger-heading'));
+    for (const rec of intel) {
+      const asOfDay = Math.floor(rec.asOfTick / 24);
+      const garrison = rec.believedGarrison === null ? 'garrison unknown' : `garrison ~${rec.believedGarrison} (believed)`;
+      const head = el('div', `${rec.name} — walls as of day ${asOfDay} · ${garrison}`, 'row');
+      tip(head, 'A snapshot from your last scouting contact — the layout may have changed since.\nGarrison is a belief: contact-refreshed, decaying, never exact.');
+      body.append(head);
+      const c = document.createElement('canvas');
+      const s = 1.6; // compact stale view
+      c.width = Math.floor(rec.size * s);
+      c.height = Math.floor(rec.size * s);
+      c.setAttribute('aria-label', `${rec.name} castle intel`);
+      const gg = c.getContext('2d');
+      if (gg !== null) {
+        const enemyTiles = decodeRle(rec.tiles, rec.size * rec.size);
+        for (let y = 0; y < rec.size; y++) {
+          for (let x = 0; x < rec.size; x++) {
+            gg.fillStyle = DEFENCE_TILE_COLORS[enemyTiles[y * rec.size + x] as number] ?? DEFENCE_TILE_COLORS[0];
+            gg.fillRect(x * s, y * s, s + 0.5, s + 0.5);
+          }
+        }
+        for (const r of rec.structures) {
+          gg.fillStyle = DEFENCE_KIND_COLORS[r.kind] ?? (DEFENCE_KIND_COLORS['wall'] as string);
+          gg.fillRect(r.x * s, r.y * s, r.w * s, r.h * s);
+        }
+        // the sepia wash marks it as memory, not observation
+        gg.fillStyle = 'rgba(120, 100, 60, 0.25)';
+        gg.fillRect(0, 0, c.width, c.height);
+      }
+      body.append(c);
+    }
+  }
+}
+
 function renderWarPanels(): void {
   renderDiplomacyPanel();
   renderMilitaryPanel();
   renderResearchPanel();
   renderVictoryPanel();
+  renderCastlePanel();
 }
 renderWarPanels(); // initial hint state before any campaign boots
 
+// A panel/toast surface is rebuilt wholesale (replaceChildren) on store/snapshot updates.
+// That must NOT happen while the user is mid-interaction with it: replacing a live <select>
+// snaps its open dropdown shut, and replacing a button between mousedown and mouseup means the
+// `click` never fires. Both are the same defect — it only "worked while PAUSED" because pausing
+// stops the updates. `isInteracting` reports either condition (an editable control inside holds
+// focus, OR the pointer is hovering the surface); callers skip the rebuild then and redraw once
+// the interaction ends. Root cause of: tax-select close, toast × dismiss, and building demolish.
+const EDITABLE = new Set(['SELECT', 'INPUT', 'TEXTAREA']);
+function isInteracting(el: HTMLElement): boolean {
+  const active = document.activeElement;
+  if (active !== null && EDITABLE.has(active.tagName) && el.contains(active)) return true;
+  return el.matches(':hover');
+}
+function whenIdle(panel: Panel, render: () => void): () => void {
+  return () => {
+    if (!isInteracting(panel.body)) render();
+  };
+}
+const renderVillagePanelIdle = whenIdle(villagePanel, renderVillagePanel);
+const renderKingdomPanelIdle = whenIdle(kingdomPanel, renderKingdomPanel);
+
 store.subscribe(() => {
-  renderVillagePanel();
+  renderVillagePanelIdle();
   renderBuildPalette();
-  renderKingdomPanel();
+  renderKingdomPanelIdle();
+  renderJoyPanel();
   updateFootprintPreview(); // arming/disarming a building shows/hides the placement outline
 });
 renderBuildingPanel(); // seed the inspector's "click a building" hint before any selection
@@ -998,7 +1461,6 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.centerOnTile(focus.x, focus.y);
           villageStats.clear();
           hud.villages.textContent = '';
-          hud.kingdom.textContent = '';
         } else {
           void bootRenderer(message.world.widthTiles, message.world.heightTiles, message.entities, message.terrain, message.buildings, message.roads, focus);
         }
@@ -1009,7 +1471,7 @@ worker.onmessage = (event: MessageEvent) => {
       for (const stat of message.villageStats ?? []) {
         villageStats.set(stat.id, stat);
       }
-      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {} })));
+      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0 })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
       }
@@ -1021,12 +1483,22 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.updateBuildingProgress(bp[i] as number, bp[i + 1] as number);
         }
         for (const id of message.buildingsRemoved ?? []) renderer.removeBuilding(id);
+        // first delta after a resume: the queued placements have now committed (they land in this
+        // same delta's buildingsAdded, drawn above), so drop the pause-time ghosts. Any ghost with
+        // no committed building was a placement the sim rejected (e.g. it outran the stockpile) and
+        // is correctly removed too.
+        if (clearGhostsOnResume) {
+          renderer.clearPlanned();
+          clearGhostsOnResume = false;
+        }
       }
       // keep the building inspector live: reflect construction progress, and if the
       // selected building was demolished (here or by a siege) drop the stale selection
       if (buildingPanel.isOpen() && selectedBuildingId !== null) {
         if ((message.buildingsRemoved ?? []).includes(selectedBuildingId)) selectBuilding(null);
-        else renderBuildingPanel();
+        // skip the live-stats rebuild while the pointer is on the panel, so the two-click
+        // Demolish (and any button) isn't replaced mid-click — the "only works paused" fix.
+        else if (!isInteracting(buildingPanel.body)) renderBuildingPanel();
       }
       // buildings changed under the cursor → re-probe the footprint preview so a just-placed
       // (or removed) tile flips colour without waiting for the next mouse move
@@ -1038,8 +1510,9 @@ worker.onmessage = (event: MessageEvent) => {
       lastDeltaAtMs = performance.now();
       return;
     }
-    case 'ticked':
+    case 'ticked': {
       hud.tick.textContent = String(message.toTick);
+      let toastSurfaced = false;
       for (const gameEvent of message.events) {
         if (gameEvent.type === 'time.dayStarted') {
           const { date } = gameEvent.data as { date: { year: number; seasonName: string; day: number } };
@@ -1054,9 +1527,8 @@ worker.onmessage = (event: MessageEvent) => {
             ledger?: { tick: number; kind: string; amount: number; detail: string }[];
           };
           if ((r.kingdomIndex ?? 0) === 0) {
-            const sign = r.net >= 0 ? '+' : '−';
-            hud.kingdom.textContent =
-              `⛁ ${r.treasury.toFixed(0)} (${sign}${Math.abs(r.net).toFixed(1)}/day · tax ${r.taxes.toFixed(1)} − upkeep ${(r.upkeep + r.salaries).toFixed(1)})`;
+            // kingdom resources are no longer always-on HUD text — the on-demand
+            // Kingdom panel (👑) renders treasury/net/ledger from this same rollup.
             store.applyRollup(r);
             store.appendLedger(r.ledger ?? []); // M42: itemized breakdown, "full income/expense" (GDD §2)
           }
@@ -1071,6 +1543,54 @@ worker.onmessage = (event: MessageEvent) => {
             eventQueue.push({ eventId, choiceIds });
             showNextEventDialog();
           }
+        } else if (gameEvent.type === 'siege.begun') {
+          // M51 (ADR-4 §3): the warning chain — an enemy army encircling YOUR castle is a
+          // blocking, auto-pausing notice that deep-links to the defence view.
+          const { defender } = gameEvent.data as { defender?: number };
+          if (playerKingdomId !== null && defender === playerKingdomId) {
+            setSpeed(0);
+            notifications.push({ type: 'siege.begunOnPlayer', tick: gameEvent.tick, data: gameEvent.data as Record<string, unknown> });
+            castlePanel.open();
+            toastSurfaced = true;
+          }
+        } else if (gameEvent.type === 'siege.capitalFallen') {
+          // M53: YOUR keep fell — blocking, auto-pausing; the Diplomacy panel holds the
+          // choice (submit within the window, or the realm burns)
+          const { defender } = gameEvent.data as { defender?: number };
+          if (playerKingdomId !== null && defender === playerKingdomId) {
+            setSpeed(0);
+            notifications.push({ type: 'siege.capitalFallenOnPlayer', tick: gameEvent.tick, data: gameEvent.data as Record<string, unknown> });
+            diplomacyPanel.open();
+            toastSurfaced = true;
+          }
+        } else if (gameEvent.type === 'siege.capitulationOffered') {
+          // M53: the fallen court offers homage to YOU — pause and surface the accept row
+          const d = gameEvent.data as { castle: number; lord: number; deadline: number };
+          if (playerKingdomId !== null && d.lord === playerKingdomId) {
+            setSpeed(0);
+            pendingHomage.set(d.castle, d.deadline);
+            diplomacyPanel.open();
+            renderDiplomacyPanel();
+          }
+        } else if (gameEvent.type === 'siege.ended') {
+          // M53: however a fallen siege resolved, its homage offer is dead
+          const { castle } = gameEvent.data as { castle: number };
+          if (pendingHomage.delete(castle)) renderDiplomacyPanel();
+        } else if (gameEvent.type === 'siege.assaultResolved') {
+          // M51: keep the trace for the Castle panel's replay overlay when OUR walls fought
+          const d = gameEvent.data as { defender?: number; outcome?: string; attackerLoss?: number; defenderLoss?: number; breaches?: number; believedGarrison?: number | null; actualGarrison?: number; trace?: { r: number; kind: string; x: number; y: number }[] };
+          if (playerKingdomId !== null && d.defender === playerKingdomId && Array.isArray(d.trace)) {
+            lastAssaultReport = {
+              outcome: String(d.outcome),
+              attackerLoss: d.attackerLoss ?? 0,
+              defenderLoss: d.defenderLoss ?? 0,
+              breaches: d.breaches ?? 0,
+              believedGarrison: d.believedGarrison ?? null,
+              actualGarrison: d.actualGarrison ?? null,
+              trace: d.trace,
+            };
+            renderCastlePanel();
+          }
         }
         // M47.7: the Military panel's war report — human-readable battle/siege lines
         if (
@@ -1081,13 +1601,17 @@ worker.onmessage = (event: MessageEvent) => {
           battleLog.push(`t${gameEvent.tick} ${gameEvent.type.replace(/^(battle|siege|diplomacy)\./, '')} ${detail}`);
           if (battleLog.length > BATTLE_LOG_CAP) battleLog.splice(0, battleLog.length - BATTLE_LOG_CAP);
         }
-        notifications.push(gameEvent);
+        if (notifications.push(gameEvent) !== undefined) toastSurfaced = true;
         audioDirector.push(gameEvent);
       }
       audioDirector.advance(message.toTick); // tension decay even on ticks with no qualifying event
-      renderToasts();
-      if (notifications.takePauseRequest()) setSpeed(0); // GDD §1 urgent-pause tier
+      // Rebuild toasts ONLY when a new one surfaced. Rebuilding every tick (replaceChildren)
+      // destroyed a toast and its × button mid-click, so dismiss appeared to work only while
+      // paused (no ticks → stable DOM). Notifications no longer pause the sim — only blocking
+      // event dialogs do (issue 2).
+      if (toastSurfaced) renderToasts();
       return;
+    }
     case 'saveResult':
       hud.status.textContent = message.ok
         ? `saved '${message.slot}' (${(message.bytes / 1024).toFixed(0)} KB)`
@@ -1291,6 +1815,12 @@ function wireInput(canvas: HTMLCanvasElement): void {
         if (action.kind === 'move') {
           const t = renderer.tileAt(sx, sy);
           command('army.moveTo', { armyId: action.armyId, x: t.x, y: t.y });
+        } else if (action.kind === 'target') {
+          // M51 (the M47.7 gap): pick the bombardment target — the sim validates it is a
+          // wall/gate/tower/keep of the besieged castle and rejects anything else
+          const picked = renderer.pickBuilding(sx, sy);
+          if (picked !== null) command('siege.setTarget', { armyId: action.armyId, buildingId: picked });
+          else notifications.push({ type: 'ui.hint', tick: 0, data: { summary: 'Click a wall/gate/tower segment of the besieged castle to bombard it.' } });
         } else {
           const picked = renderer.pickBuilding(sx, sy);
           const rec = picked !== null ? renderer.buildingRec(picked) : null;
@@ -1302,16 +1832,34 @@ function wireInput(canvas: HTMLCanvasElement): void {
         renderToasts();
       } else if (store.state.armedBuild !== null) {
         const t = renderer.tileAt(sx, sy);
-        const target = store.villageNear(t.x, t.y);
-        if (target !== null) {
-          command('village.build', { villageId: target.id, def: store.state.armedBuild, x: t.x, y: t.y });
-          // continuous building mode: stay armed after every placement attempt (success OR fail),
-          // so the player can drop copy after copy. Only an explicit cancel (Esc / right-click /
-          // re-selecting in the palette / another tool) exits. Re-probe the tile just placed on so
-          // its outline flips red immediately.
-          lastPreviewKey = null;
-          updateFootprintPreview();
+        const armedDef = store.state.armedBuild;
+        if (speed === 0) {
+          // paused: the sim is frozen so a real village.build can't commit until resume (a tick
+          // would advance construction — see the driver's pause note). Plan the placement CLIENT-SIDE
+          // as a blueprint ghost and submit it on resume; clicking an existing ghost cancels it, so
+          // the whole layout stays editable while paused.
+          const hit = pausedPlacementAt(t.x, t.y);
+          if (hit !== null) {
+            pausedPlacements.delete(hit);
+            renderer.removePlanned(hit);
+          } else if (previewValid) {
+            const target = store.villageNear(t.x, t.y);
+            const def = store.state.catalog?.buildings.find((b) => b.id === armedDef);
+            if (target !== null && def !== undefined) {
+              pausedPlacements.set(`${t.x},${t.y}`, { villageId: target.id, def: armedDef, x: t.x, y: t.y, w: def.w, h: def.h });
+              renderer.addPlanned(t.x, t.y, def.w, def.h, def.category);
+            }
+          }
+        } else {
+          const target = store.villageNear(t.x, t.y);
+          if (target !== null) command('village.build', { villageId: target.id, def: armedDef, x: t.x, y: t.y });
         }
+        // continuous building mode: stay armed after every placement attempt (success OR fail), so
+        // the player can drop copy after copy. Only an explicit cancel (Esc / right-click /
+        // re-selecting in the palette / another tool) exits. Re-probe the tile just acted on so its
+        // outline recolours immediately.
+        lastPreviewKey = null;
+        updateFootprintPreview();
       } else if (e.shiftKey) {
         const t = renderer.tileAt(sx, sy);
         const name = renderer.terrainNameAt(t.x, t.y);
@@ -1326,14 +1874,23 @@ function wireInput(canvas: HTMLCanvasElement): void {
           send({ kind: 'debug', op: 'inspect', entityId: picked });
         }
       } else {
-        // player selection (M18): a building click opens its inspector (name, category,
-        // demolish) and syncs the village selection so the Village panel tracks it too
-        const picked = renderer.pickBuilding(sx, sy);
-        const rec = picked !== null ? renderer.buildingRec(picked) : null;
-        if (rec !== null) {
-          store.selectVillage(rec.village);
-          selectBuilding(rec.id);
-          buildingPanel.open();
+        // paused with no tool armed: a click on a planned (blueprint) placement cancels it, so the
+        // player can prune the layout without re-arming the Build tool
+        const gt = renderer.tileAt(sx, sy);
+        const ghostHit = speed === 0 ? pausedPlacementAt(gt.x, gt.y) : null;
+        if (ghostHit !== null) {
+          pausedPlacements.delete(ghostHit);
+          renderer.removePlanned(ghostHit);
+        } else {
+          // player selection (M18): a building click opens its inspector (name, category,
+          // demolish) and syncs the village selection so the Village panel tracks it too
+          const picked = renderer.pickBuilding(sx, sy);
+          const rec = picked !== null ? renderer.buildingRec(picked) : null;
+          if (rec !== null) {
+            store.selectVillage(rec.village);
+            selectBuilding(rec.id);
+            buildingPanel.open();
+          }
         }
       }
     }
@@ -1366,16 +1923,20 @@ const KEYBINDS: readonly Keybind[] = [
   { key: 'V', description: 'Toggle Village panel', action: () => villagePanel.toggle() },
   { key: 'B', description: 'Toggle Build panel', action: () => buildPanel.toggle() },
   { key: 'K', description: 'Toggle Kingdom panel', action: () => kingdomPanel.toggle() },
+  { key: 'J', description: 'Toggle Joy panel', action: () => joyPanel.toggle() },
   { key: 'D', description: 'Toggle Diplomacy panel', action: () => diplomacyPanel.toggle() },
   { key: 'A', description: 'Toggle Military panel', action: () => militaryPanel.toggle() },
   { key: 'R', description: 'Toggle Research panel', action: () => researchPanel.toggle() },
   { key: 'Y', description: 'Toggle Victory panel', action: () => victoryPanel.toggle() },
   { key: 'M', description: 'Toggle Mods panel', action: () => modsPanel.toggle() },
   { key: '`', description: 'Toggle debug / sandbox editor panel', action: () => setDebugOpen(!debugOpen) },
-  { key: 'Escape', description: 'Cancel armed build/army order, or close keybind help', action: (): void => {
+  { key: 'Escape', description: 'Cancel armed build/army/castle order, or close keybind help', action: (): void => {
     if (armedArmyAction !== null) {
       armedArmyAction = null;
       renderMilitaryPanel();
+    } else if (castleAction !== null) {
+      castleAction = null;
+      renderCastlePanel();
     } else if (store.state.armedBuild !== null) store.armBuild(null);
     else if (demolishArmed) { demolishArmed = false; renderBuildingPanel(); }
     else if (helpPanel.isOpen()) helpPanel.close();
