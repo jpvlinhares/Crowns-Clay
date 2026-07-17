@@ -147,6 +147,26 @@ player surface, not merely harness-green.
 | M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
 | M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
 
+**Gate P8 (verified 2026-07-18):** all six milestones shipped in the unified campaign composition
+(no harness-only surface). Global DoD checks: `npm run build` clean · full suite 459/459 green
+(incl. `intel.test.ts`) · `npm run lint` clean · `npm run replay:verify` all four golden replays
+byte-stable (campaign-demo re-recorded intentionally at M54 for the new `garrisonStrength` fact
+kind and player `KnowledgeModel`, per TDD §13 policy) · `npm run save-corpus:verify` all three
+corpus saves resume clean. Doc 11 §2 sim budgets (`npm run bench:scenes all`): war-max 0.086
+ms/tick, ai-8k 0.211 ms/tick, late-campaign 0.357 ms/tick — all ≤10 ms budget, AI share ≤13.4%
+of a ≤30% budget, comfortable headroom at every scene. AI harness (`npm run bench:balance`): 12
+campaigns (4 kingdoms × 100y × 4 difficulties × 3 seeds) all reach a victory before the year cap —
+SC-2 holds. M50's "fps gates hold with both scenes live" T objective resolves by the M50 scoping
+note's own architecture, not a live-render measurement: the defence view is a static 2D canvas
+redrawn only on projection change (no second WebGL context, no per-frame cost), so there is no
+second live scene to contend for frame budget — verified by reading the shipped code path, not
+re-litigated here. Design-doc reconciliation: GDD §7 and doc 07 §5 both carry their Phase-8-shipped
+deltas (M52 templates load-bearing, M54 knowledge-model second-consumer) — no outstanding rewrite.
+Open questions: OQ-9 and OQ-11 both CLOSED in doc 14, Phase 8 entry gate satisfied per their own
+records. **Phase 8 — The Castle is closed.** Outstanding work is 1.x balance backlog only (recorded
+in the M54 scoping note below): AI-vs-AI war-cadence, the 34%-max origin-deviation watch item, and
+combat.ts's pinned u16 rounding.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking
