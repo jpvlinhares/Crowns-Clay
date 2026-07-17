@@ -7,7 +7,7 @@
  * the first thing the renderer shows is, deliberately, a world whose exact
  * evolution is pinned by committed fixtures.
  */
-import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
+import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelEnemyIntelRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
   DEFENCE_MAP_SIZE, KEEP_DEF, STANCES, TickDriver, composeCampaign, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
@@ -242,7 +242,44 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
       return { size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
     })();
 
-    return { kingdoms, units, armies, research, victory, defence };
+    // ---- enemy intel (M54, ADR-4 §4): the player's STALE snapshot of each rival capital —
+    // structures as last seen (hp 0/0: state is not visible from outside the walls),
+    // garrison as the player's own noisy belief. Empty until first scouting contact. ----
+    const enemyIntel: PanelEnemyIntelRec[] = [];
+    if (cc.intelGame !== null) {
+      for (let k = 1; k < kingdomIds.length; k++) {
+        const snap = cc.intelGame.state.get(0, k);
+        const map = cc.defenceGame.mapOf(k);
+        if (snap === undefined || map === undefined) continue;
+        const vi = cc.villageOf(k);
+        const believed = cc.believedGarrisonOf(0, k);
+        enemyIntel.push({
+          kingdom: k,
+          name: vi !== null ? (names.tryGet(vi) ?? `Kingdom ${k}`) : `Kingdom ${k}`,
+          size: DEFENCE_MAP_SIZE,
+          tiles: encodeDefenceMap(map.tiles),
+          asOfTick: snap.tick,
+          structures: snap.structures.map((s) => {
+            const def = db.buildings.get(s.def);
+            return {
+              id: 0,
+              defId: s.def,
+              name: def?.name ?? s.def,
+              kind: def?.defense?.kind ?? 'wall',
+              x: s.x,
+              y: s.y,
+              w: s.w,
+              h: s.h,
+              hp: 0,
+              maxHp: 0,
+            };
+          }),
+          believedGarrison: believed === undefined ? null : Math.round(believed),
+        });
+      }
+    }
+
+    return { kingdoms, units, armies, research, victory, defence, enemyIntel };
   };
 }
 

@@ -125,10 +125,20 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       const def = ops.unitDef(u.def[ui] as number);
       return sum + (u.count[ui] as number) * def.stats.attack * (def.class === 'siege' ? SIEGE_BOMBARD_BONUS : 1);
     }, 0);
-  /** Morale+casualty damage onto the attacking column (tower fire, clashes).
-   * `Unit.count` is a u16 — casualties must be applied as WHOLE men (Math.round), or the
-   * store's truncation silently executes a man per fractional write (a latent hazard this
-   * module hit in testing: tower chip-damage of 0.01 casualties was killing 1/unit/volley). */
+  /** Casualty bookkeeping: `Unit.count` is a u16, so men die WHOLE — but rounding each
+   * fractional write to a whole man starves sustained chip damage entirely (the M54
+   * matrix's finding: 36 tower volleys into a 60-man column rounded to ZERO total loss,
+   * and the winning side of a garrison clash fought for free). The remainder CARRIES
+   * between applications per unit, so fractions integrate to real men over an assault
+   * without ever writing a fraction into the store (the M52 truncation hazard). */
+  const casualtyRemainder = new Map<number, number>();
+  const applyCasualties = (ui: number, fractional: number): void => {
+    const acc = (casualtyRemainder.get(ui) ?? 0) + Math.max(0, fractional);
+    const whole = Math.min(u.count[ui] as number, Math.floor(acc));
+    casualtyRemainder.set(ui, acc - Math.floor(acc));
+    if (whole > 0) u.count[ui] = Math.max(0, (u.count[ui] as number) - whole);
+  };
+  /** Morale+casualty damage onto the attacking column (tower fire, clashes). */
   const damageAttacker = (damage: number): void => {
     const total = attackerCount();
     if (total <= 0 || damage <= 0) return;
@@ -136,8 +146,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       const share = (u.count[ui] as number) / total;
       const moraleLoss = damage * share;
       u.morale[ui] = Math.max(0, (u.morale[ui] as number) - moraleLoss);
-      const casualties = Math.min(u.count[ui] as number, Math.round(moraleLoss * ASSAULT_CASUALTY_FRACTION));
-      u.count[ui] = Math.max(0, (u.count[ui] as number) - casualties);
+      applyCasualties(ui, moraleLoss * ASSAULT_CASUALTY_FRACTION);
       if ((u.morale[ui] as number) < ROUT_MORALE_THRESHOLD && rng.nextFloat() < ROUT_CHANCE_PER_SUBROUND) {
         u.armyId[ui] = 0; // routs off the field — survives, leaves the assault
       }
@@ -400,8 +409,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
         const share = (u.count[g.pi] as number) / Math.max(1, gCount);
         const moraleLoss = damageToGarrison * share;
         u.morale[g.pi] = Math.max(0, (u.morale[g.pi] as number) - moraleLoss);
-        const casualties = Math.min(u.count[g.pi] as number, Math.round(moraleLoss * ASSAULT_CASUALTY_FRACTION));
-        u.count[g.pi] = Math.max(0, (u.count[g.pi] as number) - casualties);
+        applyCasualties(g.pi, moraleLoss * ASSAULT_CASUALTY_FRACTION);
         if ((u.count[g.pi] as number) > 0 && (u.morale[g.pi] as number) < ROUT_MORALE_THRESHOLD && rng.nextFloat() < ROUT_CHANCE_PER_SUBROUND) {
           world.detach(g.entity as EntityId, DefencePost); // flees the walls — survives, unposted
           step('rout', at);
@@ -422,7 +430,16 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
     if (adjacentToKeep) {
       step('keep', at);
       const strength = attackerUnits().reduce((sum, ui) => sum + (u.count[ui] as number) * ops.unitDef(u.def[ui] as number).stats.attack, 0);
-      outcome = strength >= keepThreshold ? 'captured' : 'repelled';
+      // M54 (matrix finding): the LAST-STAND RALLY — every surviving garrison post,
+      // engaged or bypassed, falls back to the keep for the final verdict. Without it,
+      // a raid that slipped past a thinly-spread garrison took the keep from its own
+      // hold-strength alone (the walk-past exploit). Positioning still pays: posts ON
+      // the approach bleed the column earlier, under tower support, before this test.
+      const rally = livePosts().reduce(
+        (sum, g) => sum + (u.count[g.pi] as number) * ops.unitDef(u.def[g.pi] as number).stats.defense,
+        0,
+      );
+      outcome = strength >= keepThreshold + rally ? 'captured' : 'repelled';
       break;
     }
 
@@ -472,6 +489,10 @@ export function publishAssaultResolved(
   army: number,
   defender: number,
   result: AssaultResult,
+  /** M54 (ADR-4 §4): the belief-error story — what the attacker BELIEVED the garrison
+   * mustered when the ladders went up (null = attacked blind) vs. what it actually was.
+   * Rides the event so the battle report can say "believed ~40; met 85". */
+  intel?: { believedGarrison: number | null; actualGarrison: number },
 ): void {
   events.publish({
     type: 'siege.assaultResolved',
@@ -485,6 +506,12 @@ export function publishAssaultResolved(
       attackerLoss: Math.round(result.attackerLoss),
       defenderLoss: Math.round(result.defenderLoss),
       breaches: result.breaches,
+      ...(intel !== undefined
+        ? {
+            believedGarrison: intel.believedGarrison === null ? null : Math.round(intel.believedGarrison),
+            actualGarrison: intel.actualGarrison,
+          }
+        : {}),
       trace: result.trace,
     },
   });

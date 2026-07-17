@@ -212,6 +212,9 @@ posted; siege ASSAULTS resolve spatially on it (§8's other phases unchanged); t
 defence graph and on-map wall placement retire when M50–M51 make the layer the fortification
 surface. Interactions and balancing above otherwise stand. Kingdom death becomes capital-death
 at M53 (doc 14 OQ-9/OQ-11: vassalage-first, permadeath under ironman).
+*Phase 8 shipped in full 2026-07-17 (M49–M54; doc 12's scoping notes are the record): the layer,
+its panel, spatial assaults, templated AI defence, the loss/loot/succession chain, and intel —
+enemy layouts as stale scouting snapshots, garrisons as beliefs, for player and AI symmetrically.*
 
 ---
 

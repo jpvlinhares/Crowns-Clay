@@ -117,6 +117,11 @@ export interface AiMilitaryOptions {
    * the walk handles walls itself, so assault immediately instead of waiting for a
    * bombardment breach that can never open (no world-map defence graph to bombard). */
   readonly spatialSiege?: (castleVillageIndex: number) => boolean;
+  /** M54 (ADR-4 §4): fog-symmetric assault counsel from the composition's intel —
+   * 'assault' when believed resistance is clearable, 'hold' while the estimate says
+   * wait (starve, gather intel, reinforce), 'lift' when the siege looks hopeless.
+   * Omitted (pre-M54 compositions / harness): assault immediately, the M53 behaviour. */
+  readonly assaultAdvice?: (castleVillageIndex: number) => 'assault' | 'hold' | 'lift';
   readonly id?: string;
   readonly searchRadius?: number;
   /** Extra components a custom `getPlan` reads (e.g. the planner's `AiPlanState` component). */
@@ -288,10 +293,18 @@ export function registerAiMilitaryManager(
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
-        // M53: spatial capitals have no bombardable world-map graph — assault directly
+        // M53: spatial capitals have no bombardable world-map graph — assault directly.
+        // M54: unless the composition's intel counsels otherwise ('hold' waits at the
+        // walls — the siege camp itself refreshes the snapshot within a day; 'lift'
+        // walks away from a hopeless escalade instead of feeding it men).
         if (options.spatialSiege?.(existingSiege.castle) ?? false) {
           if (existingSiege.assaultEngagementArmy === 0) {
-            kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+            const advice = options.assaultAdvice?.(existingSiege.castle) ?? 'assault';
+            if (advice === 'assault') {
+              kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+            } else if (advice === 'lift') {
+              kernel.submit({ type: 'siege.lift', issuer: options.issuer, payload: { armyId } });
+            }
           }
           return;
         }

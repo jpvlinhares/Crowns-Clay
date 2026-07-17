@@ -1045,6 +1045,9 @@ let lastAssaultReport: {
   attackerLoss: number;
   defenderLoss: number;
   breaches: number;
+  /** M54: the attacker's belief vs. the truth — the "believed ~40; met 85" line. */
+  believedGarrison: number | null;
+  actualGarrison: number | null;
   trace: { r: number; kind: string; x: number; y: number }[];
 } | null = null;
 
@@ -1135,9 +1138,16 @@ function renderCastlePanel(): void {
   }
   if (lastAssaultReport !== null) {
     const r = lastAssaultReport;
+    // M54: the belief-error line — how wrong the attacker's scouts were (ADR-4 §4)
+    const intelLine =
+      r.actualGarrison === null
+        ? ''
+        : r.believedGarrison === null
+          ? ` They attacked BLIND — met ${r.actualGarrison} defenders.`
+          : ` They believed ~${r.believedGarrison} defenders; met ${r.actualGarrison}.`;
     const summary = el(
       'div',
-      `Last assault: ${r.outcome === 'captured' ? '⚰ the keep FELL' : '🛡 REPELLED'} — attacker lost ${r.attackerLoss}, garrison lost ${r.defenderLoss}, ${r.breaches} breach(es). The red path replays the column's walk.`,
+      `Last assault: ${r.outcome === 'captured' ? '⚰ the keep FELL' : '🛡 REPELLED'} — attacker lost ${r.attackerLoss}, garrison lost ${r.defenderLoss}, ${r.breaches} breach(es).${intelLine} The red path replays the column's walk.`,
       'row',
     );
     const clear = document.createElement('button');
@@ -1226,6 +1236,43 @@ function renderCastlePanel(): void {
     });
     row.append(unpostBtn);
     body.append(row);
+  }
+
+  // -- enemy intel (M54, ADR-4 §4): the STALE snapshot — walls as last seen, garrison
+  // as your scouts' noisy belief. Never live truth; the "as of" line is the warning. --
+  const intel = panelsState?.enemyIntel ?? [];
+  if (intel.length > 0) {
+    body.append(el('h3', 'Enemy castles (intel)', 'ledger-heading'));
+    for (const rec of intel) {
+      const asOfDay = Math.floor(rec.asOfTick / 24);
+      const garrison = rec.believedGarrison === null ? 'garrison unknown' : `garrison ~${rec.believedGarrison} (believed)`;
+      const head = el('div', `${rec.name} — walls as of day ${asOfDay} · ${garrison}`, 'row');
+      tip(head, 'A snapshot from your last scouting contact — the layout may have changed since.\nGarrison is a belief: contact-refreshed, decaying, never exact.');
+      body.append(head);
+      const c = document.createElement('canvas');
+      const s = 1.6; // compact stale view
+      c.width = Math.floor(rec.size * s);
+      c.height = Math.floor(rec.size * s);
+      c.setAttribute('aria-label', `${rec.name} castle intel`);
+      const gg = c.getContext('2d');
+      if (gg !== null) {
+        const enemyTiles = decodeRle(rec.tiles, rec.size * rec.size);
+        for (let y = 0; y < rec.size; y++) {
+          for (let x = 0; x < rec.size; x++) {
+            gg.fillStyle = DEFENCE_TILE_COLORS[enemyTiles[y * rec.size + x] as number] ?? DEFENCE_TILE_COLORS[0];
+            gg.fillRect(x * s, y * s, s + 0.5, s + 0.5);
+          }
+        }
+        for (const r of rec.structures) {
+          gg.fillStyle = DEFENCE_KIND_COLORS[r.kind] ?? (DEFENCE_KIND_COLORS['wall'] as string);
+          gg.fillRect(r.x * s, r.y * s, r.w * s, r.h * s);
+        }
+        // the sepia wash marks it as memory, not observation
+        gg.fillStyle = 'rgba(120, 100, 60, 0.25)';
+        gg.fillRect(0, 0, c.width, c.height);
+      }
+      body.append(c);
+    }
   }
 }
 
@@ -1531,9 +1578,17 @@ worker.onmessage = (event: MessageEvent) => {
           if (pendingHomage.delete(castle)) renderDiplomacyPanel();
         } else if (gameEvent.type === 'siege.assaultResolved') {
           // M51: keep the trace for the Castle panel's replay overlay when OUR walls fought
-          const d = gameEvent.data as { defender?: number; outcome?: string; attackerLoss?: number; defenderLoss?: number; breaches?: number; trace?: { r: number; kind: string; x: number; y: number }[] };
+          const d = gameEvent.data as { defender?: number; outcome?: string; attackerLoss?: number; defenderLoss?: number; breaches?: number; believedGarrison?: number | null; actualGarrison?: number; trace?: { r: number; kind: string; x: number; y: number }[] };
           if (playerKingdomId !== null && d.defender === playerKingdomId && Array.isArray(d.trace)) {
-            lastAssaultReport = { outcome: String(d.outcome), attackerLoss: d.attackerLoss ?? 0, defenderLoss: d.defenderLoss ?? 0, breaches: d.breaches ?? 0, trace: d.trace };
+            lastAssaultReport = {
+              outcome: String(d.outcome),
+              attackerLoss: d.attackerLoss ?? 0,
+              defenderLoss: d.defenderLoss ?? 0,
+              breaches: d.breaches ?? 0,
+              believedGarrison: d.believedGarrison ?? null,
+              actualGarrison: d.actualGarrison ?? null,
+              trace: d.trace,
+            };
             renderCastlePanel();
           }
         }

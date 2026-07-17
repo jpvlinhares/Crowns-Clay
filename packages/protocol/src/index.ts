@@ -28,6 +28,7 @@ export {
   type PanelDefenceStructureRec,
   type PanelDefencePostRec,
   type PanelDefenceState,
+  type PanelEnemyIntelRec,
   type PlayerPanels,
   type AvailableMod,
   type ModReport,

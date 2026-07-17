@@ -22,6 +22,7 @@
     "crash-triage": "node packages/tools/dist/crash-triage.js",
     "bench:scenes": "node packages/tools/dist/bench-scenes.js all",
     "bench:balance": "node packages/tools/dist/bench-balance.js",
+    "bench:assault": "node packages/tools/dist/bench-assault.js",
     "dev": "vite",
     "build:web": "vite build",
     "preview": "vite preview",

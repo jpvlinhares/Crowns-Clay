@@ -147,6 +147,38 @@ player surface, not merely harness-green.
 | M49 | Defence-layer core | per-kingdom ~100×100 defence map from `hash(worldSeed, kingdomId)` via a local-scale worldgen profile (terrain variety is load-bearing — ADR-4 §5); `DefenceStructure` components reusing `Fortification`; `DefenceOps` placement/cost reservation against the main economy; `defence.build/demolish/post` commands; persistence as seed + pipeline-version stamp | layer save→load→resave hash-identical; layout regeneration byte-stable across engines; version-stamp mismatch falls back to stored tiles |
 | M50 | Defence view & build UI | second render scene (second `PixiRenderer` instance over the pure core), world↔defence view switch, snapshot layer routing in the protocol, build palette + garrison posting on `PanelHost` | place/demolish/post walkthrough injector-free; doc 11 fps gates hold with both scenes live |
 
+**M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
+Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
+on current-proximity contact with the target capital or by a besieging army (the camp is looking
+at the walls), hash-folded and saved (optional section). Garrison strength is NEVER truth: a
+`garrisonStrength` fact (appended FactKind — pack indexes stay save-compatible) through the same
+belief sensors, and the PLAYER now carries a KnowledgeModel like every AI (kingdom 0's UI reads
+its own noisy beliefs — the fog is symmetric in both directions). AI attackers consult
+`estimateAssaultResistance` over snapshot + belief via the military manager's `assaultAdvice`
+hook (assault / hold / lift at `ASSAULT_HOPELESS_FRACTION`); the battle report tells the
+belief-error story ("believed ~40; met 85" — `believedGarrison`/`actualGarrison` on
+`siege.assaultResolved`). The Castle panel gains the enemy-intel section (sepia-washed stale
+canvas, "as of day N", believed garrison). Personality-tag template mapping ships (martial →
+motte, economy → concentric, schemer → ridge-line, via TEMPLATE tags). The new
+`bench-assault.ts` matrix (`npm run bench:assault`) drove three real fixes: (1) whole-man
+casualty ROUNDING starved sustained chip damage (36 tower volleys into 60 men = zero loss; clash
+winners fought free) — replaced by a per-unit FRACTIONAL ACCUMULATOR that carries remainders
+between volleys, integrating chips into real men with no u16 hazard; (2) the WALK-PAST exploit —
+a raid slipping past a thinly-spread garrison took the keep bare-handed — closed by the
+LAST-STAND RALLY (surviving posts add their defence to the keep verdict; positioning still pays
+because posts on the approach bleed the column earlier, under tower fire); (3) the origin-
+dominance metric judges per-ORIGIN aggregates over contested configs with geography-sealed
+origins masked out (a blocked approach is ADR-4 §5 pricing at its limit, not an artefact).
+Bands (2 seeds): garrisoned templates repel 20-man raids at every origin; keep-only falls to a
+host from every reachable origin; concentric > motte > ridge-line in cost-to-crack; max origin
+deviation 34% (top-favoured across the four marginal configs — a content watch item, within
+tolerance). DECISIONS RECORDED: combat.ts's own u16 rounding stays PINNED (field battles are
+symmetric, its balance corpus is recorded; revisit only on cross-engine or matrix evidence) ·
+geography-priced origins are DELIVERED EMERGENTLY by the terrain-bearing maps (the matrix
+quantifies them; no explicit pricing mechanic needed) · AI-vs-AI conquest pacing (wars ending
+before capital sieges are mounted) is inherited pre-Phase-8 war-cadence tuning, out of Phase 8's
+scope — carried as a 1.x balance backlog item, not an open Phase 8 obligation.
+
 **M53 scoping note (shipped 2026-07-17):** capital death activates exactly as OQ-9 item 2 ruled —
 when a defence-layer capital falls (assault OR starvation: starving a capital out cannot dodge the
 rule), the siege FREEZES instead of flipping ownership and a `CAPITULATION_WINDOW_DAYS` (5) window

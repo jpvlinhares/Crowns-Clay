@@ -49,7 +49,7 @@ import { CalendarSystem, TICKS_PER_DAY } from './time.js';
 import { describePersonality, perturbWeights, toPlannerWeights } from './ai/personality.js';
 import { KnowledgeModel } from './ai/knowledge.js';
 import { registerOccupationGameplay } from './game/occupation.js';
-import { registerDefenceGameplay } from './game/defence.js';
+import { registerDefenceGameplay, KEEP_DEF } from './game/defence.js';
 import { generateWorld } from './worldgen/pipeline.js';
 import { Biome, type MapSize, type WorldDef } from './worldgen/types.js';
 import { registerVillageGameplay, VILLAGE_MIN_SPACING, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
@@ -67,7 +67,8 @@ import { registerCombatGameplay } from './game/combat.js';
 import { registerCastleGameplay } from './game/castles.js';
 import { registerSiegeGameplay, type SpatialAssaultHook, type CapitalFallHook } from './game/siege.js';
 import { registerSuccessionGameplay } from './game/succession.js';
-import { publishAssaultResolved, resolveSpatialAssault } from './game/assault.js';
+import { registerDefenceIntel, estimateAssaultResistance, ASSAULT_HOPELESS_FRACTION } from './game/intel.js';
+import { publishAssaultResolved, resolveSpatialAssault, DEFAULT_KEEP_HOLD_STRENGTH } from './game/assault.js';
 import { registerResearchGameplay } from './game/research.js';
 import { registerEventGameplay } from './game/events.js';
 import { registerVictoryGameplay, type VictoryOptions } from './game/victory.js';
@@ -165,6 +166,9 @@ export interface ComposeCampaignOptions {
    * loot + new-lords-rising. Default true; the harness wrapper opts out (its pinned runs
    * predate the capital-death rule — captures stay plain owner flips there). */
   readonly succession?: boolean;
+  /** M54 (ADR-4 §4): stale structure snapshots + garrison beliefs + the AI assault
+   * advice they feed. Default true; the harness wrapper opts out (pinned runs). */
+  readonly intel?: boolean;
   /** GDD §13 "history seeding": kingdoms start mutually AWARE of each other's capitals
    * (medieval realms knew their neighbours) — later villages stay fog-hidden until scouted.
    * Without it, start sites sit beyond scout range and no kingdom ever discovers another —
@@ -211,6 +215,10 @@ export interface CampaignComposition {
   readonly defenceGame: ReturnType<typeof registerDefenceGameplay>;
   /** M53: loss, loot & succession — null when opted out or single-kingdom. */
   readonly successionGame: ReturnType<typeof registerSuccessionGameplay> | null;
+  /** M54: stale defence-structure snapshots — null when opted out or single-kingdom. */
+  readonly intelGame: ReturnType<typeof registerDefenceIntel> | null;
+  /** M54: believed capital garrison of a rival (deterministic noise; undefined = never observed). */
+  believedGarrisonOf(observerIndex: number, targetIndex: number): number | undefined;
   readonly researchGame: ReturnType<typeof registerResearchGameplay>;
   readonly eventsGame: ReturnType<typeof registerEventGameplay>;
   readonly victoryGame: ReturnType<typeof registerVictoryGameplay>;
@@ -352,6 +360,8 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // exactly — captures stay plain owner flips and capitals stay occupiable.
   const capitalFall: CapitalFallHook = {};
   const capitalDeathRules = options.succession ?? true;
+  // M54: late-bound assault counsel (intel registers at the tail; managers register earlier).
+  const intelAdvice: { counsel?: (observerIndex: number, castleVillageIndex: number) => 'assault' | 'hold' | 'lift' } = {};
   const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, castleGame, combatGame, kingdomGame, spatialAssault, capitalFall);
 
   kernel.attachGuard(world);
@@ -571,51 +581,32 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     const believed = model.believedValue(targetId as number, 'armyStrength', kernel.currentTick, rng);
     return believed === undefined ? undefined : Math.max(0, believed);
   };
+  /** M54 (ADR-4 §4): believed CAPITAL GARRISON of a rival — the knowledge model's second
+   * consumer. Same deterministic keyed-fork noise as believedStrengthOf; undefined = never
+   * observed (no contact yet), which consumers must treat as "you are attacking blind". */
+  const believedGarrisonOf = (observerIndex: number, targetIndex: number): number | undefined => {
+    const model = beliefModels.get(observerIndex);
+    const targetId = kingdomGame.kingdomEntities()[targetIndex];
+    if (model === undefined || targetId === undefined) return undefined;
+    const rng = Rng.fromSeed(options.seed).fork(`belief:${observerIndex}:${targetIndex}:${kernel.currentTick}`);
+    const believed = model.believedValue(targetId as number, 'garrisonStrength', kernel.currentTick, rng);
+    return believed === undefined ? undefined : Math.max(0, believed);
+  };
+  const beliefContactRadius = SCOUT_REVEAL_RADIUS * (difficulty?.scoutingRadiusMultiplier ?? 1);
   if (beliefsEnabled) {
-    for (let k = aiFromIndex; k < options.kingdomCount; k++) beliefModels.set(k, new KnowledgeModel());
-    const contactRadius = SCOUT_REVEAL_RADIUS * (difficulty?.scoutingRadiusMultiplier ?? 1);
-    kernel.registerSystem({
-      name: 'belief-sensors',
-      period: TICKS_PER_DAY,
-      phase: 11,
-      access: {
-        reads: [
-          game.comps.VillageCore, militaryGame.Unit,
-          ...(kingdomGame.VillageOwner !== undefined ? [kingdomGame.VillageOwner] : []),
-        ],
-      },
-      update(ctx: TickContext): void {
-        for (const [k, model] of beliefModels) {
-          model.decayAll(ctx.tick, BELIEF_HALF_LIFE);
-          const mine = villagesOfKingdom(k);
-          if (mine.length === 0) continue;
-          for (let other = 0; other < options.kingdomCount; other++) {
-            if (other === k) continue;
-            const otherId = kingdomGame.kingdomEntities()[other];
-            if (otherId === undefined) continue;
-            const contact = villagesOfKingdom(other).some((tv) =>
-              mine.some((mv) => Math.max(Math.abs(mv.x - tv.x), Math.abs(mv.y - tv.y)) <= contactRadius),
-            );
-            if (contact) {
-              model.record({
-                subject: otherId as number,
-                kind: 'armyStrength',
-                value: committedStrengthOf(otherId as number),
-                confidence: 1,
-                lastUpdated: ctx.tick,
-                source: 'scout',
-              });
-            }
-          }
-        }
-      },
-    });
+    // M54: EVERY kingdom carries a model now, the player's included — ADR-4 §4 says
+    // garrison strength is never shown as truth, and that has to hold for the player's
+    // own UI, which reads kingdom 0's beliefs exactly like an AI reads its own.
+    for (let k = 0; k < options.kingdomCount; k++) beliefModels.set(k, new KnowledgeModel());
     kernel.addHashSource('beliefs', (fold) => {
       for (const [k, model] of beliefModels) {
         fold(k);
         for (const v of model.pack()) fold(Math.round(v * 1000));
       }
     });
+    // NOTE: the sensor SYSTEM registers further down, after the defence layer exists —
+    // M54's garrisonStrength fact must declare DefencePost, a component defined there.
+    // Phase is a stagger offset (kernel.ts), so late registration keeps its cadence.
   }
 
   const militaryContextFor = (kingdomIndex: number): AiMilitaryContext => ({
@@ -760,6 +751,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       warTargets: () => warTargetsFor(k),
       grudgeTarget: () => dctx.strongestGrudge?.()?.target ?? null, // M47.8: PunitiveRaid aims here
       spatialSiege: (castleVi) => capitalDeathRules && (spatialAssault.applicable?.(castleVi) ?? false), // M53: assault layer capitals directly
+      assaultAdvice: (castleVi) => intelAdvice.counsel?.(k, castleVi) ?? 'assault', // M54: fog-symmetric counsel
       diplomacy: {
         isAtWar(target: EntityId): boolean {
           const myId = kingdomGame.kingdomEntities()[k];
@@ -829,9 +821,25 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // content polish for M54's balance pass if wanted).
   if (options.aiDefence ?? true) {
     const templates = [...db.castleTemplates.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+    // M54 (the M52 note's promised content polish): personality TAGS pick the archetype —
+    // martial/expansionist courts throw up the cheap motte and spend on armies; wealthy
+    // peaceful ones invest in the expensive concentric rings; scheming courts favour the
+    // asymmetric ridge-line. Template TAGS are the match key (content stays the authority);
+    // no personality (or no tag match) keeps the seeded pick.
+    const templateForTags = (tags: readonly string[]): (typeof templates)[number] | undefined => {
+      const want =
+        tags.includes('martial') || tags.includes('expansion') ? 'cheap'
+        : tags.includes('economy') || tags.includes('peaceful') ? 'expensive'
+        : tags.includes('diplomacy') || tags.includes('hostile') ? 'asymmetric'
+        : null;
+      return want === null ? undefined : templates.find((t) => t.tags?.includes(want));
+    };
     if (templates.length > 0) {
       for (let k = aiFromIndex; k < options.kingdomCount; k++) {
-        const template = templates[(((options.seed >>> 0) + k) % templates.length)] as (typeof templates)[number];
+        const assigned = contentAssign?.(k);
+        const template =
+          (assigned != null ? templateForTags(assigned.def.tags) : undefined) ??
+          (templates[(((options.seed >>> 0) + k) % templates.length)] as (typeof templates)[number]);
         registerAiDefenceManager(kernel, world, db, game, militaryGame, kingdomGame, defenceGame, {
           issuer: k + 1,
           kingdomIndex: k,
@@ -842,6 +850,17 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       }
     }
   }
+
+  // M54: posted capital garrison in MEN (the unit the garrisonStrength belief stores) —
+  // shared by the belief sensor and the assault report's belief-error line.
+  const postedMenOf = (kingdomId: number): number => {
+    const u = world.read(militaryGame.Unit);
+    let total = 0;
+    world.query([militaryGame.Unit, defenceGame.DefencePost]).forEach((ui) => {
+      if ((u.kingdomId[ui] as number) === kingdomId && (u.complete[ui] as number) === 1) total += u.count[ui] as number;
+    });
+    return total;
+  };
 
   // The spatial assault applies to CAPITALS with a defence layer (ADR-4 §6: the layer guards
   // the capital only); every other castle keeps the legacy breach-and-engagement path.
@@ -862,6 +881,12 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     const k = kingdomGame.kingdomEntities().indexOf(ownerId as EntityId);
     if (k < 0 || villageIndexByKingdom.get(k) !== siege.castle) return null;
     if (defenceGame.mapOf(k) === undefined) return null;
+    // M54: the belief-error story — capture what the attacker BELIEVED (noisy, decayed,
+    // possibly never observed) and the pre-assault truth, BEFORE the resolver spends
+    // the garrison. Rides the assaultResolved event for the battle report.
+    const attackerIdx = kingdomGame.kingdomEntities().indexOf(siege.attackerKingdom as EntityId);
+    const believedRaw = attackerIdx >= 0 ? believedGarrisonOf(attackerIdx, k) : undefined;
+    const actualGarrison = postedMenOf(ownerId);
     const result = resolveSpatialAssault({
       world,
       rng: ctx.rng,
@@ -874,7 +899,10 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       attackerArmy: siege.attackerArmy,
       origin,
     });
-    publishAssaultResolved(ctx.events, ctx.tick, siege.castle, siege.attackerArmy, ownerId, result);
+    publishAssaultResolved(ctx.events, ctx.tick, siege.castle, siege.attackerArmy, ownerId, result, {
+      believedGarrison: believedRaw ?? null,
+      actualGarrison,
+    });
     return result.outcome;
   };
 
@@ -920,6 +948,106 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         },
       )
     : null;
+
+  // ---- M54 (ADR-4 §4): the belief sensors — registered HERE (not with the belief
+  // consts above) because the garrisonStrength fact reads DefencePost, which the
+  // defence layer defines. Contact rules: village proximity (the M47.8 definition)
+  // refreshes armyStrength AND garrisonStrength; an army BESIEGING a capital is
+  // looking straight at its walls, so it refreshes the garrison fact too. ----
+  if (beliefsEnabled) {
+    kernel.registerSystem({
+      name: 'belief-sensors',
+      period: TICKS_PER_DAY,
+      phase: 11,
+      access: {
+        reads: [
+          game.comps.VillageCore, militaryGame.Unit, defenceGame.DefencePost,
+          ...(kingdomGame.VillageOwner !== undefined ? [kingdomGame.VillageOwner] : []),
+        ],
+      },
+      update(ctx: TickContext): void {
+        for (const [k, model] of beliefModels) {
+          model.decayAll(ctx.tick, BELIEF_HALF_LIFE);
+          const mine = villagesOfKingdom(k);
+          const myId = kingdomGame.kingdomEntities()[k];
+          if (mine.length === 0 || myId === undefined) continue;
+          for (let other = 0; other < options.kingdomCount; other++) {
+            if (other === k) continue;
+            const otherId = kingdomGame.kingdomEntities()[other];
+            if (otherId === undefined) continue;
+            const contact = villagesOfKingdom(other).some((tv) =>
+              mine.some((mv) => Math.max(Math.abs(mv.x - tv.x), Math.abs(mv.y - tv.y)) <= beliefContactRadius),
+            );
+            if (contact) {
+              model.record({
+                subject: otherId as number,
+                kind: 'armyStrength',
+                value: committedStrengthOf(otherId as number),
+                confidence: 1,
+                lastUpdated: ctx.tick,
+                source: 'scout',
+              });
+            }
+            const otherCapital = villageIndexByKingdom.get(other);
+            const besieging =
+              otherCapital !== undefined && siegeGame.state.siegeOfCastle(otherCapital)?.attackerKingdom === (myId as number);
+            if (contact || besieging) {
+              model.record({
+                subject: otherId as number,
+                kind: 'garrisonStrength',
+                value: postedMenOf(otherId as number),
+                confidence: 1,
+                lastUpdated: ctx.tick,
+                source: 'scout',
+              });
+            }
+          }
+        }
+      },
+    });
+  }
+
+  // ---- M54 (ADR-4 §4): stale structure snapshots — what the observer LAST SAW of a
+  // rival capital's walls, served in place of the live layout to player UI and AI alike. ----
+  const intelGame = (options.intel ?? true) && kingdomGame.VillageOwner !== undefined
+    ? registerDefenceIntel(kernel, world, game, defenceGame, siegeGame, {
+        kingdomCount: options.kingdomCount,
+        contactRadius: beliefContactRadius,
+        kingdomIdOf: (k) => kingdomGame.kingdomEntities()[k] as number | undefined,
+        capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
+        villagesOfKingdom: (k) => villagesOfKingdom(k),
+      })
+    : null;
+  if (intelGame !== null) {
+    const intel = intelGame;
+    const keepHold = db.buildings.get(KEEP_DEF)?.defense?.holdStrength ?? DEFAULT_KEEP_HOLD_STRENGTH;
+    const armyAttackStrength = (armyId: number): number => {
+      const u = world.read(militaryGame.Unit);
+      let total = 0;
+      world.query([militaryGame.Unit]).forEach((ui) => {
+        if ((u.armyId[ui] as number) === armyId && (u.complete[ui] as number) === 1) {
+          total += (u.count[ui] as number) * militaryGame.ops.unitDef(u.def[ui] as number).stats.attack;
+        }
+      });
+      return total;
+    };
+    // The counsel is fog-symmetric BY CONSTRUCTION: it reads only the observer's stale
+    // snapshot and its noisy garrison belief — never the live layout, never true counts.
+    // No snapshot yet = you are blind: hold (the siege camp itself observes within a day).
+    intelAdvice.counsel = (observerIndex, castleVi) => {
+      const targetK = ownerIndexByVillage.get(castleVi);
+      if (targetK === undefined) return 'assault';
+      const snap = intel.state.get(observerIndex, targetK);
+      if (snap === undefined) return 'hold';
+      const siege = siegeGame.state.siegeOfCastle(castleVi);
+      if (siege === undefined) return 'hold';
+      const own = armyAttackStrength(siege.attackerArmy);
+      const believed = believedGarrisonOf(observerIndex, targetK) ?? 0;
+      const resistance = estimateAssaultResistance(snap.structures, believed, (id) => db.buildings.get(id), keepHold);
+      if (own >= resistance) return 'assault';
+      return own < resistance * ASSAULT_HOPELESS_FRACTION ? 'lift' : 'hold';
+    };
+  }
 
   // ---- sandbox terrain editing (M40) — only meaningful over real worldgen ----
   if (worldDef !== null) {
@@ -1035,6 +1163,17 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     save: () => defenceGame.save(),
     load: (data) => defenceGame.restore(data as ReturnType<typeof defenceGame.save>),
   });
+  // M54: stale structure snapshots. Optional: pre-M54 saves simply start uninformed —
+  // the next contact re-observes, which is exactly what stale intel means anyway.
+  if (intelGame !== null) {
+    saves.register({
+      key: 'intel',
+      version: 1,
+      optional: true,
+      save: () => intelGame.state.save(),
+      load: (data) => intelGame.state.restore(data as ReturnType<typeof intelGame.state.save>),
+    });
+  }
   // M53: pending homage offers + kingdom-death ticks (the new-lords cooldown clock).
   // Optional: pre-M53 saves had no fallen capitals or vacant slots by definition.
   if (successionGame !== null) {
@@ -1101,7 +1240,8 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   return {
     kernel, world, db, modReport, locale, sandbox: sandboxEnabled, Position, worldDef, terrainSnapshot,
     game, statMods, popGame, econGame, logiGame, settlerGame, kingdomGame, diplomacyGame, militaryGame, armiesGame,
-    combatGame, castleGame, siegeGame, defenceGame, successionGame, researchGame, eventsGame, victoryGame, fog, placement, saves,
+    combatGame, castleGame, siegeGame, defenceGame, successionGame, intelGame, believedGarrisonOf,
+    researchGame, eventsGame, victoryGame, fog, placement, saves,
     villageOf: (kingdomIndex: number) => villageIndexByKingdom.get(kingdomIndex) ?? null,
     personalityTagsOf: (kingdomIndex: number): readonly string[] => {
       const a = contentAssign?.(kingdomIndex);

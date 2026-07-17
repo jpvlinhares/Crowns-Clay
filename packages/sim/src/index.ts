@@ -269,6 +269,18 @@ export {
   type CapitalFallHook,
 } from './game/siege.js';
 export {
+  registerDefenceIntel,
+  IntelState,
+  estimateAssaultResistance,
+  ESTIMATE_STRENGTH_PER_MAN,
+  ESTIMATE_TOWER_RESISTANCE,
+  ESTIMATE_WALL_RESISTANCE,
+  ASSAULT_HOPELESS_FRACTION,
+  type IntelGameplay,
+  type IntelSnapshot,
+  type IntelStructureRec,
+} from './game/intel.js';
+export {
   registerSuccessionGameplay,
   SuccessionState,
   CAPITULATION_WINDOW_DAYS,

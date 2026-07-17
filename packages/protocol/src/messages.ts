@@ -147,7 +147,6 @@ export interface PanelVictoryState {
   readonly playerDefeated: boolean;
 }
 // ---- defence layer (M50; ADR-4; GDD §7 Phase 8 delta) — the player's OWN castle map.
-// Enemy layouts stay off the wire until M54's intel rules say what an attacker may see.
 export interface PanelDefenceStructureRec {
   readonly id: number;
   readonly defId: string;
@@ -183,6 +182,21 @@ export interface PanelDefenceState {
   }[];
 }
 
+/** M54 (ADR-4 §4): what the PLAYER last saw of a rival capital's walls — a STALE
+ * snapshot as of the last scouting contact, never the live layout. Structure hp is
+ * always 0/0 (state is not physically visible from outside); the garrison arrives
+ * as a noisy, confidence-decayed belief, null when never observed. Terrain tiles
+ * ride along in full — geography is permanent, not secret. */
+export interface PanelEnemyIntelRec {
+  readonly kingdom: number; // panel kingdom index (PanelKingdomRec.index)
+  readonly name: string;
+  readonly size: number;
+  readonly tiles: readonly number[]; // RLE pairs, same codec as PanelDefenceState
+  readonly asOfTick: number;
+  readonly structures: readonly PanelDefenceStructureRec[];
+  readonly believedGarrison: number | null;
+}
+
 export interface PlayerPanels {
   readonly kingdoms: readonly PanelKingdomRec[];
   readonly units: readonly PanelUnitRec[];
@@ -191,6 +205,8 @@ export interface PlayerPanels {
   readonly victory: PanelVictoryState | null;
   /** null outside campaigns (terra has no defence layer). */
   readonly defence: PanelDefenceState | null;
+  /** M54: rival capitals the player holds intel on (empty until first contact). */
+  readonly enemyIntel: readonly PanelEnemyIntelRec[];
 }
 
 // ---- audio (M41; doc 10 §3, doc 05 §8) ----

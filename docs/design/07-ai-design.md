@@ -291,6 +291,16 @@ appraisal/strategic systems are scheduled no-ops. Real contact events (scout/tra
 don't exist yet either — `FogRegistry.reveal()` is exercised directly by tests until those systems
 land.
 
+**M54 delta (Phase 8; ADR-4 §4) — the knowledge model's second consumer:** a `garrisonStrength`
+fact joins `armyStrength` in the same daily belief sensors (contact-refreshed, confidence-decayed,
+keyed-fork noise), refreshed additionally by BESIEGING a capital — the camp sees the walls. The
+PLAYER now carries a KnowledgeModel too: kingdom 0's UI shows its own believed garrison, never
+truth, making the fog symmetric in both directions. Structure layouts travel separately as STALE
+SNAPSHOTS (`game/intel.ts` — what the observer last saw, not what stands), and AI attackers
+consult `estimateAssaultResistance` over exactly those two sources through the military manager's
+`assaultAdvice` hook — honest belief-error mistakes ("believed ~40; met 85") ride the battle
+report by design.
+
 **M22 scoping note:** the `kingdom.ts` multi-kingdom retrofit finally lands, additive and opt-in
 (`registerKingdomGameplay(..., { kingdomCount })`, default 1 — `terra.ts`'s zero-arg call stays the
 exact single-kingdom code path it always ran, byte-identical `world.hash()`/RNG draws, so the
