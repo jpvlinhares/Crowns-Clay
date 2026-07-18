@@ -49,11 +49,17 @@ const SEED_BASE = 9000;
  * harness the M46 numbers were tuned on. */
 const REAL = process.argv.includes('--real');
 
-// Same "generic Warmonger/Builder stand-in" convention M24's own nightly harness
-// uses (multiKingdom.test.ts) — alternating aggression/economy-leaning weights so
-// both economy AND war pacing have something real to observe, not just growth.
-const WEIGHTS_A: PersonalityWeights = { expansion: 0.6, economy: 0.4, riskTolerance: 0.6, diplomacyTrust: 0.3, aggression: 0.6 };
-const WEIGHTS_B: PersonalityWeights = { expansion: 0.3, economy: 0.8, riskTolerance: 0.3, diplomacyTrust: 0.6, aggression: 0.2 };
+// 1.x war-cadence backlog (2026-07-18): the original "generic Warmonger/Builder stand-in"
+// pair (aggression 0.6/0.2, citing multiKingdom.test.ts's naming convention) never once
+// declared a war across the whole matrix — every campaign raced to a `prosperity` victory
+// by year 15-16 before either weight profile's war machinery had real runway. Replaced with
+// `multiKingdomWar.test.ts`'s AGGRESSIVE/PASSIVE pair verbatim — the one weight combination
+// in this repo PROVEN (by that test) to actually declare war and win it against a real
+// opposing army within a test-sized number of years, not just reasoned to. Same alternating
+// convention (even index = aggressive, odd = passive), so a 4-kingdom run still mixes
+// aggressive-vs-aggressive and aggressive-vs-passive matchups.
+const WEIGHTS_A: PersonalityWeights = { expansion: 0.3, economy: 0.6, riskTolerance: 0.7, diplomacyTrust: 0.2, aggression: 0.9 };
+const WEIGHTS_B: PersonalityWeights = { expansion: 0.2, economy: 0.9, riskTolerance: 0.3, diplomacyTrust: 0.5, aggression: 0 };
 
 interface RunResult {
   readonly seed: number;

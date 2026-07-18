@@ -164,6 +164,8 @@ re-litigated here. Design-doc reconciliation: GDD §7 and doc 07 §5 both carry 
 deltas (M52 templates load-bearing, M54 knowledge-model second-consumer) — no outstanding rewrite.
 Open questions: OQ-9 and OQ-11 both CLOSED in doc 14, Phase 8 entry gate satisfied per their own
 records. **Phase 8 — The Castle is closed.** Outstanding work is 1.x balance backlog only (recorded
+in the M54 scoping note below): AI-vs-AI war-cadence, the 34%-max origin-deviation watch item, and
+combat.ts's pinned u16 rounding.
 
 **1.x war-cadence backlog, part 1 (2026-07-18) — a real bug fixed, the actual bottleneck found
 elsewhere.** Root-caused the M53/M54 "AI-vs-AI wars end without a capital siege" finding. Two
@@ -203,8 +205,33 @@ activity in the STANDARD balance matrix. Deliberately left open pending a produc
 retune the balance harness's own weight/victory presets to actually exercise war (closer to
 `multiKingdomWar.test.ts`'s config), or to retune `prosperity`'s pacing itself, or both — a
 felt-gameplay decision, not one to make by silently picking new constants.
-in the M54 scoping note below): AI-vs-AI war-cadence, the 34%-max origin-deviation watch item, and
-combat.ts's pinned u16 rounding.
+
+**1.x war-cadence backlog, part 2 (2026-07-18) — weights retuned per product direction; the real
+blocker is mutual discovery, not personality.** Replaced `bench-balance.ts`'s `WEIGHTS_A`/
+`WEIGHTS_B` (aggression 0.6/0.2, never-once-declared-a-war) with `multiKingdomWar.test.ts`'s
+AGGRESSIVE/PASSIVE pair verbatim (aggression 0.9/0) — the one weight combination in this repo
+PROVEN to declare and win a war within a test-sized number of years. Re-ran the full 12-campaign
+flat-harness matrix: **still `wars: 0 declared, 0 ended` at every difficulty, every seed** —
+byte-identical symptom to the pre-retune baseline. Traced the actual cause: `ai/scouting.ts`'s
+`registerScoutingSystem` is a purely STATIC distance-based fog reveal (`SCOUT_REVEAL_RADIUS=48`,
+no active scout units, no radius growth over time — doc header: "adjacency-based reveal() until
+scout/trade/envoy/battle systems land"), and `campaign.ts`'s `warTargetsFor` fog-gates every war
+target (`if (!fog.isKnown(kingdomIndex, v.vi)) continue`) — an undiscovered rival is invisible to
+the war-target list regardless of aggression. `composeMultiKingdom`'s own docstring confirms the
+~130–150 tile inter-kingdom spacing on its 260-tile map is DELIBERATE ("scouting range is
+deliberately much smaller than the inter-kingdom distance this produces, so newly founded kingdoms
+start genuinely unrevealed to each other") — built for a founding-fairness test property, not for
+war-cadence testing, and the two goals are now in direct tension in the same harness. Since
+villages never expand into scouting range of a rival over a 100-year run either, kingdoms in this
+harness's default configuration cannot discover each other at ANY point in the campaign, at any
+aggression level — this is the dominant, structural blocker, ahead of both the exhaustion clock
+and the (still-real, still-fixed) castle-ring bug from part 1. Verified: full suite still green
+(459/459) after the weight change — no fixture depends on `bench-balance.ts`'s constants. NOT
+attempted this pass: shrinking `mapSize` or growing `startingPopulation` for the flat harness (the
+`mapSize`/`SCOUT_REVEAL_RADIUS` relationship is shared, load-bearing plumbing — `composeMultiKingdom`
+is reused by other harness consumers that may rely on the "unrevealed at start" property, so this
+needs its own scoped look rather than a same-session follow-on edit) — left open, same as part 1's
+undecided lever, pending direction.
 
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
