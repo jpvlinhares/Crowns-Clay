@@ -48,7 +48,10 @@
     button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
     button[aria-disabled="true"]:hover { background: #2a241b; }
     #game { flex: 1; min-height: 0; position: relative; }
-    #game canvas { position: absolute; inset: 0; touch-action: none; }
+    /* Direct child only: the full-screen Pixi world canvas. A descendant selector here also
+       caught the Castle panel's nested defence-map canvas, absolutely-positioning it out of flow
+       so it floated as a second overlapping layer over the panel's own content. */
+    #game > canvas { position: absolute; inset: 0; touch-action: none; }
     #status.error { color: #e07070; }
     .hint { opacity: .6; }
     /* ---- M18 panel framework, toasts ---- */
