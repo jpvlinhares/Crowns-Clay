@@ -164,6 +164,45 @@ re-litigated here. Design-doc reconciliation: GDD §7 and doc 07 §5 both carry 
 deltas (M52 templates load-bearing, M54 knowledge-model second-consumer) — no outstanding rewrite.
 Open questions: OQ-9 and OQ-11 both CLOSED in doc 14, Phase 8 entry gate satisfied per their own
 records. **Phase 8 — The Castle is closed.** Outstanding work is 1.x balance backlog only (recorded
+
+**1.x war-cadence backlog, part 1 (2026-07-18) — a real bug fixed, the actual bottleneck found
+elsewhere.** Root-caused the M53/M54 "AI-vs-AI wars end without a capital siege" finding. Two
+independent things were in play:
+
+*Confirmed and fixed:* `ai/military.ts`'s `planCastleRing` (the AI's own capital fortification
+loop) placed only 8 sparse points — 4 corners + 4 edge-midpoints — at `CASTLE_RING_RADIUS` (6).
+That shape only actually CLOSES a loop at radius 1 (where it matches `castles.test.ts`'s fixture,
+every point already adjacent); at radius 6 it left 5-tile gaps on every side, so `castles.ts`'s
+4-connected flood-fill always found a way through and `isCastle` never flipped true for ANY
+AI-built capital using this v1 path. Since `military.ts`'s own tactical-war gate refuses to even
+attempt `siege.begin` against a target whose `AiWarTarget.isCastle` reads false
+(`campaign.ts`'s `warTargetsFor`), this made non-spatial sieges against AI capitals structurally
+unreachable regardless of any exhaustion-clock tuning. Fixed: `planCastleRing` now returns every
+tile on the actual perimeter (all 8×radius tiles at Chebyshev distance `radius`), a genuinely
+closed 4-connected ring at any radius. Verified: full suite green (459/459); `save-corpus` and all
+four golden replays re-recorded intentionally (AI capital-fortification behaviour legitimately
+changed, per TDD §13) and re-verified clean; `bench:scenes` sim-tick budgets re-checked, still
+comfortably inside doc 11 §2 (late-campaign 0.487 ms/tick vs. 10 ms budget — the larger ring adds
+real but modest per-day cost, no regression). `bench-balance.ts` gained `siege.begun`/
+`siege.assaultBegun` counters (previously only `warsDeclared`/`warsEnded` existed — no way to see
+which pipeline stage was actually stalling) so this and future war-cadence work is measurable, not
+re-derived by reasoning alone.
+
+*Found, NOT yet fixed — the actual dominant cause in the default matrix:* running the fixed code
+through `npm run bench:balance` (12 campaigns, 4 kingdoms × 100y × 4 difficulties × 3 seeds, flat
+harness) still shows `wars: 0 declared, 0 ended` — identically to the pre-fix baseline. Every
+single run resolves to a `prosperity` victory by year 15–16, ending the campaign loop
+(`victoryGame.winner() !== null` breaks the tick loop) long before the harness's own war machinery
+(`WEIGHTS_A`/`WEIGHTS_B`, aggression 0.6/0.2) has any real runway to escalate. So in THIS
+harness's default configuration, "no capital siege ever mounted" is explained by "no war is ever
+even DECLARED" — a victory-pacing question (prosperity resolves too fast relative to any war
+path), not narrowly a siege-timing question. The dedicated `multiKingdomWar.test.ts` (aggression
+0.9, 2 kingdoms, small map) proves the underlying war→march→siege machinery itself works when
+given a favourable setup, so the fix above is real and necessary but not sufficient to see war
+activity in the STANDARD balance matrix. Deliberately left open pending a product call: whether to
+retune the balance harness's own weight/victory presets to actually exercise war (closer to
+`multiKingdomWar.test.ts`'s config), or to retune `prosperity`'s pacing itself, or both — a
+felt-gameplay decision, not one to make by silently picking new constants.
 in the M54 scoping note below): AI-vs-AI war-cadence, the 34%-max origin-deviation watch item, and
 combat.ts's pinned u16 rounding.
 

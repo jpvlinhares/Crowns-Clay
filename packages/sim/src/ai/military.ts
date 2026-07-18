@@ -71,15 +71,25 @@ export const WALL_DEF = 'base:building.wall';
 export const CASTLE_RING_RADIUS = 6;
 const WAR_STANCE_CONTACT_RANGE = 1; // Chebyshev — "arrived" for tactical purposes
 
-/** Fixed 3×3-at-`radius` perimeter (mirrors castles.test.ts's proven fixture shape) — a v1
- * simplification of doc 07 §5's terrain-adapted castle templates. */
+/** Full closed square perimeter at Chebyshev distance `radius` (every tile on the ring, not just
+ * its 8 corners/midpoints) — a v1 simplification of doc 07 §5's terrain-adapted castle templates.
+ * 1.x war-cadence fix: the previous 8-point version only actually CLOSED at radius 1 (matching
+ * castles.test.ts's fixture, where corner and edge-midpoint tiles are already adjacent); at
+ * `CASTLE_RING_RADIUS`'s radius 6 those 8 points left 5-tile gaps on every side, so
+ * `castles.ts`'s 4-connected flood-fill always found a way through and `isCastle` never flipped
+ * true for any AI-built capital — the balance matrix's confirmed "no capital sieges ever mounted"
+ * finding traces here: `military.ts`'s own tactical-war gate never even attempts `siege.begin`
+ * against a target whose `AiWarTarget.isCastle` reads false (campaign.ts's `warTargetsFor`).
+ * Tiles are ordered walking the perimeter so the AI's one-wall-per-day build queue closes the
+ * loop visibly, edge by edge, rather than jumping between distant points. */
 export function planCastleRing(centerX: number, centerY: number, radius: number): readonly { x: number; y: number }[] {
   const r = radius;
-  return [
-    { x: centerX - r, y: centerY - r }, { x: centerX, y: centerY - r }, { x: centerX + r, y: centerY - r },
-    { x: centerX - r, y: centerY + r }, { x: centerX, y: centerY + r }, { x: centerX + r, y: centerY + r },
-    { x: centerX - r, y: centerY }, { x: centerX + r, y: centerY },
-  ];
+  const tiles: { x: number; y: number }[] = [];
+  for (let x = centerX - r; x <= centerX + r; x++) tiles.push({ x, y: centerY - r }); // top edge, left→right
+  for (let y = centerY - r + 1; y <= centerY + r; y++) tiles.push({ x: centerX + r, y }); // right edge, top→bottom
+  for (let x = centerX + r - 1; x >= centerX - r; x--) tiles.push({ x, y: centerY + r }); // bottom edge, right→left
+  for (let y = centerY + r - 1; y >= centerY - r + 1; y--) tiles.push({ x: centerX - r, y }); // left edge, bottom→top
+  return tiles;
 }
 
 export interface AiWarTarget {

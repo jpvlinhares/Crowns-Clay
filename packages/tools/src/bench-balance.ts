@@ -73,6 +73,12 @@ interface RunResult {
   readonly capitulations: number;
   readonly destructions: number;
   readonly risings: number;
+  /** 1.x war-cadence backlog telemetry: does a declared war ever actually REACH a siege,
+   * and does a mounted siege ever REACH an assault? Distinguishes "never marches" from
+   * "arrives but never assaults" — the roadmap's "no capital sieges mounted" finding had
+   * no counter to confirm which stage was stalling. */
+  readonly siegesBegun: number;
+  readonly assaultsBegun: number;
 }
 
 function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): RunResult {
@@ -121,6 +127,10 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
     composed.kernel.subscribe('kingdom.capitulated', () => capitulations++);
     composed.kernel.subscribe('kingdom.destroyed', () => destructions++);
     composed.kernel.subscribe('kingdom.newLordRisen', () => risings++);
+    let siegesBegun = 0;
+    let assaultsBegun = 0;
+    composed.kernel.subscribe('siege.begun', () => siegesBegun++);
+    composed.kernel.subscribe('siege.assaultBegun', () => assaultsBegun++);
 
     composed.kernel.step(); // genesis
     const totalTicks = YEARS * TICKS_PER_YEAR;
@@ -155,6 +165,8 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       capitulations,
       destructions,
       risings,
+      siegesBegun,
+      assaultsBegun,
     };
   } catch (error) {
     return {
@@ -172,6 +184,8 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       capitulations: 0,
       destructions: 0,
       risings: 0,
+      siegesBegun: 0,
+      assaultsBegun: 0,
     };
   }
 }
@@ -197,7 +211,8 @@ for (const level of DIFFICULTY_LEVELS) {
       const outcome = r.winner === null ? `no winner by year ${YEARS} (SOFT-LOCK RISK)` : `${r.winner.type} in year ${r.winner.year}`;
       console.log(
         `OK     ${level.padEnd(6)} seed=${seed} k=${kc} · ${outcome} · eliminated=${r.kingdomsEliminated}/${kc} · ` +
-          `wars ${r.warsDeclared}/${r.warsEnded} ended · occupations ${r.occupations} · ` +
+          `wars ${r.warsDeclared}/${r.warsEnded} ended · sieges ${r.siegesBegun} assaults ${r.assaultsBegun} · ` +
+          `occupations ${r.occupations} · ` +
           `capitulated ${r.capitulations} · destroyed ${r.destructions} · risen ${r.risings} · ` +
           `pop=[${r.finalPopulations.map((p) => p.toFixed(0)).join(',')}] (${ms}ms)`,
       );
@@ -214,8 +229,10 @@ const clean = results.filter((r) => !r.crashed);
 const starvedAtPeace = clean.filter((r) => r.warsDeclared === 0 && r.finalPopulations.some((p) => p <= 0));
 const warsStarted = clean.reduce((n, r) => n + r.warsDeclared, 0);
 const warsEnded = clean.reduce((n, r) => n + r.warsEnded, 0);
+const totalSieges = clean.reduce((n, r) => n + r.siegesBegun, 0);
+const totalAssaults = clean.reduce((n, r) => n + r.assaultsBegun, 0);
 const victoryTypes = new Set(clean.filter((r) => r.winner !== null).map((r) => r.winner?.type));
-console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
+console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · sieges: ${totalSieges} begun, ${totalAssaults} assaulted · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
 if (crashes.length > 0) {
   console.error(`FAIL: ${crashes.length} campaign(s) crashed (SC-2 violation)`);
   process.exitCode = 1;
