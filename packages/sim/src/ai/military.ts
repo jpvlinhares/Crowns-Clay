@@ -333,14 +333,22 @@ export function registerAiMilitaryManager(
           }
           return;
         }
-        if (existingSiege.targetBuilding === 0) {
+        // 1.x war-cadence fix: assault THE MOMENT a breach is open (military.ts's documented
+        // intent) — this MUST be checked before re-targeting, because a breach resets
+        // `targetBuilding` to 0, and the old `if (targetBuilding===0) setTarget else if (breaches)
+        // assault` ordering therefore re-aimed at the next wall every single day and NEVER reached
+        // the assault: the balance matrix's sieges bombarded 9+ walls to rubble and issued zero
+        // assaults, so an undefended enemy capital that `siege.assault` would CAPTURE outright
+        // (siege.ts) was instead knocked about until forced peace ended the war. Bombard only while
+        // no breach exists yet; once one is open, storm it.
+        if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
+          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+        } else if (existingSiege.targetBuilding === 0) {
           const graph = castleGame.defenseGraphOf(existingSiege.castle);
           const node = graph.nodes[0];
           if (node !== undefined) {
             kernel.submit({ type: 'siege.setTarget', issuer: options.issuer, payload: { armyId, buildingId: node.building } });
           }
-        } else if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
-          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
         }
         return;
       }

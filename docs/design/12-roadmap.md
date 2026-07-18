@@ -362,6 +362,45 @@ deeper blocker — the honest state of the war-cadence chain: declare ✓ · dis
 the plan ✓ (part 6) · keep conducting ✓ (part 5) · reach the castle alive ✗ (open). Reported, not
 guessed at.
 
+**1.x war-cadence backlog, part 7 (2026-07-18) — THE FIRST FIX THAT MOVES THE OUTCOME: a
+siege-conduct ordering bug, found by tracing the real matrix instead of the symmetric probe.**
+Setting out to build the garrison-hold option from part 6, a trace of the ACTUAL matrix scenario
+(4 kingdoms, the AGGRESSIVE/PASSIVE weights, `story`/seed 9000 — the config that produced the
+lone siege) revealed the matrix's real blocker is NOT the 2-kingdom mutual-march (that pathology is
+specific to my symmetric AGGRESSIVE-vs-AGGRESSIVE probe, which is not what the matrix runs). It is a
+clean logic bug in `ai/military.ts`'s siege-conduct branch: it checked `if (targetBuilding === 0)
+setTarget else if (breaches > 0) assault` — but a breach RESETS `targetBuilding` to 0, so after
+every breach the first arm re-fired and re-aimed at the next wall, and the assault arm was
+unreachable. The trace showed a siege bombarding NINE walls to rubble (buildings 84/86/88/95/98/…)
+over days 847-855 and issuing zero assaults, while a single `siege.assault` against that undefended
+capital would have CAPTURED it outright on the first breach (`siege.ts`'s legacy path: no defender
+⇒ `capture`). Fix: check `breaches > 0` FIRST — bombard only until a breach opens, then storm it
+(exactly `military.ts`'s own documented intent, "the moment a breach opens"). One reordered branch.
+
+**Measured, real, and the first non-inert result in this whole backlog:** the 12-campaign matrix
+goes from `sieges: 3 begun, 0 captured · eliminated 0/4 everywhere` to **`sieges: 8 begun, 6
+captured` with `eliminated=1/4` in all three `story` campaigns** — kingdoms are now actually
+conquered (`pop=[0,…]`), capitals fall, and the extra sieges come from the captured seats being
+fought over again. (`assaults` stays 0 by definition: the matrix's losers are PASSIVE kingdoms with
+no garrison army, so their capitals capture outright without a defended-garrison assault — a new
+`siege.captured` counter in `bench-balance.ts` is what makes this visible; `assaultsBegun` would
+only tick on a defended capital, which needs either garrison-hold or an aggressive-vs-aggressive war
+that survives the field.) Verified: full suite 460/460, golden replays and save corpus green (the
+fix is inert across every pinned fixture — no siege in them reaches a breach — so no re-record);
+`bench:scenes` budgets green; lint clean.
+
+**Pivot noted honestly:** this was requested as "pursue garrison-hold," but tracing the real matrix
+before building showed garrison-hold would not have moved the matrix's zero-assault/zero-conquest
+number — the ordering bug did. Garrison-hold remains a valid, separate improvement for the symmetric
+AGGRESSIVE-vs-AGGRESSIVE mutual-annihilation case (part 6's probe) and for producing DEFENDED-castle
+assaults (a real `siege.assaultBegun` rather than a walkover capture), but it is no longer on the
+critical path to "wars produce conquest." War-cadence chain now: declare ✓ · discover ✓ · commit ✓ ·
+keep conducting ✓ · reach the castle ✓ (vs a passive foe) · **take the castle ✓ (part 7)**. Still
+open, lower priority: `fair`/`hard`/`brutal` produce 0 sieges (only `story` does — a
+difficulty-correlated war-window question); defended-capital assaults (needs garrison-hold); and
+conquest becoming a WINNING condition (prosperity still resolves by year 15 before a conqueror can
+sweep the map — the victory-pacing item from part 1, still open).
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking
