@@ -293,6 +293,40 @@ direction on the right fix shape: let a committed army finish its war under `Mil
 route a plan-revert into the existing "sue for peace" branch, or add a `planner.ts` hysteresis
 term for an active siege — same discipline as parts 1-3, reported rather than guessed at.
 
+**1.x war-cadence backlog, part 5 (2026-07-18) — the part-4 fix implemented; correct but currently
+inert, because the operative blocker is upstream.** Took the first of part 4's three options:
+`ai/military.ts`'s tactical-war-conduct block now runs under `MilitaryBuildup` too, but ONLY for an
+army already committed to a war (an existing siege, or a known target the kingdom is already at war
+with), and under that plan it never DECLARES a new war — target selection is restricted to at-war
+enemies (`initiatesWar ? allTargets : atWarTargets`). This removes the traced failure mode where the
+planner reverts a marching aggressor to `MilitaryBuildup` and silently strands its army at the
+enemy gate.
+
+**Empirically, the fix changes nothing currently observable:** the 12-campaign flat-harness matrix
+is byte-identical to the pre-fix run (`wars: 31 declared, 31 ended · sieges: 3 begun, 0
+assaulted`); all four golden replays, all three save-corpus entries, and all 459 tests are
+unchanged (0 migrations, same hashes) — so no fixture re-record was needed, and the fix is inert
+across the entire pinned corpus. A single-scenario probe (2 kingdoms, both AGGRESSIVE, seed 9000)
+shows why: the army built to full strength (30 troops, ≥ `WAR_MIN_STRENGTH`) and sat IDLE from day
+540 to 1350 — 800+ days — because the planner stayed in `MilitaryBuildup` that entire window and
+never entered `ConquestWar` to declare a war; when it finally did flip to `ConquestWar` (~day
+1365), seasonal upkeep desertion had just wiped the army to zero (day 1350), so the war was
+declared with no army to prosecute it, and `committedCount < WAR_MIN_STRENGTH` correctly refused to
+siege. The part-4 abandonment case (declared-while-full, then plan reverts) simply never arises in
+these seeds because full-strength-army and `ConquestWar`-plan and at-war never coincide.
+
+So the part-4 fix is real, correct, and a PREREQUISITE (once the upstream issues clear, without it
+armies would still abandon their wars) — but on its own it is necessary-not-sufficient, exactly
+like part 1's castle-ring fix. The now-dominant, still-open blockers, both traced and named here
+for whoever picks this up: (1) **planner cadence** — `ai/planner.ts`'s `ConquestWar` utility
+(`aggression × relativeAdvantage × militaryStrength`) rarely beats `MilitaryBuildup`'s in a
+symmetric matchup (`relativeAdvantage ≈ 0.5` caps it), so a kingdom hoards a full idle army for
+years instead of committing it; (2) **desertion vs. buildup timing** — `game/military.ts`'s
+seasonal upkeep desertion periodically zeroes an army whose economy can't sustain its upkeep, and
+in the flat harness the rare `ConquestWar` windows keep landing right after a wipe. Both are
+felt-gameplay tuning calls (planner utility weights; upkeep affordability / recruit pacing), not
+mechanical bugs — kept as the open head of this backlog item, reported not guessed at.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking

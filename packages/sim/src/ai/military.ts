@@ -295,11 +295,26 @@ export function registerAiMilitaryManager(
         }
       }
 
-      // tactical war conduct (doc 07 §3) — ConquestWar and PunitiveRaid (M47.8)
-      if ((plan !== 'ConquestWar' && plan !== 'PunitiveRaid') || options.warTargets === undefined) return;
+      // tactical war conduct (doc 07 §3). ConquestWar/PunitiveRaid both INITIATE and conduct war;
+      // MilitaryBuildup CONDUCTS a war already in progress but never opens a new front.
+      // 1.x war-cadence fix: ai/planner.ts routinely reverts an aggressor to MilitaryBuildup the
+      // instant its army marches out — the marching army stops counting toward at-home military
+      // strength, so ConquestWar's utility (aggression × relativeAdvantage × militaryStrength)
+      // drops below MilitaryBuildup's — which used to STRAND a committed army at the enemy's gate,
+      // idle, until the flat 90-day forced-peace clock (diplomacy.ts) ended the war with no siege
+      // ever mounted. A committed army (already besieging, or already at war with a known target)
+      // must see its war through regardless of the plan's second thoughts; under MilitaryBuildup it
+      // still never DECLARES a new war (target selection below is restricted to at-war enemies).
+      if (options.warTargets === undefined) return;
+      const initiatesWar = plan === 'ConquestWar' || plan === 'PunitiveRaid';
+      const existingSiege = siegeGame.state.siegeOfArmy(armyId);
+      const diplomacy = options.diplomacy;
+      const allTargets = options.warTargets();
+      const atWarTargets = diplomacy === undefined ? [] : allTargets.filter((t) => diplomacy.isAtWar(t.kingdomId as EntityId));
+      const committedToWar = existingSiege !== undefined || atWarTargets.length > 0;
+      if (!initiatesWar && !committedToWar) return;
       if (committedCount(armyId) < WAR_MIN_STRENGTH) return;
 
-      const existingSiege = siegeGame.state.siegeOfArmy(armyId);
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
@@ -330,7 +345,10 @@ export function registerAiMilitaryManager(
         return;
       }
 
-      let targets = options.warTargets();
+      // ConquestWar/PunitiveRaid may march on any known enemy (declaring war below as needed); a
+      // MilitaryBuildup continuation marches ONLY on enemies it is already at war with, so it
+      // finishes the war ConquestWar started without silently becoming a second ConquestWar.
+      let targets = initiatesWar ? allTargets : atWarTargets;
       if (targets.length === 0) return;
       // M47.8 (doc 07 §7): a PunitiveRaid marches on WHOEVER WRONGED US, not whoever's closest —
       // narrow the target list to the grudge-holder's villages when the composition supplies one.
