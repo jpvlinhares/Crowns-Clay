@@ -327,6 +327,41 @@ in the flat harness the rare `ConquestWar` windows keep landing right after a wi
 felt-gameplay tuning calls (planner utility weights; upkeep affordability / recruit pacing), not
 mechanical bugs — kept as the open head of this backlog item, reported not guessed at.
 
+**1.x war-cadence backlog, part 6 (2026-07-18) — ConquestWar commitment bonus: implemented, works
+as designed, still zero aggregate assault change (the blocker is now one layer deeper again).**
+Addressed blocker (1) from part 5. `ai/planner.ts` gains a `warCommitment` consideration (0..1, fed
+from `campaign.ts`'s military context: 1 while the kingdom is at war with any rival) and
+ConquestWar's utility becomes `aggression × (relativeAdvantage × militaryStrength + warCommitment)`
+— ADDITIVE, so at peace (`warCommitment=0`) it is byte-for-byte the M30 weak→strong ladder (no
+premature wars; a new unit test pins both the unchanged-at-peace and the sticky-at-war halves), but
+once at war it lifts ConquestWar decisively above `MilitaryBuildup`+hysteresis and `TechRace`,
+aggression-scaled so a warlike kingdom commits hard and a lukewarm one dragged in stays ambivalent.
+
+**It works — and it is inert in the aggregate.** A single-scenario probe (2 kingdoms, AGGRESSIVE,
+seed 9000, `ai.planChosen` trace) confirms the mechanism: before, ConquestWar sat at ~0.225 and the
+plan reverted to `MilitaryBuildup` the week after any war fired; now the plan flips to `ConquestWar`
+at declaration (day 1365) and STAYS there for the entire war until forced peace ends it (day 1455),
+instead of abandoning the army. But the 12-campaign matrix is once again byte-identical (`wars: 31
+declared, 31 ended · sieges: 3 begun, 0 assaulted`), and all pinned fixtures are UNCHANGED — full
+suite 460/460 (the +1 is the new planner test), golden replays and save corpus green, no re-record
+needed; `bench:scenes` budgets green; lint clean.
+
+**The now-dominant blocker, freshly traced and named for whoever picks this up: mutual-march field
+collision.** With the plan finally sticky, both aggressors rebuild and march AT THE SAME TIME — each
+straight for the OTHER's (now undefended, because its army also left) capital. Their columns cross
+in open field and annihilate each other before either reaches a wall: `battle.resolved` fires at day
+1366.2 with `remainingA:0, remainingB:0` (a dead draw), a full half-day BEFORE the `army.arrived`
+events at 1366.9. No army survives to besiege anyone. This is a combat/movement-layer question, a
+different subsystem from parts 1-6's planner/tactical/discovery work — candidate directions, none
+taken (this is a felt-gameplay design call, not a mechanical bug): garrison-hold logic (leave a
+defensive force at the capital rather than committing the whole army), staggered/reactive war
+declaration (don't let both sides commit on the same tick), or letting the tactical layer prefer an
+undefended enemy capital over a field intercept. Parts 5 and 6 are both correct, both prerequisites
+(without them a surviving army would still abandon its war), and both currently masked by this
+deeper blocker — the honest state of the war-cadence chain: declare ✓ · discover ✓ (part 3) · commit
+the plan ✓ (part 6) · keep conducting ✓ (part 5) · reach the castle alive ✗ (open). Reported, not
+guessed at.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking

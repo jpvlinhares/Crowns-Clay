@@ -86,6 +86,7 @@ export interface Considerations {
   readonly relativeAdvantage: number; // 0..1: own strength vs. the strongest known rival's (M30); 0 if none known
   readonly researchOpportunity: number; // 0..1: how much of the tech tree is left to research (M32)
   readonly grievance: number; // 0..1: heaviest decayed grudge held (M47.8; doc 07 §7) — 0 without diplomacy memory
+  readonly warCommitment: number; // 0..1: already committed to an active war (1.x war-cadence) — 0 without a military ctx
 }
 
 const CRISIS_FOOD_SECURITY = 0.6;
@@ -116,6 +117,13 @@ export interface AiMilitaryContext {
   ownStrength(): number;
   /** Committed troop counts of every known, non-allied rival (M22 scouting; empty ⇒ neutral 0.5 advantage). */
   knownRivalStrengths(): readonly number[];
+  /** 1.x war-cadence: 1 while this kingdom is committed to an active war (at war with a known
+   * rival), else 0 — feeds `ConquestWar`'s commitment term so a declared war is SEEN THROUGH
+   * rather than re-litigated every planning week (the symmetric-matchup utility, ≈0.225, never
+   * out-argmaxes `MilitaryBuildup`+hysteresis or `TechRace`, so without this a war only fires on
+   * a fleeting strength asymmetry and is abandoned the moment it passes — doc 12's war-cadence
+   * backlog part 6). Optional/additive: omitted ⇒ 0 (every pre-1.x planner test unchanged). */
+  warCommitment?(): number;
 }
 
 const MILITARY_STRENGTH_NORM = 40; // committed troop count treated as "fully built up" (a handful of units)
@@ -196,6 +204,8 @@ export function computeConsiderations(
     researchOpportunity,
     // inert default 0: no diplomacy memory wired in ⇒ nothing to avenge (M20-M46 tests unchanged)
     grievance: clamp01(diplomacy?.strongestGrudge?.()?.weight ?? 0),
+    // inert default 0: no military context, or not at war ⇒ no war to commit to (1.x war-cadence)
+    warCommitment: clamp01(military?.warCommitment?.() ?? 0),
   };
 }
 
@@ -242,10 +252,17 @@ const militaryBuildup: PlanArchetype = {
  * `militaryBuildup` (above) keeps outscoring it, so the two form a natural weak→strong ladder
  * without any explicit state machine. Target selection (which rival, where) is the AI military
  * manager's job (ai/military.ts) once this plan is chosen, mirroring how `expandSettle` picks its
- * site only in the planner system's `update()`, not in the archetype's own utility function. */
+ * site only in the planner system's `update()`, not in the archetype's own utility function.
+ * 1.x war-cadence (doc 12 backlog part 6): `+ warCommitment` is a COMMITMENT term — 0 until the
+ * kingdom is actually at war, so the weak→strong ladder above is byte-for-byte unchanged for a
+ * kingdom deciding WHETHER to start a war; but once at war it lifts ConquestWar decisively above
+ * `MilitaryBuildup`/`TechRace` (aggression-scaled, so a warlike kingdom commits hard while a
+ * lukewarm one dragged into war stays ambivalent), so a declared war is prosecuted to resolution
+ * instead of being abandoned the next planning week when the marching army's absence makes the
+ * kingdom read as momentarily weaker. */
 const conquestWar: PlanArchetype = {
   id: 'ConquestWar',
-  utility: (c, w) => clamp01((w.aggression ?? 0.5) * c.relativeAdvantage * c.militaryStrength),
+  utility: (c, w) => clamp01((w.aggression ?? 0.5) * (c.relativeAdvantage * c.militaryStrength + c.warCommitment)),
 };
 
 /** M32: real now that research exists — inert (`researchOpportunity` always 0) when no

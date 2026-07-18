@@ -609,6 +609,19 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     // Phase is a stagger offset (kernel.ts), so late registration keeps its cadence.
   }
 
+  // 1.x war-cadence (doc 12 backlog part 6): is this kingdom committed to an active war? True
+  // while it is at war with ANY other kingdom — the planner's ConquestWar commitment term reads
+  // this so a declared war is prosecuted to resolution instead of abandoned the next planning week.
+  const atWarWithAnyone = (kingdomIndex: number): boolean => {
+    const myId = kingdomGame.kingdomEntities()[kingdomIndex];
+    if (myId === undefined) return false;
+    for (let other = 0; other < options.kingdomCount; other++) {
+      if (other === kingdomIndex) continue;
+      const otherId = kingdomGame.kingdomEntities()[other];
+      if (otherId !== undefined && diplomacyGame.state.isAtWar(myId as number, otherId as number)) return true;
+    }
+    return false;
+  };
   const militaryContextFor = (kingdomIndex: number): AiMilitaryContext => ({
     ownStrength(): number {
       const myId = kingdomGame.kingdomEntities()[kingdomIndex];
@@ -626,6 +639,9 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         out.push(believedStrengthOf(kingdomIndex, other) ?? committedStrengthOf(otherId as number));
       }
       return out;
+    },
+    warCommitment(): number {
+      return atWarWithAnyone(kingdomIndex) ? 1 : 0;
     },
   });
   const warTargetsFor = (kingdomIndex: number): readonly AiWarTarget[] => {
