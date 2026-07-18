@@ -104,7 +104,19 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       : composeMultiKingdom({
           seed,
           kingdomCount,
-          mapSize: 260,
+          // 1.x war-cadence backlog, part 3 (2026-07-18): the previous 260 put adjacent
+          // kingdoms ~130-150 tiles apart against a STATIC 48-tile scouting radius
+          // (ai/scouting.ts's SCOUT_REVEAL_RADIUS, no active exploration) — rivals could
+          // never discover each other for an entire 100-year run, at any aggression, which
+          // is what part 2's weight retune ran into. 65 was picked by direct measurement
+          // (not derived from `fairPlacement`'s ring formula alone — the flat harness's
+          // uniform terrain biases site selection in ways worth checking empirically): at
+          // kingdomCount=4 it gives all 6 pairwise inter-capital distances <= 48 tiles,
+          // reproducibly across seeds 9000-9002, while still founding all four kingdoms
+          // cleanly clear of VILLAGE_MIN_SPACING (24). Tuned for kingdomCount=4 (this
+          // tool's default and the only count exercised so far) — a different `--kingdoms`
+          // value may need its own recalibration.
+          mapSize: 65,
           aiFromIndex: 0,
           weightsOf: (k) => (k % 2 === 0 ? WEIGHTS_A : WEIGHTS_B),
           difficulty: DIFFICULTY_PRESETS[level],

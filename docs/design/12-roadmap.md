@@ -233,6 +233,34 @@ is reused by other harness consumers that may rely on the "unrevealed at start" 
 needs its own scoped look rather than a same-session follow-on edit) — left open, same as part 1's
 undecided lever, pending direction.
 
+**1.x war-cadence backlog, part 3 (2026-07-18) — the discovery-distance fix, scoped to
+`bench-balance.ts` only.** Confirmed empirically (a direct probe script, not the ring-geometry
+formula alone — the flat harness's uniform terrain biases site selection in ways worth measuring
+rather than deriving) that `mapSize: 65` gives all 6 pairwise inter-capital distances ≤
+`SCOUT_REVEAL_RADIUS` (48) for `kingdomCount=4`, reproducibly across seeds 9000-9002, while all four
+kingdoms still found cleanly clear of `VILLAGE_MIN_SPACING` (24). Changed only inside
+`bench-balance.ts`'s own `composeMultiKingdom` call (was 260) — `composeMultiKingdom`'s shared
+default (300) and every other consumer (`multiKingdom.test.ts`, `multiKingdomWar.test.ts`, etc.)
+are untouched, so the "kingdoms start genuinely unrevealed" property those tests may rely on still
+holds everywhere except this one tool's own invocation.
+
+**Result — the fix chain compounds:** the same 12-campaign flat-harness matrix (parts 1+2's fixes
+already in place, this one added) now shows **`wars: 31 declared, 31 ended` · `sieges: 3 begun, 0
+assaulted`** — up from `0 declared / 0 begun` at every prior checkpoint in parts 1 and 2. Wars
+finally happen once rivals can see each other; a few even reach `siege.begun`. Full suite still
+green (459/459); no other fixture depends on this tool's map size.
+
+**Still open — assaults never happen, even where a siege begins.** All 3 siege-starts came from
+`story` difficulty specifically (1 per seed); `fair`/`hard`/`brutal` each show 2 wars declared but
+0 sieges — an unexplained difficulty-correlated split worth a closer look before touching anything
+else. And even where a siege DOES begin, it never reaches `siege.assaultBegun` — every war still
+ends via the flat, unconditional exhaustion clock (`FORCED_PEACE_EXHAUSTION`, `diplomacy.ts`)
+before an assault is ordered, or armies are resolving in the field via `combat.ts`'s automatic
+proximity engagement before ever reaching the castle at all — not yet distinguished. This is now a
+THIRD, deeper layer of the same backlog item (declare → discover ✓ fixed, reach a castle → some
+✓, assault it → still 0) — left open pending direction, same discipline as parts 1 and 2: measured
+and reported, not guessed at.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking
