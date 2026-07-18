@@ -104,9 +104,14 @@ const index = (id: number): number => id & 0x3fffff;
  * (The harness wrapper keeps its historical 300-tool stock — tests pinned to it.)
  */
 export const DEFAULT_CAMPAIGN_STOCK: Readonly<Record<string, number>> = {
-  'base:resource.wood': 2000,
-  'base:resource.stone': 500,
-  'base:resource.food': 300,
+  // 1.x pacing: a leaner starter kit for a slower early game (was wood 2000 / stone 500 /
+  // food 300). Held-amounts only — production rates, yields, and conversion are untouched
+  // (pace is tuned separately via day-length). Applies to every kingdom (the one-rulebook
+  // principle above). The keep buffers (economy.ts BASE_STORAGE / KEEP_FOOD_BUFFER) were raised
+  // to 200 / 150 so this kit sits within cap at start rather than over it.
+  'base:resource.wood': 200,
+  'base:resource.stone': 100,
+  'base:resource.food': 150,
   'base:resource.tools': 25,
 };
 

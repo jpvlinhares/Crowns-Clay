@@ -27,6 +27,11 @@ function compose(seed: number): ReturnType<typeof composeCampaign> {
     aiFromIndex: 1,
     weightsOf: () => ({ ...DEFAULT_PERSONALITY_WEIGHTS, aggression: 0, expansion: 0, riskTolerance: 0 }),
     mods: { sources: [] },
+    // This suite tests the castle-BUILDING mechanism (template rises, layouts differ), which
+    // needs a full stone reserve to raise a whole castle in the test window. Pin a generous stock
+    // so the mechanism test is independent of the 1.x campaign pacing default (leaner stone) —
+    // that pacing is exercised by the balance harness, not here.
+    startingStock: { 'base:resource.wood': 2000, 'base:resource.stone': 500, 'base:resource.food': 300, 'base:resource.tools': 25 },
   });
 }
 
