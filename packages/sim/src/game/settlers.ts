@@ -23,7 +23,7 @@ import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase } from '@crowns/data';
 import { ObjectComponent, SoAComponent, World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
-import { VILLAGE_RADIUS_T2, type TerrainAccessor, type VillageGameplay } from './villages.js';
+import { VILLAGE_RADIUS_T2, type TerrainAccessor, type VillageGameplay, type VillageOwnershipGuard } from './villages.js';
 import type { PopulationGameplay, StartingPopulation } from './population.js';
 import type { EconomyGameplay } from './economy.js';
 import type { LogisticsGameplay } from './logistics.js';
@@ -160,6 +160,9 @@ export interface SettlerGameplay {
    * kingdom.ts documents (a later module extends an earlier system's declared writes).
    */
   setFoundingOwner(resolver: FoundingOwnerResolver, ownerComponent: SoAComponent<{ kingdom: 'eid' }>): void;
+  /** 1.x ownership guard for `village.upgrade` — same late-bound injection as `setFoundingOwner`,
+   * supplied by kingdom.ts. Un-set ⇒ no restriction (single-kingdom / Terra). */
+  setOwnershipGuard(guard: VillageOwnershipGuard): void;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -273,6 +276,8 @@ export function registerSettlerGameplay(
   // late-defined VillageOwner component so founding-with-owner passes the access guard
   // (same mutable-declaration mechanism as kingdom.ts's registerCharacterExtension).
   let foundingOwner: FoundingOwnerResolver | null = null;
+  // 1.x ownership guard (late-bound from kingdom.ts; un-set ⇒ allow, i.e. single-kingdom/Terra).
+  let ownershipGuard: VillageOwnershipGuard | null = null;
   const moveWrites = [
     SettlerParty, SettlerCargo, SettlerName, Position, logi.HaulerPath,
     // arrival founding spawns a village + centre and fires subscriptions:
@@ -423,7 +428,11 @@ export function registerSettlerGameplay(
     return true;
   };
 
-  kernel.registerCommand<{ villageId: number }>('village.upgrade', (ctx, p) => {
+  kernel.registerCommand<{ villageId: number }>('village.upgrade', (ctx, p, command) => {
+    if (ownershipGuard !== null && !ownershipGuard(command.issuer, p.villageId | 0)) {
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: 'not your village' } });
+      return;
+    }
     const result = upgrade(ctx, p.villageId | 0);
     if (typeof result === 'string') {
       ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: result } });
@@ -440,6 +449,7 @@ export function registerSettlerGameplay(
       foundingOwner = resolver;
       if (!moveWrites.some((c) => c === (ownerComponent as unknown))) moveWrites.push(ownerComponent as never);
     },
+    setOwnershipGuard(guard: VillageOwnershipGuard): void { ownershipGuard = guard; },
     totalPopulation(): number {
       let total = 0;
       const pop = world.read(Population);

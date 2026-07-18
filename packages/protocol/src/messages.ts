@@ -420,6 +420,9 @@ export type FromSimMessage =
         taxRate: number;
         cx: number;
         cy: number;
+        /** 1.x: does the PLAYER kingdom (index 0) own this village? Gates the Village panel's
+         * tax/tier controls (foreign villages are read-only). Absent ⇒ owned (single-kingdom). */
+        owned?: boolean;
       }[];
       buildingsAdded?: BuildingRec[];
       /** flat pairs: [id, progress, ...] for buildings under construction */

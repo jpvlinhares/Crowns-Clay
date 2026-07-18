@@ -106,7 +106,9 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.equal(granary?.storageCapacity, 400, 'granary projects its storage capacity');
 
   // VillageStatsEmitter surfaces the POOLED village totals used for the used/total gauges.
-  const stats = new VillageStatsEmitter(world, game, popGame.Population, db, INERT_MODIFIERS).delta();
+  // single-kingdom stub: no VillageOwner ⇒ every village reads as owned (the 1.x owned flag)
+  const soloKingdom = { VillageOwner: undefined, kingdomEntities: () => [] } as unknown as import('@crowns/sim').KingdomGameplay;
+  const stats = new VillageStatsEmitter(world, game, popGame.Population, db, INERT_MODIFIERS, soloKingdom).delta();
   const v = stats.find((s) => s.name === 'Cap');
   assert.ok(v, 'village stats emitted');
   assert.equal(v.housing, 5, 'village housing total = Σ completed housing capacity');

@@ -120,6 +120,7 @@ export class VillageStatsEmitter {
     private readonly Population: import('@crowns/sim').PopulationComponent,
     db: import('@crowns/data').DefinitionDatabase,
     private readonly mods: StatModifierView,
+    private readonly kingdomGame: KingdomGameplay,
   ) {
     for (const [id, def] of db.resources) {
       if (id === 'base:resource.food') continue;
@@ -129,6 +130,10 @@ export class VillageStatsEmitter {
 
   delta(): NonNullable<Extract<import('@crowns/protocol').FromSimMessage, { kind: 'snapshotDelta' }>['villageStats']> {
     const out: ReturnType<VillageStatsEmitter['delta']> = [];
+    // 1.x: player kingdom (index 0) owns which villages? No VillageOwner ⇒ single-kingdom, all owned.
+    const VillageOwner = this.kingdomGame.VillageOwner;
+    const playerKingdom = this.kingdomGame.kingdomEntities()[0];
+    const ownerCol = VillageOwner !== undefined ? this.world.read(VillageOwner) : null;
     const pop = this.world.read(this.Population);
     const names = this.world.readObj(this.game.comps.VillageName);
     const stocks = this.world.readObj(this.game.comps.Stockpile);
@@ -198,8 +203,9 @@ export class VillageStatsEmitter {
         taxRate: core.taxRate[vi] as number,
         cx: core.centerX[vi] as number,
         cy: core.centerY[vi] as number,
+        owned: ownerCol === null || playerKingdom === undefined || (ownerCol.kingdom[vi] as number) === (playerKingdom as number),
       };
-      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}|${joy.target}|${joy.migrationPerDay}|${joy.fertility}|${factors.map((f) => f.value).join(',')}`;
+      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}|${joy.target}|${joy.migrationPerDay}|${joy.fertility}|${factors.map((f) => f.value).join(',')}|${stat.owned ? 1 : 0}`;
       if (this.last.get(stat.id) !== key) {
         this.last.set(stat.id, key);
         out.push(stat);

@@ -301,34 +301,41 @@ function renderVillagePanel(): void {
     body.append(tip(el('div', goods, 'row'), 'Stockpiled resources — spent on construction, upkeep, and edicts.'));
   }
 
-  const taxRow = el('div', undefined, 'row');
-  taxRow.append(el('span', 'tax'));
-  const select = document.createElement('select');
-  select.setAttribute('aria-label', 'Tax rate');
-  tip(select, 'Higher rates raise gold income but bleed happiness daily — punitive rates are self-defeating (GDD §2).');
-  ['none', 'low', 'normal', 'high', 'punitive'].forEach((name, rate) => {
-    const option = document.createElement('option');
-    option.value = String(rate);
-    option.textContent = name;
-    option.selected = rate === v.taxRate;
-    select.append(option);
-  });
-  select.addEventListener('change', () => command('village.setTaxRate', { villageId: v.id, rate: Number(select.value) }));
-  taxRow.append(select);
-  const upgrade = document.createElement('button');
-  upgrade.textContent = appLocale.resolve(localeKey('ui.village.upgrade-tier'));
-  if (v.tier === 1) {
-    tip(
-      upgrade,
-      `Tier 2 needs: pop ${TIER2_REQUIREMENTS.population} (have ${v.population}) · ` +
-        `${TIER2_REQUIREMENTS.distinctBuildings} distinct completed buildings · ` +
-        `${Object.entries(TIER2_REQUIREMENTS.materials).map(([id, amt]) => `${amt} ${id.split('.').pop()}`).join(' + ')} · ` +
-        `happiness ${TIER2_REQUIREMENTS.happiness} (have ${v.happiness})`,
-    );
+  // 1.x: tax rate and tier upgrade are OWNER-ONLY actions (the sim rejects them for foreign
+  // villages regardless; hiding the controls avoids implying a settlement you don't rule is
+  // editable). A foreign village shows its vitals above, read-only, and no tax/tier row.
+  if (v.owned) {
+    const taxRow = el('div', undefined, 'row');
+    taxRow.append(el('span', 'tax'));
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Tax rate');
+    tip(select, 'Higher rates raise gold income but bleed happiness daily — punitive rates are self-defeating (GDD §2).');
+    ['none', 'low', 'normal', 'high', 'punitive'].forEach((name, rate) => {
+      const option = document.createElement('option');
+      option.value = String(rate);
+      option.textContent = name;
+      option.selected = rate === v.taxRate;
+      select.append(option);
+    });
+    select.addEventListener('change', () => command('village.setTaxRate', { villageId: v.id, rate: Number(select.value) }));
+    taxRow.append(select);
+    const upgrade = document.createElement('button');
+    upgrade.textContent = appLocale.resolve(localeKey('ui.village.upgrade-tier'));
+    if (v.tier === 1) {
+      tip(
+        upgrade,
+        `Tier 2 needs: pop ${TIER2_REQUIREMENTS.population} (have ${v.population}) · ` +
+          `${TIER2_REQUIREMENTS.distinctBuildings} distinct completed buildings · ` +
+          `${Object.entries(TIER2_REQUIREMENTS.materials).map(([id, amt]) => `${amt} ${id.split('.').pop()}`).join(' + ')} · ` +
+          `happiness ${TIER2_REQUIREMENTS.happiness} (have ${v.happiness})`,
+      );
+    }
+    upgrade.addEventListener('click', () => command('village.upgrade', { villageId: v.id }));
+    taxRow.append(upgrade);
+    body.append(taxRow);
+  } else {
+    body.append(el('div', 'A rival kingdom’s settlement — you can observe it, but not govern it.', 'hint'));
   }
-  upgrade.addEventListener('click', () => command('village.upgrade', { villageId: v.id }));
-  taxRow.append(upgrade);
-  body.append(taxRow);
 
   if (store.state.villages.size > 1) {
     const pick = el('div', undefined, 'row');
@@ -1471,7 +1478,7 @@ worker.onmessage = (event: MessageEvent) => {
       for (const stat of message.villageStats ?? []) {
         villageStats.set(stat.id, stat);
       }
-      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0 })));
+      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0, owned: s.owned ?? true })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
       }

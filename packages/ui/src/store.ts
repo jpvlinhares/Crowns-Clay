@@ -32,6 +32,9 @@ export interface VillageInfo {
   readonly taxRate: number;
   readonly cx: number;
   readonly cy: number;
+  /** 1.x: does the player own this village? Foreign villages render read-only in the Village
+   * panel (no tax/tier controls). Defaults true so single-kingdom / older snapshots are unaffected. */
+  readonly owned: boolean;
 }
 
 export interface KingdomInfo {

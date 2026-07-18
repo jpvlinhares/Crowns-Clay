@@ -433,7 +433,7 @@ export function createSession(
     terrain,
     world: c.world,
     buildingEmitter: new BuildingEmitter(c.world, c.game),
-    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods),
+    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods, c.kingdomGame),
     roadEmitter: new RoadEmitter(c.logiGame.roads),
     territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, fog),
     saves: c.saves,

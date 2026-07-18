@@ -812,6 +812,13 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     }, VillageOwner);
   }
 
+  // ---- 1.x ownership guard: village-mutating commands act only on the issuer's own villages.
+  // Injected here (after both layers exist) into the settler + village command handlers; kingdom.ts
+  // already guards village.setTaxRate directly. Multi-kingdom only — kingdomGame.ownsVillage returns
+  // true when there's no VillageOwner, so single-kingdom / Terra compositions are unrestricted.
+  game.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
+  settlerGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
+
   // ---- M47.8: occupation — the non-castle conquest path (campaign-only; wrapper opts out) ----
   const occupationGame = (options.occupation ?? true)
     ? registerOccupationGameplay(kernel, world, game, militaryGame, armiesGame, kingdomGame, castleGame, {
