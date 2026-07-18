@@ -108,7 +108,10 @@ export class UIStore {
     if (stats.length === 0) return;
     for (const s of stats) this.state.villages.set(s.id, s);
     if (this.state.selectedVillage === null && this.state.villages.size > 0) {
-      this.state.selectedVillage = [...this.state.villages.keys()].sort((a, b) => a - b)[0] as number;
+      // 1.x: default-select an OWNED village so the Village panel opens on one the player can
+      // actually govern (falls back to the lowest id if, somehow, none are owned).
+      const all = [...this.state.villages.values()].sort((a, b) => a.id - b.id);
+      this.state.selectedVillage = (all.find((v) => v.owned) ?? all[0])?.id ?? null;
     }
     this.emit();
   }

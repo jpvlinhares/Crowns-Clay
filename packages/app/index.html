@@ -41,6 +41,13 @@
     .vchip .nm { color: #d8b060; font-weight: 600; }
     .vchip .f { color: #b8ae9a; }
     .vchip .f b { color: #e8e0d0; font-weight: 600; display: inline-block; min-width: 2.5ch; text-align: right; }
+    /* One delimited box per resource ([Wood 100]) — used by the player's HUD bar and the
+       Realms panel. Data-driven: every resource (base or modded) gets a box automatically. */
+    .rbox { display: inline-flex; align-items: baseline; gap: .3rem; padding: 0 .35rem; white-space: nowrap;
+            background: #201c15; border: 1px solid #3a3226; border-radius: 3px; font-variant-numeric: tabular-nums; }
+    .rbox .rl { color: #9a9080; text-transform: capitalize; }
+    .rbox b { color: #e8e0d0; font-weight: 600; }
+    .goods-row { display: flex; flex-wrap: wrap; gap: .25rem .3rem; }
     button { background: #2a241b; color: #e8e0d0; border: 1px solid #4a4030;
              padding: .25rem .6rem; cursor: pointer; font: inherit; border-radius: 3px; }
     button:hover { background: #3a3226; }

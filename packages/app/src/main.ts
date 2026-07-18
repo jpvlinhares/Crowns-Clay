@@ -9,7 +9,7 @@
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
 import { BASE_TICKS_PER_SECOND, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
-import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel } from '@crowns/ui';
+import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel, type VillageInfo } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
 import { EN_LOCALE } from './locale/en.js';
@@ -47,30 +47,54 @@ const hud = {
   status: document.getElementById('status') as HTMLElement,
   villages: document.getElementById('village-stats') as HTMLElement,
 };
-const villageStats = new Map<number, { name: string; population: number; food: number; happiness: number; goods?: Record<string, number> }>();
+/** One delimited box per resource — e.g. [Wood 100]. Shared by the player's HUD bar and the
+ * Realms panel so both read identically. */
+function resourceBox(label: string, value: string | number): HTMLElement {
+  const box = el('span', undefined, 'rbox');
+  box.append(el('span', label, 'rl'));
+  const b = document.createElement('b');
+  b.textContent = String(value);
+  box.append(b);
+  return box;
+}
 
-/** One fixed-column chip per village (built via DOM, not string concat, so names
- * never need escaping and tabular-numeral values sit in stable slots). */
+/** Ordered, data-driven resource boxes for a village: pop, joy, food, then every OTHER good the
+ * sim reports (base or modded), in the sim's stable order — nothing hardcoded per resource, so a
+ * modded resource gets its own box automatically. Order per 1.x spec: pop · joy · food · goods. */
+function villageResourceBoxes(s: VillageInfo): HTMLElement[] {
+  const boxes = [resourceBox('pop', s.population), resourceBox('joy', s.happiness), resourceBox('food', s.food)];
+  for (const [good, amount] of Object.entries(s.goods)) boxes.push(resourceBox(good, amount));
+  return boxes;
+}
+
+/** The main-view HUD bar shows ONLY the player's own villages (1.x: rival kingdoms' goods moved
+ * to the Realms panel). One fixed chip per owned village, resources in delimited boxes. */
 function renderVillageChips(): void {
   const host = hud.villages;
   host.replaceChildren();
-  const field = (label: string, value: string | number): HTMLElement => {
-    const span = document.createElement('span');
-    span.className = 'f';
-    const b = document.createElement('b');
-    b.textContent = String(value);
-    span.append(`${label} `, b);
-    return span;
-  };
-  for (const s of villageStats.values()) {
-    const chip = document.createElement('span');
-    chip.className = 'vchip';
-    const name = document.createElement('span');
-    name.className = 'nm';
-    name.textContent = s.name;
-    chip.append(name, field('pop', s.population), field('food', s.food), field('joy', s.happiness));
-    for (const [good, amount] of Object.entries(s.goods ?? {})) chip.append(field(good, amount));
+  for (const s of [...store.state.villages.values()].filter((v) => v.owned).sort((a, b) => a.id - b.id)) {
+    const chip = el('span', undefined, 'vchip');
+    chip.append(el('span', s.name, 'nm'), ...villageResourceBoxes(s));
     host.append(chip);
+  }
+}
+
+/** Realms panel (1.x): every rival (non-owned) village and its stored goods — the same boxed,
+ * data-driven rendering as the player's own bar, just relocated off the main view. */
+function renderRealmsPanel(): void {
+  const body = realmsPanel.body;
+  body.replaceChildren();
+  const foreign = [...store.state.villages.values()].filter((v) => !v.owned).sort((a, b) => a.id - b.id);
+  if (foreign.length === 0) {
+    body.append(el('div', 'No rival settlements known yet.', 'hint'));
+    return;
+  }
+  body.append(el('div', 'Stored goods of rival kingdoms’ settlements.', 'hint'));
+  for (const s of foreign) {
+    body.append(el('div', s.name, 'ledger-heading'));
+    const row = el('div', undefined, 'goods-row');
+    row.append(...villageResourceBoxes(s));
+    body.append(row);
   }
 }
 let speed: Speed = 1;
@@ -247,6 +271,8 @@ const researchPanel = panels.register('research', 'Research', '📜');
 const victoryPanel = panels.register('victory', 'Victory', '🏆');
 // M50 (Phase 8): the capital's castle-defence layer — build palette + garrison posting
 const castlePanel = panels.register('castle', 'Castle', '🏰');
+// 1.x: rival kingdoms' stored goods live here, off the main view (dedicated window).
+const realmsPanel = panels.register('realms', 'Realms', '🌐');
 const modsPanel = panels.register('mods', 'Mods', '🧩');
 const helpPanel = panels.register('help', 'Keybinds', '⌨');
 villagePanel.open();
@@ -1291,6 +1317,7 @@ function renderWarPanels(): void {
   renderCastlePanel();
 }
 renderWarPanels(); // initial hint state before any campaign boots
+renderRealmsPanel(); // 1.x: rival-goods window — initial "none known yet" hint
 
 // A panel/toast surface is rebuilt wholesale (replaceChildren) on store/snapshot updates.
 // That must NOT happen while the user is mid-interaction with it: replacing a live <select>
@@ -1466,7 +1493,6 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.setBuildings(message.buildings ?? []);
           renderer.setRoads(message.roads ?? []);
           renderer.centerOnTile(focus.x, focus.y);
-          villageStats.clear();
           hud.villages.textContent = '';
         } else {
           void bootRenderer(message.world.widthTiles, message.world.heightTiles, message.entities, message.terrain, message.buildings, message.roads, focus);
@@ -1475,12 +1501,10 @@ worker.onmessage = (event: MessageEvent) => {
       return;
     case 'snapshotDelta': {
       renderer?.mirror.applyDelta(message);
-      for (const stat of message.villageStats ?? []) {
-        villageStats.set(stat.id, stat);
-      }
       store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0, owned: s.owned ?? true })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
+        renderRealmsPanel();
       }
       if (renderer !== null) {
         for (const rec of message.buildingsAdded ?? []) renderer.addBuilding(rec);
