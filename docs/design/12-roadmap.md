@@ -261,6 +261,38 @@ THIRD, deeper layer of the same backlog item (declare → discover ✓ fixed, re
 ✓, assault it → still 0) — left open pending direction, same discipline as parts 1 and 2: measured
 and reported, not guessed at.
 
+**1.x war-cadence backlog, part 4 (2026-07-18) — root cause found: the strategic planner abandons
+a war it already committed to.** Traced with a hand-built event probe (subscribing to
+`diplomacy.warDeclared`/`army.arrived`/`army.unitDeserted`/`siege.begun` on a live composition,
+plus temporary `console.error` tracing inside `ai/military.ts`'s daily decision loop — reverted
+before commit, not shipped) against a guaranteed worst-case scenario: two kingdoms, BOTH on
+`multiKingdomWar.test.ts`'s proven AGGRESSIVE weights, both capitals confirmed `isCastle=true`
+with a genuine 48-node defence graph (part 1's fix working correctly). War was declared, both
+armies marched, both `army.arrived` at the enemy capital — and still no `siege.begun`. The trace
+pinpointed it exactly: **the moment the army arrives, every subsequent daily tick logs `bail:
+plan=MilitaryBuildup`** — `ai/military.ts`'s tactical-war-conduct block is gated on `plan ===
+'ConquestWar' || plan === 'PunitiveRaid'` (military.ts's own tactical-conduct guard), but
+`ai/planner.ts`'s weekly re-evaluation had already flipped the active plan back to
+`MilitaryBuildup` (its utility function, `aggression × relativeAdvantage × militaryStrength`, can
+drop below `MilitaryBuildup`'s once the committed army marches away and stops counting toward
+at-home military strength). `MilitaryBuildup` still passes the OUTER plan guard (so barracks/
+recruit/fortify keep running), but the tactical block's narrower guard excludes it — the module's
+existing "war fell out of favor" branch (top of the daily loop) only fires for a plan OUTSIDE all
+three war-adjacent plans, so it never catches this case either. Net effect: an army already at the
+enemy's gate is silently abandoned — no `siege.begin`, no peace proposal, nothing — until the flat
+exhaustion clock forces peace 90 days after declaration regardless (confirmed: `diplomacy.
+peaceForced` fired at day 1455.0, exactly 90 days after `warDeclared` at day 1365.3). This is why
+`bench:balance`'s matrix shows wars that start, armies that arrive, and yet an assault rate of
+zero — not a siege-duration or exhaustion-timing problem as originally framed, but the strategic
+layer discarding tactical progress mid-execution. (Also separately confirmed real and working as
+designed, ruled out as the cause here: `game/military.ts`'s seasonal upkeep desertion, which
+periodically wipes an under-resourced army — visible in the same trace at days 630 and 1350 — but
+is a distinct, pre-existing, intentional mechanic, not what stalled this particular war.) This is
+a strategic/tactical-layer coordination bug, not a constant to retune — left open pending
+direction on the right fix shape: let a committed army finish its war under `MilitaryBuildup` too,
+route a plan-revert into the existing "sue for peace" branch, or add a `planner.ts` hysteresis
+term for an active siege — same discipline as parts 1-3, reported rather than guessed at.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking
