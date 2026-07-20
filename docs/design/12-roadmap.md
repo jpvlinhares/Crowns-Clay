@@ -401,6 +401,43 @@ difficulty-correlated war-window question); defended-capital assaults (needs gar
 conquest becoming a WINNING condition (prosperity still resolves by year 15 before a conqueror can
 sweep the map — the victory-pacing item from part 1, still open).
 
+**1.x war-cadence backlog, part 8 (2026-07-18) — AI roster adoption shipped for 1.0; correct,
+tested, and DORMANT for a newly-measured upstream reason.** Context: 1.0 content-completeness made
+the M45 roster (swordsman/crossbowman/knight/ram/trebuchet) recruitable at last — previously they
+were defined and tech-unlocked but absent from the Barracks `recruits` list, so nothing could ever
+train them. The player half is a `UnitDef.requiresTech` gate enforced by the recruit command
+(default-open hook; campaign wires `researchGame.isKnown`). The AI half, requested explicitly
+rather than deferred, is a stateless class ROTATION in `ai/military.ts` (`pickRosterRecruit`, a
+pure function): slot = own unit count % 4 over `[line, ranged, line, cavalry]`, each slot taking
+the best UNLOCKED unit of its class, with siege engines only under `ConquestWar` with an army
+raised and under a 2-engine cap. This is deliberately mechanism-not-scoring — it yields mixed
+armies with an infantry backbone that upgrade themselves as warfare techs land, without adding a
+utility surface to tune. Gated on `rosterAdoption` (harness wrapper opts out) so the pinned
+M22–M46 outcomes stay byte-identical.
+
+**Measured status — the rotation currently changes nothing, and the reason is new information.**
+A/B runs (rotation on vs off; `fair`/`brutal`/no-difficulty; 50–60 years; conquest-only and full
+victory sets; 3 and 4 kingdoms) are IDENTICAL in winner, year, wars, and recruits — because in the
+REAL composition (`composeCampaign`, content personalities, i.e. the only place the rotation is
+switched on) **the AI never builds a barracks at all**: a plan trace shows 17,386 `village.build`
+rejections for `insufficient base:resource.wood (0/20)`. The AI is resource-starved long before
+military ambition is the binding constraint, so no recruit of any kind is ever issued. Note the
+complementary asymmetry that hid this until now: the flat harness matrix from parts 1–7 DOES fight
+(wars, sieges, conquests) but pins `rosterAdoption: false` by design, while the real composition
+has it on and cannot militarize — so AI roster adoption is unobservable in both today. This is why
+the change carries zero golden/corpus drift: nothing it touches ever executes.
+
+**Recorded as accepted for 1.0, not forgotten:** (1) the rotation ships and will activate on its
+own once the economy blocker clears — no further AI work is needed to make adoption real, and the
+blocker is squarely an economy/worldgen concern (village start sites without reachable wood), not
+an AI one; (2) AI TECH-PRIORITY tuning is explicitly DEFERRED post-1.0 — the research manager
+researches cheapest-available-first and only under `TechRace`, so cheap gates (Barracks Discipline,
+Siege Basics) land on a normal timeline while the capstones (Combined Arms → Knight, Trebuchet
+Engineering → Trebuchet) stay late and personality-flavoured. Making warmongers prioritise the
+warfare branch means changing the plan→manager mapping that the M46-pinned pacing rests on; that is
+the balance rabbit hole this backlog exists to keep out of the freeze. Consequence accepted for
+1.0: even once the AI recruits, knights and trebuchets will be rare in AI armies.
+
 **M54 scoping note (shipped 2026-07-17) — PHASE 8 COMPLETE:** intel lands as ADR-4 §4 drew it.
 Structures preview as a STALE SNAPSHOT per (observer, target) — `game/intel.ts`, refreshed only
 on current-proximity contact with the target capital or by a besieging army (the camp is looking
