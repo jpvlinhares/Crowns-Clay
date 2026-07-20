@@ -52,7 +52,7 @@ import { registerOccupationGameplay } from './game/occupation.js';
 import { registerDefenceGameplay, KEEP_DEF } from './game/defence.js';
 import { generateWorld } from './worldgen/pipeline.js';
 import { Biome, type MapSize, type WorldDef } from './worldgen/types.js';
-import { registerVillageGameplay, VILLAGE_MIN_SPACING, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
+import { registerVillageGameplay, VILLAGE_MIN_SPACING, VILLAGE_RADIUS_T1, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
 import { bestSiteNear } from './game/settlers.js';
 import { registerPopulationGameplay } from './game/population.js';
 import { registerEconomyGameplay } from './game/economy.js';
@@ -73,6 +73,7 @@ import { registerResearchGameplay } from './game/research.js';
 import { registerEventGameplay } from './game/events.js';
 import { registerVictoryGameplay, type VictoryOptions } from './game/victory.js';
 import { scoreKingdomSites, type FairPlacementResult } from './worldgen/fairPlacement.js';
+import { guaranteeStartResources, startHarvesterRequirements } from './worldgen/resourceGuarantee.js';
 import { SaveManager, kernelSection, worldSection } from './persistence.js';
 import { registerAiConstructionManager, type AiConstructionOptions } from './ai/manager.js';
 import {
@@ -393,6 +394,20 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
 
   // ---- multi-kingdom genesis at fairness-checked sites (M22) ----
   const placement = scoreKingdomSites(game, db, options.kingdomCount);
+  // GDD §13 start-resource guarantee: scoreSite (settlers.ts) never scores `mineable` at all (wood
+  // only gets a soft pull), so whether a capital could ever reach stone was pure chance — this
+  // patches the ALREADY-CHOSEN sites' terrain deterministically so both wood and stone are always
+  // buildable within the tier-1 radius, same footing for both. MUST run identically on a fresh
+  // campaign and on every reload — `placement` is recomputed the same way both times (pure
+  // function of the seed-regenerated terrain), so this stays reproducible; it must NOT be folded
+  // into the once-only genesis system below, which never re-runs on load. Skipped when the caller
+  // supplies its own `terrain` accessor directly (no generated `worldDef` to patch — test harness path).
+  if (worldDef !== null) {
+    const harvesterRequirements = startHarvesterRequirements(db);
+    for (const site of placement.sites) {
+      guaranteeStartResources(worldDef.layers, worldDef.width, worldDef.height, site.x, site.y, VILLAGE_RADIUS_T1, harvesterRequirements);
+    }
+  }
   const villageIndexByKingdom = new Map<number, number>();
   const villageNameOf = options.villageNameOf ?? ((k: number): string => `Kingdom-${k}`);
 

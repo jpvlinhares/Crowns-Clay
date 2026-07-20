@@ -28,6 +28,9 @@ import {
   worldSection,
   bestSiteNear,
   CENTER_DEF_ID,
+  VILLAGE_RADIUS_T1,
+  guaranteeStartResources,
+  startHarvesterRequirements,
   type SimSystem,
   type SoAComponent,
   type TerrainAccessor,
@@ -146,6 +149,18 @@ export function composeTerra(
   const STARTING_STOCK = starting.stock;
   const statMods = new StatModifiers(); // one board: kingdom writes, economy/population read (M16)
   const game = registerVillageGameplay(kernel, world, db, terrainAccessor, STARTING_STOCK, sandboxEnabled);
+
+  // GDD §13 start-resource guarantee: scoreSite never scores `mineable` at all (wood only gets a
+  // soft pull), so whether the capital could ever reach stone was pure chance. The site is chosen
+  // HERE (module scope, unconditionally — both a fresh session and every reload run this the same
+  // way, since it's a pure function of the seed-regenerated terrain) so the guarantee patch below
+  // and genesis's actual founding (further down) always agree on the exact same site — computing
+  // it twice would let the SECOND call see the guarantee's own patched terrain (extra woodland
+  // pulls scoreSite) and potentially pick a different site than the one just guaranteed.
+  const genesisSite = bestSiteNear(game, db, width >> 1, height >> 1, FOUNDING_SEARCH_RADIUS);
+  if (genesisSite !== null) {
+    guaranteeStartResources(worldDef.layers, width, height, genesisSite.x, genesisSite.y, VILLAGE_RADIUS_T1, startHarvesterRequirements(db));
+  }
   const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 12, adults: 30, elders: 5 }, statMods);
   const econGame = registerEconomyGameplay(kernel, world, db, game, statMods);
   const logiGame = registerLogisticsGameplay(kernel, world, db, game, popGame, econGame, Position);
@@ -213,8 +228,10 @@ export function composeTerra(
       // found the starter settlement on the best-SCORING valid site near map
       // center (M15 site scorer: food, water, buildables — GDD §13). By default the
       // player starts with the KEEP ONLY; `starting.buildings` (data-driven) can queue
-      // extra pre-placed buildings for demos/scenarios.
-      const site = bestSiteNear(game, db, width >> 1, height >> 1, FOUNDING_SEARCH_RADIUS);
+      // extra pre-placed buildings for demos/scenarios. Reuses the SAME site chosen at compose
+      // time (genesisSite) — the guarantee patch above was already keyed to it; recomputing here
+      // would risk scoreSite seeing the guarantee's own extra woodland/hills and drifting.
+      const site = genesisSite;
       if (site === null) return;
       // Fund the keep on top of the starting stock so the player is left holding EXACTLY
       // `starting.stock` once the centre is placed (the keep is a given, not a build cost).

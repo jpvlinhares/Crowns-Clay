@@ -87,6 +87,7 @@ export {
   type WorldGenStage,
   type ProgressFn,
 } from './worldgen/types.js';
+export { guaranteeStartResources, startHarvesterRequirements, type HarvesterRequirement } from './worldgen/resourceGuarantee.js';
 export {
   registerVillageGameplay,
   defineVillageComponents,
