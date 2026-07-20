@@ -46,6 +46,51 @@ const index = (id: number): number => id & 0x3fffff;
 
 export const BARRACKS_DEF = 'base:building.barracks';
 export const RECRUIT_ORDER = ['base:unit.spearman', 'base:unit.militia'] as const; // preference order, cheapest fallback
+
+// ---- roster adoption (1.0 content-completeness): once the AI can recruit the full GDD §6
+// roster, it should ACTUALLY field a mixed army as its warfare techs unlock better units —
+// not spam one unit type, and not degenerate into always-the-strongest. A stateless class
+// ROTATION does both: the slot is chosen by the kingdom's current unit count, and each slot
+// takes the best UNLOCKED unit of its class (strongest-first), so composition upgrades
+// automatically without any scoring to tune. Two line slots keep an infantry backbone.
+// GATED on the composition supplying `isUnitUnlocked` — the harness wrapper does NOT, so it
+// keeps the pinned single-unit RECRUIT_ORDER behaviour byte-identical.
+export const RECRUIT_ROTATION = ['line', 'ranged', 'line', 'cavalry'] as const;
+export const RECRUIT_BY_CLASS: Readonly<Record<string, readonly string[]>> = {
+  line: ['base:unit.swordsman', 'base:unit.spearman', 'base:unit.militia'],
+  ranged: ['base:unit.crossbowman', 'base:unit.archer'],
+  cavalry: ['base:unit.knight', 'base:unit.cavalry'],
+  siege: ['base:unit.trebuchet', 'base:unit.ram', 'base:unit.catapult'],
+};
+/** Siege engines the AI keeps at most, and only while actually prosecuting a ConquestWar
+ * with an army already raised — they're dead weight outside a siege and costly in adults. */
+export const AI_SIEGE_CAP = 2;
+/** The AI keeps building line/ranged/cavalry before it invests in a siege train. */
+export const AI_SIEGE_MIN_UNITS = 4;
+
+/**
+ * Today's recruit choice from the class rotation — a PURE function of (own composition,
+ * plan, unlock predicate), so the decision is testable in isolation and deterministic.
+ * A ConquestWar with an army already raised adds a siege engine (under the cap); otherwise
+ * the rotation slot (chosen by unit count) picks the best UNLOCKED unit of its class, falling
+ * back to the line — then militia — so a still-locked slot never stalls recruiting. Affordability
+ * is deliberately NOT modelled here: the recruit command enforces it (reject-and-retry), and
+ * the caller's food/workforce gates already guarantee population for any unit.
+ */
+export function pickRosterRecruit(
+  totalUnits: number,
+  siegeUnits: number,
+  plan: string,
+  unlocked: (defId: string) => boolean,
+): string {
+  const bestOfClass = (cls: string): string | undefined => (RECRUIT_BY_CLASS[cls] ?? []).find(unlocked);
+  if (plan === 'ConquestWar' && totalUnits >= AI_SIEGE_MIN_UNITS && siegeUnits < AI_SIEGE_CAP) {
+    const engine = bestOfClass('siege');
+    if (engine !== undefined) return engine;
+  }
+  const slot = RECRUIT_ROTATION[totalUnits % RECRUIT_ROTATION.length] as string;
+  return bestOfClass(slot) ?? bestOfClass('line') ?? 'base:unit.militia';
+}
 export const WAR_MIN_STRENGTH = 20; // committed troop count before marching to war
 /** M46 balance fix (doc 01 §8 SC-2): recruiting costs `UnitDef.popCost` ADULTS, permanently,
  * whether or not the war they were raised for ever happens — an unconditional daily recruit
@@ -117,6 +162,11 @@ export interface AiMilitaryOptions {
   /** M47.8: the kingdom this AI holds its heaviest grudge against (doc 07 §7) — a PunitiveRaid
    * prefers that kingdom's villages over merely-nearest targets. Optional and additive. */
   readonly grudgeTarget?: () => EntityId | null;
+  /** 1.0 roster adoption: true when this kingdom may recruit `defId` (ungated units always;
+   * tech-gated units once the kingdom knows the tech). PRESENCE switches the recruiter from
+   * the pinned single-unit RECRUIT_ORDER to the class rotation — omit it (the harness wrapper)
+   * to keep the old behaviour byte-identical. */
+  readonly isUnitUnlocked?: (defId: string) => boolean;
   /** Known (fog-gated) hostile villages worth marching on — omit for buildup-only behaviour
    * (recruit/assemble/fortify, never marches to war). */
   readonly warTargets?: () => readonly AiWarTarget[];
@@ -164,7 +214,7 @@ export function registerAiMilitaryManager(
   options: AiMilitaryOptions,
 ): void {
   const { VillageCore, BuildingCore } = game.comps;
-  const { Unit, Army } = military;
+  const { Unit, Army, ops } = military;
   const { ArmyMovement } = armies;
   const searchRadius = options.searchRadius ?? VILLAGE_RADIUS_T1;
 
@@ -185,6 +235,23 @@ export function registerAiMilitaryManager(
     });
     return total;
   };
+
+  // ---- roster adoption (1.0): pick the recruit for today, given the kingdom's own units and
+  // its unlocked techs. Pure over declared reads (Unit) — pop/gold affordability is left to the
+  // recruit command (reject-and-retry, the pre-existing discipline), and the daily food/workforce
+  // gates above already guarantee pop for any unit (all cost ≤ 10 adults). Returns null = skip. ----
+  const unlocked = (defId: string): boolean => options.isUnitUnlocked?.(defId) ?? true;
+  const ownUnits = (siegeOnly = false): number => {
+    const u = world.read(Unit);
+    let n = 0;
+    world.query([Unit]).forEach((ui) => {
+      if ((u.kingdomId[ui] as number) !== (options.kingdomId as number)) return;
+      if (siegeOnly && ops.unitDef(u.def[ui] as number).class !== 'siege') return;
+      n++;
+    });
+    return n;
+  };
+  const pickRecruit = (plan: string): string => pickRosterRecruit(ownUnits(), ownUnits(true), plan, unlocked);
 
   const system: SimSystem = {
     name: options.id !== undefined ? `ai-military-${options.id}` : 'ai-military',
@@ -243,10 +310,11 @@ export function registerAiMilitaryManager(
         const keepsWorkforce = adultsAfter >= RECRUIT_MIN_ADULTS_REMAINING;
         const actuallyFed = (pop.foodSecurity[vi] as number) >= RECRUIT_MIN_FOOD_SECURITY;
         if (hasFoodSurplus && staysAboveFloor && keepsWorkforce && actuallyFed) {
-          for (const defId of RECRUIT_ORDER) {
-            kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
-            break; // rejected silently (unaffordable etc.) is fine — retried next day
-          }
+          // roster adoption wired ⇒ the class rotation picks a mixed army from the unlocked
+          // roster; otherwise (the harness) the pinned single-unit RECRUIT_ORDER, byte-identical.
+          const defId = options.isUnitUnlocked !== undefined ? pickRecruit(plan) : (RECRUIT_ORDER[0] as string);
+          kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
+          // rejected silently (unaffordable etc.) is fine — retried next day
         }
         // neither gate met: skip recruiting today, retried tomorrow — MilitaryBuildup stays the
         // active plan (a deferral, not a cancellation); the food-need evaluator (ai/needs.ts) the

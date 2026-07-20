@@ -174,6 +174,10 @@ export interface ComposeCampaignOptions {
   /** M54 (ADR-4 §4): stale structure snapshots + garrison beliefs + the AI assault
    * advice they feed. Default true; the harness wrapper opts out (pinned runs). */
   readonly intel?: boolean;
+  /** 1.0 content-completeness: AI recruits the full GDD §6 roster (class rotation) as its
+   * warfare techs unlock it, instead of the pinned single-unit order. Default true; the
+   * harness wrapper opts out to keep its M22–M46 recruit outcomes byte-identical. */
+  readonly rosterAdoption?: boolean;
   /** GDD §13 "history seeding": kingdoms start mutually AWARE of each other's capitals
    * (medieval realms knew their neighbours) — later villages stay fog-hidden until scouted.
    * Without it, start sites sit beyond scout range and no kingdom ever discovers another —
@@ -721,6 +725,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
 
   // ---- per-kingdom AI (M19-M33), kingdoms aiFromIndex..n-1 ----
   const sharedPlanState = defineAiPlanState(world);
+  const rosterAdoption = options.rosterAdoption ?? true; // 1.0: AI recruits the full roster (wrapper opts out)
   for (let k = aiFromIndex; k < options.kingdomCount; k++) {
     const dctx = diplomacyContextFor(k);
     const managerOptions: AiConstructionOptions = {
@@ -777,6 +782,18 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       getPlan: () => planner.currentPlan(),
       warTargets: () => warTargetsFor(k),
       grudgeTarget: () => dctx.strongestGrudge?.()?.target ?? null, // M47.8: PunitiveRaid aims here
+      // 1.0 roster adoption: the AI recruits the full roster as its warfare techs unlock it.
+      // Gated on the flag so the harness wrapper (rosterAdoption: false) keeps pinned behaviour.
+      ...(rosterAdoption
+        ? {
+            isUnitUnlocked: (defId: string): boolean => {
+              const def = db.units.get(defId);
+              if (def?.requiresTech === undefined) return true; // ungated units always available
+              const myId = kingdomGame.kingdomEntities()[k];
+              return myId !== undefined && (researchGameRef.current?.isKnown(myId, def.requiresTech) ?? false);
+            },
+          }
+        : {}),
       spatialSiege: (castleVi) => capitalDeathRules && (spatialAssault.applicable?.(castleVi) ?? false), // M53: assault layer capitals directly
       assaultAdvice: (castleVi) => intelAdvice.counsel?.(k, castleVi) ?? 'assault', // M54: fog-symmetric counsel
       diplomacy: {
