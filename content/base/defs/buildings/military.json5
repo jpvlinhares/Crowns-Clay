@@ -10,7 +10,16 @@
     "buildTicks": 96,
     "terrainTags": ["open"],
     "military": {
-      "recruits": ["base:unit.militia", "base:unit.spearman", "base:unit.archer", "base:unit.cavalry", "base:unit.catapult"],
+      // 1.0 content-completeness: the full GDD §6 roster trains here. The five M45 units
+      // (swordsman/crossbowman/knight/ram/trebuchet) were defined and tech-unlocked but
+      // never listed, so nothing could ever recruit them. They carry a `requiresTech` gate
+      // (units/core.json5) enforced at recruit time; the pre-M45 units stay ungated.
+      "recruits": [
+        "base:unit.militia", "base:unit.spearman", "base:unit.swordsman",
+        "base:unit.archer", "base:unit.crossbowman",
+        "base:unit.cavalry", "base:unit.knight",
+        "base:unit.catapult", "base:unit.ram", "base:unit.trebuchet",
+      ],
     },
     "tags": [],
   },

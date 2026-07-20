@@ -234,6 +234,7 @@ export {
   registerMilitaryGameplay,
   MilitaryOps,
   type MilitaryGameplay,
+  type MilitaryOptions,
   type UnitComponent,
   type ArmyComponent,
 } from './game/military.js';

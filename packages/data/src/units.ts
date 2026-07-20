@@ -29,6 +29,14 @@ export interface UnitDef {
   readonly upkeepFood: number; // food per season, paid from the home village stockpile
   readonly recruitTicks: number; // ticks in training before the unit joins active service
   readonly popCost: { readonly cohort: 'child' | 'adult' | 'elder'; readonly count: number };
+  /** 1.0 content-completeness: a tech that must be KNOWN before this unit can be recruited
+   * (referential — the id must name a real tech). Enforced by game/military.ts's recruit
+   * command via an injected `isTechKnown` hook; the hook defaults OPEN, so a composition
+   * without research wired (the harness, most tests) recruits every unit regardless.
+   * Grandfathered: units shipped before this field carry no gate and recruit as they always
+   * did — the field exists to gate the NEW roster (swordsman/crossbowman/knight/ram/trebuchet)
+   * behind the warfare techs that already name them in `unlocks.units`. */
+  readonly requiresTech?: string;
   readonly tags: readonly string[];
 }
 
@@ -71,7 +79,8 @@ export const unitValidator: Validator<UnitDef> = v.object(
       cohort: v.literal('child', 'adult', 'elder'),
       count: v.number({ min: 1, integer: true }),
     }),
+    requiresTech: v.id(),
     tags: v.array(v.string({ minLength: 1 })),
   },
-  { optional: ['counters'] },
+  { optional: ['counters', 'requiresTech'] },
 ) as Validator<UnitDef>;

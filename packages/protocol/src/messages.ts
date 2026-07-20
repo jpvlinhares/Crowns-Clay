@@ -89,6 +89,10 @@ export interface CatalogUnit {
   readonly upkeepGold: number;
   readonly cost: readonly (readonly [string, number])[]; // resolved resource names
   readonly recruitTicks: number;
+  /** 1.0: the tech gating this unit (undefined = ungated). Static — the catalog is built
+   * once; whether it is CURRENTLY unlocked comes from PanelResearchState.known per frame. */
+  readonly requiresTech?: string;
+  readonly requiresTechName?: string;
 }
 
 export interface UICatalog {
@@ -139,6 +143,9 @@ export interface PanelResearchState {
   readonly available: readonly { readonly techId: string; readonly name: string; readonly branch: string; readonly cost: number }[];
   readonly knownCount: number;
   readonly totalCount: number;
+  /** 1.0: tech ids the player currently knows — lets the Military panel show tech-gated
+   * units as locked-with-tech-name live, without the panel re-deriving the tech graph. */
+  readonly known: readonly string[];
 }
 export interface PanelVictoryState {
   readonly tracks: readonly { readonly type: string; readonly progress: number }[];

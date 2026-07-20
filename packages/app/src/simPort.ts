@@ -171,8 +171,8 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
     });
 
     const activeRaw = researchGame.activeResearch(playerId as never);
-    let knownCount = 0;
-    for (const techId of db.techs.keys()) if (researchGame.isKnown(playerId as never, techId)) knownCount++;
+    const known: string[] = [];
+    for (const techId of db.techs.keys()) if (researchGame.isKnown(playerId as never, techId)) known.push(techId);
     const research = {
       active: activeRaw === undefined
         ? null
@@ -188,8 +188,9 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
         branch: db.techs.get(techId)?.branch ?? '',
         cost: researchGame.costOf(playerId as never, techId),
       })),
-      knownCount,
+      knownCount: known.length,
       totalCount: db.techs.size,
+      known,
     };
 
     const w = victoryGame.winner();
@@ -300,6 +301,9 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
               amount,
             ]),
             recruitTicks: def.recruitTicks,
+            ...(def.requiresTech !== undefined
+              ? { requiresTech: def.requiresTech, requiresTechName: db.techs.get(def.requiresTech)?.name ?? def.requiresTech }
+              : {}),
           })),
         }
       : {}),

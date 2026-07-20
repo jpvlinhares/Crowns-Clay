@@ -855,16 +855,28 @@ function renderMilitaryPanel(): void {
   tip(villageSelect, 'Recruits draw population from this village permanently (a real trade-off, GDD §6) — it needs a barracks.');
   villageRow.append(villageSelect);
   body.append(villageRow);
+  // 1.0: tech-gated units (swordsman/crossbowman/knight/ram/trebuchet) show LOCKED with the
+  // tech name until the player researches it. The real guard is server-side (the recruit
+  // command rejects it either way); this is just so the palette reads honestly.
+  const knownTechs = new Set(panelsState.research?.known ?? []);
   for (const unit of catalog?.units ?? []) {
+    const locked = unit.requiresTech !== undefined && !knownTechs.has(unit.requiresTech);
     const row = el('div', undefined, 'row');
     const b = document.createElement('button');
-    b.textContent = `${unit.name} — ${unit.popCost} adults, ${unit.costGold}⛁`;
+    b.textContent = locked
+      ? `🔒 ${unit.name} — needs ${unit.requiresTechName ?? 'a technology'}`
+      : `${unit.name} — ${unit.popCost} adults, ${unit.costGold}⛁`;
     tip(b, `${unit.unitClass} · equipment: ${unit.cost.map(([n, a]) => `${a} ${n.toLowerCase()}`).join(', ') || 'none'} · ` +
-      `upkeep ${unit.upkeepGold}⛁/season · trains ${Math.round(unit.recruitTicks / 24)} days`);
-    b.addEventListener('click', () => {
-      if (selectedArmyVillage !== null) command('army.recruitUnit', { villageId: selectedArmyVillage, unitDef: unit.id });
-      send({ kind: 'requestPanels' });
-    });
+      `upkeep ${unit.upkeepGold}⛁/season · trains ${Math.round(unit.recruitTicks / 24)} days` +
+      (locked ? `\nLocked — research ${unit.requiresTechName ?? unit.requiresTech} to recruit.` : ''));
+    if (locked) {
+      b.setAttribute('aria-disabled', 'true');
+    } else {
+      b.addEventListener('click', () => {
+        if (selectedArmyVillage !== null) command('army.recruitUnit', { villageId: selectedArmyVillage, unitDef: unit.id });
+        send({ kind: 'requestPanels' });
+      });
+    }
     row.append(b);
     body.append(row);
   }

@@ -28,7 +28,7 @@ const plain: TerrainAccessor = {
   movementCostAt: () => 1,
 };
 
-function makeMilitary(options: { seed?: number; barracks?: boolean; farms?: number } = {}) {
+function makeMilitary(options: { seed?: number; barracks?: boolean; farms?: number; isTechKnown?: (kingdomId: never, techId: string) => boolean } = {}) {
   const kernel = new Kernel(options.seed ?? 17);
   const world = new World(512);
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
@@ -43,7 +43,8 @@ function makeMilitary(options: { seed?: number; barracks?: boolean; farms?: numb
   const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
   registerLogisticsGameplay(kernel, world, db, game, popGame, econ, Position); // farms feed the village via haulers (M14)
   const kingdom = registerKingdomGameplay(kernel, world, db, game, popGame, econ, mods);
-  const military = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdom);
+  const military = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdom,
+    options.isTechKnown !== undefined ? { isTechKnown: options.isTechKnown as (kingdomId: never, techId: string) => boolean } : {});
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
 
@@ -158,6 +159,29 @@ test('recruit: rejected atomically when the barracks is missing', () => {
   assert.equal(m.totalPop(), beforePop);
   assert.equal(m.treasury(), beforeGold);
   assert.equal(m.toolsOf(), beforeTools);
+});
+
+test('recruit tech gate (1.0): default-open recruits everything; a wired hook gates only requiresTech units', () => {
+  // default-open (no hook — the harness/test path): the M45 roster, now in the Barracks
+  // recruits list, trains regardless of tech. Swordsman carries requiresTech but no hook
+  // is wired, so it recruits — grandfathering the ungated compositions byte-identical.
+  const open = makeMilitary();
+  open.submit('army.recruitUnit', { villageId: open.villageId, unitDef: 'base:unit.swordsman' });
+  assert.ok(open.events.some((e) => e.type === 'army.unitRecruited'), `default-open should recruit swordsman: ${open.lastRejection()}`);
+
+  // hook wired, tech NOT known: the gated unit is rejected by tech name; an UNGATED unit
+  // (spearman has no requiresTech) is unaffected — the gate is consulted only when declared.
+  const gated = makeMilitary({ isTechKnown: () => false });
+  gated.submit('army.recruitUnit', { villageId: gated.villageId, unitDef: 'base:unit.swordsman' });
+  assert.match(gated.lastRejection(), /requires the .* technology/);
+  assert.ok(!gated.events.some((e) => e.type === 'army.unitRecruited'), 'gated unit did not recruit');
+  gated.submit('army.recruitUnit', { villageId: gated.villageId, unitDef: 'base:unit.spearman' });
+  assert.ok(gated.events.some((e) => e.type === 'army.unitRecruited'), `ungated spearman recruits despite the closed hook: ${gated.lastRejection()}`);
+
+  // hook wired, tech known: the gate opens
+  const known = makeMilitary({ isTechKnown: (_k, techId) => techId === 'base:tech.warfare-t2-3' });
+  known.submit('army.recruitUnit', { villageId: known.villageId, unitDef: 'base:unit.swordsman' });
+  assert.ok(known.events.some((e) => e.type === 'army.unitRecruited'), `known tech opens the gate: ${known.lastRejection()}`);
 });
 
 test('recruit: rejections by name — unknown unit, unknown village', () => {

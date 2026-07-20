@@ -350,7 +350,14 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   kingdomGameRef.current = kingdomGame;
 
   // War stack (M25-M29).
-  const militaryGame = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdomGame);
+  // Research registers further down but the recruit tech-gate (1.0) needs it now — late-bound
+  // ref, same idiom as the spatial/capital hooks. Default-open until assigned (it always is,
+  // below); a unit with no `requiresTech` never consults it, so the gate is inert for the
+  // grandfathered roster and the harness alike.
+  const researchGameRef: { current?: ReturnType<typeof registerResearchGameplay> } = {};
+  const militaryGame = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdomGame, {
+    isTechKnown: (kingdomId, techId) => researchGameRef.current?.isKnown(kingdomId, techId) ?? true,
+  });
   const armiesGame = registerArmyGameplay(kernel, world, game, militaryGame, kingdomGame);
   const combatGame = registerCombatGameplay(kernel, world, militaryGame, armiesGame, kingdomGame);
   const castleGame = registerCastleGameplay(kernel, world, db, game);
@@ -673,7 +680,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   };
 
   // ---- research (M32) ----
-  const researchGameRef: { current?: ReturnType<typeof registerResearchGameplay> } = {};
   const researchGame = registerResearchGameplay(kernel, world, db, game, kingdomGame, {
     knownByNeighbor(kingdomId: EntityId, techId: string): boolean {
       const myIndex = kingdomGame.kingdomEntities().indexOf(kingdomId);
