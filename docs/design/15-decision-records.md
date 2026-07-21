@@ -370,17 +370,18 @@ rewritten at Phase 8 entry.
 
 ---
 
-## ADR-4 Amendment A1 — retirement of M28: one castle system (owner-directed 2026-07-20; scope recommendation pending ratification)
+## ADR-4 Amendment A1 — retirement of M28: one castle system (owner-directed 2026-07-20; scope RATIFIED 2026-07-21)
 
-**Status:** the RETIREMENT is DECIDED (owner directive, 2026-07-20): the M28 on-map castle
-mechanic (enclosure-derived `isCastle`, village-map wall/gate/tower/keep placement, the
-breach-gated legacy assault path) is retired entirely. There will be ONE castle/defence system —
-the M51 defence layer. No WALL, GATEHOUSE or TOWER is buildable on the village map by anyone,
-player or AI. The SCOPE question below is now a THREE-way fork — (A) per-village layers,
-(B) capital-only, (C) keep-gated derived layers (owner-proposed 2026-07-21) — all awaiting owner
-ratification. (C) is the current front-runner and, unlike (A)/(B), makes ONE village-map building
-load-bearing: the Keep, recategorised out of `castle`, gates the layer without creating defence
-geometry on the village map. Ratify the fork before any implementation.
+**Status:** RATIFIED and implementable. The RETIREMENT was decided by owner directive on
+2026-07-20: the M28 on-map castle mechanic (enclosure-derived `isCastle`, village-map
+wall/gate/tower/keep placement, the breach-gated legacy assault path) is retired entirely. There
+will be ONE castle/defence system — the M51 defence layer. No WALL, GATEHOUSE or TOWER is
+buildable on the village map by anyone, player or AI. The SCOPE fork was resolved by owner
+ratification on **2026-07-21: option (C), keep-gated derived layers.** (A) and (B) are recorded
+below as considered-and-not-taken. Under (C) exactly ONE village-map building is load-bearing —
+the Keep, recategorised out of `castle` — which gates the defence layer without creating any
+defence geometry on the village map, so the rule above stands unqualified. Implementation is
+chartered as doc 12 Phase 8.1 (M55–M61).
 
 **What this amends.** ADR-4 §6 already ruled "two parallel fortification systems must not ship"
 and chartered retiring the on-map defence graph — but Phase 8 as shipped (M49–M54) implemented
@@ -393,7 +394,7 @@ A1 closes that deviation: the coexistence the M51 scoping note grandfathered is 
 GDD §7's "shipped delta" wording and doc 07 §5's fortification passage are affected and are
 rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1).
 
-**The scope fork — costed both ways:**
+**The scope fork — costed three ways; (C) ratified 2026-07-21:**
 
 - **(A) Every village gets its own defence layer.** Technically cheap where it looks expensive
   and expensive where it looks cheap. Maps: `defenceMapSeed(worldSeed, k)` becomes
@@ -412,7 +413,7 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   model: when capital death annexes the realm (M53), besieging hamlets one-by-one is dominated
   play — cost without depth. Estimate: 3–4 additional milestones plus a permanent balance
   surface, to buy texture the capital-centric design then makes irrelevant.
-- **(B) Capital-only (RECOMMENDED).** This is ADR-4 §6's ratified reading already — "the defence
+- **(B) Capital-only (NOT TAKEN — superseded by (C)).** This was ADR-4 §6's ratified reading — "the defence
   layer guards the CAPITAL only; non-capital villages keep the existing occupation/capture path."
   Nearly all work is deletion; no new systems. Non-capital villages remain individually takeable
   through M47.8 occupation (armies at an undefended village flip it by countdown, contested by
@@ -426,7 +427,7 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   real costs for a purism the capital-death rule doesn't need. If the owner intends B2, that is
   a further amendment with its own victory-math workstream; this record recommends against it.
 
-- **(C) Keep-gated derived layers (owner-proposed 2026-07-21 — now the front-runner).** Defence
+- **(C) Keep-gated derived layers — RATIFIED 2026-07-21.** Defence
   is gated on a BUILDING, not on capital status: a village with no Keep has no defence layer and
   falls to occupation as open country; building the Keep materialises a layer whose layout is
   DERIVED from a content template rather than hand-built; the template strengthens as the village
@@ -490,15 +491,18 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   **Open item (C) must resolve.** Under (C) the Keep exists at two scales — a 2×2 village-map
   building and a substantial central structure on the defence map — but `def.footprint` is one
   field on one def. Resolve either as a separate defence-map def spawned by the derivation, or an
-  optional second footprint field. This directly gates the footprint work at M59.
+  optional second footprint field. This directly gates the footprint work at M59 (doc 12 Phase 8.1).
 
 **Migration consequences (summary — the plan lives in doc 12 R3/Phase 8.1):** the four
 subsystems from the 2026-07-20 investigation — (1) village build path: castle-category defs
 rejected in `ops.place()` and dropped from the catalog, now as policy, not leak-patching;
-(2) AI: `planCastleRing` and `ai/military.ts`'s ring block deleted — AI defence is already the
-M52 template manager on the layer, per-capital, so under B NO new AI work is required;
-`AiWarTarget.isCastle` redefines to spatial-layer eligibility (capitals), everything else at
-contact range is occupation's business, which is already the shipped conduct split;
+(2) AI: `planCastleRing` and `ai/military.ts`'s ring block deleted; under the ratified (C) the M52
+template manager is re-keyed from capital to keep-bearing village and gains ONE new evaluator — a
+defence `SettlementNeed` proposing the Keep when a settlement is threatened, in the shape of
+`foodNeed`/`housingNeed`, feeding the existing `chooseBuildTarget`. Because it REPLACES
+`planCastleRing`, net AI effort is roughly zero. `AiWarTarget.isCastle` redefines to spatial-layer
+eligibility (now "has a Keep", not "is the capital"); an undefended keepless village at contact
+range remains occupation's business, which is already the shipped conduct split;
 (3) siege: single resolution path — `siege.begin` requires a standing defence layer;
 `siege.setTarget`, the bombard-vs-`Fortification` daily, `breaches`, `targetBuilding`, and the
 breach-gated assault branch are deleted; encirclement, starvation, sortie, and lift stay exactly
@@ -507,7 +511,12 @@ suite) is deleted with its mechanic; siege tests re-target layer-bearing capital
 castle-def rejection on village placement, occupation of ex-M28-castle villages, and an M28-era
 save fixture.
 
-**Saves & determinism.** No world-section format bump: `VillageCore.isCastle` stays in the
+**Saves & determinism.** Under the ratified (C) the DEFENCE section DOES bump: its
+`{ k, seed, version, tiles }[]` shape is keyed by kingdom and must be re-keyed to village, and
+`DefenceStructure.kingdom` becomes a village key — a section-format migration in its own right,
+which existing-save handling must map (a 1.0/Phase-8 save's per-kingdom layer becomes that
+kingdom's CAPITAL village's layer, and the capital's cost-free genesis keep is preserved so no
+shipped save loses its defences). Otherwise no world-section format bump: `VillageCore.isCastle` stays in the
 schema (deprecated, never set true again) and `Fortification` stays a registered component
 (re-homed from castles.ts to the defence module — the layer already reuses it), so M28-era saves
 hydrate unchanged. Their standing wall/gate/tower/keep buildings load as INERT ordinary
