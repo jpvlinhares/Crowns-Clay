@@ -64,7 +64,6 @@ import { foodNeed, housingNeed, industryNeed } from './ai/needs.js';
 import { registerMilitaryGameplay } from './game/military.js';
 import { registerArmyGameplay } from './game/armies.js';
 import { registerCombatGameplay } from './game/combat.js';
-import { registerCastleGameplay } from './game/castles.js';
 import { registerSiegeGameplay, type SpatialAssaultHook, type CapitalFallHook } from './game/siege.js';
 import { registerSuccessionGameplay } from './game/succession.js';
 import { registerDefenceIntel, estimateAssaultResistance, ASSAULT_HOPELESS_FRACTION } from './game/intel.js';
@@ -219,7 +218,6 @@ export interface CampaignComposition {
   readonly militaryGame: ReturnType<typeof registerMilitaryGameplay>;
   readonly armiesGame: ReturnType<typeof registerArmyGameplay>;
   readonly combatGame: ReturnType<typeof registerCombatGameplay>;
-  readonly castleGame: ReturnType<typeof registerCastleGameplay>;
   readonly siegeGame: ReturnType<typeof registerSiegeGameplay>;
   /** M49 (Phase 8): the per-kingdom castle-defence layer. */
   readonly defenceGame: ReturnType<typeof registerDefenceGameplay>;
@@ -365,7 +363,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   });
   const armiesGame = registerArmyGameplay(kernel, world, game, militaryGame, kingdomGame);
   const combatGame = registerCombatGameplay(kernel, world, militaryGame, armiesGame, kingdomGame);
-  const castleGame = registerCastleGameplay(kernel, world, db, game);
   // M51 (ADR-4 §2): late-bound spatial-assault hook — the defence layer registers further
   // down (it needs the capital bindings), so siege gets a ref it can call at command time.
   const spatialAssault: SpatialAssaultHook = {};
@@ -416,8 +413,8 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // M47.8 (multi-village AI): every fog/war/discovery surface below ranges over ALL of a
   // kingdom's villages, not just its founding capital. Ownership lives in a PLAIN index map
   // maintained by events (founded/occupied) — never an ECS read — so callers inside OTHER
-  // systems' access-guarded scopes (diplomacy hooks in the planner, event effects) stay legal:
-  // the exact subscriber discipline castles.ts/victory.ts document. VillageOwner (the
+  // systems' access-guarded scopes (diplomacy hooks in the planner, event effects) stay legal —
+  // the same subscriber discipline victory.ts's defeat bookkeeping follows. VillageOwner (the
   // component) remains the authoritative record; this map is rebuilt from it after load.
   const ownerIndexByVillage = new Map<number, number>(); // village dense index → kingdom index
   kernel.subscribe<{ village: number; kingdom?: number }>('village.founded', (event) => {
@@ -797,7 +794,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
       },
     });
-    registerAiMilitaryManager(kernel, world, db, game, popGame, militaryGame, armiesGame, castleGame, siegeGame, {
+    registerAiMilitaryManager(kernel, world, db, game, popGame, militaryGame, armiesGame, siegeGame, {
       issuer: k + 1,
       id: String(k),
       getPlan: () => planner.currentPlan(),
@@ -867,9 +864,9 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   game.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
   settlerGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
 
-  // ---- M47.8: occupation — the non-castle conquest path (campaign-only; wrapper opts out) ----
+  // ---- M47.8: occupation — the non-layer conquest path (campaign-only; wrapper opts out) ----
   const occupationGame = (options.occupation ?? true)
-    ? registerOccupationGameplay(kernel, world, game, militaryGame, armiesGame, kingdomGame, castleGame, {
+    ? registerOccupationGameplay(kernel, world, game, militaryGame, armiesGame, kingdomGame, {
         isAtWar: (a, b) => diplomacyGame.state.isAtWar(a as number, b as number),
         // M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown —
         // the layer is its fortification surface; only a siege takes it. Late-bound:
@@ -882,7 +879,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // ---- M49 (Phase 8, ADR-4): the per-kingdom castle-defence layer — maps, keep,
   // defence.build/demolish/post commands, 'defence' hash source. Appended registration:
   // no periodic systems, so existing streams and cadences are untouched.
-  const defenceGame = registerDefenceGameplay(kernel, world, db, game, econGame, kingdomGame, militaryGame, castleGame, {
+  const defenceGame = registerDefenceGameplay(kernel, world, db, game, econGame, kingdomGame, militaryGame, {
     worldSeed: options.seed,
     kingdomCount: options.kingdomCount,
     capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
@@ -942,8 +939,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // item 2): a capture is still an owner flip; capital-death arrives at M53.
   // GUARD-FREE (M53): `applicable` is now consulted from inside OTHER systems' access
   // scopes (ai-military's warTargets, occupation's exemption) — it must read the plain
-  // event-maintained ownership maps, never VillageOwner, or the access guard trips
-  // (the exact subscriber discipline castles.ts/victory.ts document).
+  // event-maintained ownership maps, never VillageOwner, or the access guard trips.
   spatialAssault.applicable = (castleVi) => {
     const k = ownerIndexByVillage.get(castleVi);
     return k !== undefined && villageIndexByKingdom.get(k) === castleVi && defenceGame.mapOf(k) !== undefined;
@@ -965,7 +961,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       rng: ctx.rng,
       game,
       militaryGame,
-      castleGame,
       defenceGame,
       defenderKingdomIndex: k,
       defenderKingdomId: ownerId,
@@ -1281,7 +1276,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   saves.afterLoad(() => {
     game.ops.rebuildDerived();
     kingdomGame.refreshAfterLoad();
-    castleGame.rebuildDerived();
     defenceGame.rebuildDerived();
     // genesis only runs on tick 1 — after hydration the plain ownership map is re-derived
     // from VillageOwner (the authoritative record). The kingdom→capital binding is NOT
@@ -1321,7 +1315,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   return {
     kernel, world, db, modReport, locale, sandbox: sandboxEnabled, Position, worldDef, terrainSnapshot,
     game, statMods, popGame, econGame, logiGame, settlerGame, kingdomGame, diplomacyGame, militaryGame, armiesGame,
-    combatGame, castleGame, siegeGame, defenceGame, successionGame, intelGame, believedGarrisonOf,
+    combatGame, siegeGame, defenceGame, successionGame, intelGame, believedGarrisonOf,
     researchGame, eventsGame, victoryGame, fog, placement, saves,
     villageOf: (kingdomIndex: number) => villageIndexByKingdom.get(kingdomIndex) ?? null,
     personalityTagsOf: (kingdomIndex: number): readonly string[] => {

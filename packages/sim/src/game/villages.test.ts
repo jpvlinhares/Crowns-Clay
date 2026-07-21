@@ -127,6 +127,23 @@ test('placement: rivers block, occupancy blocks, radius blocks, bounds block', (
   assert.match(g.lastRejection(), /unknown building/);
 });
 
+// ---------------- M56 (ADR-4 Amendment A1): the village map is not a fortification surface ----------------
+
+test('placement: a castle-category def is rejected on the village map, for player AND AI issuers alike', () => {
+  const g = makeGame();
+  const village = foundedVillage(g);
+  // ops.place()/validatePlacement() has no issuer parameter at all — the guard is the SAME
+  // code path regardless of who calls it. Issuer 1 stands in for the player (the harness's
+  // own `submit` convention); issuer 2 stands in for an AI kingdom — proving there is no
+  // special-cased allowlist for either.
+  for (const issuer of [1, 2]) {
+    g.kernel.submit({ type: 'village.build', issuer, payload: { villageId: village, def: 'base:building.wall', x: 9, y: 12 } });
+    g.kernel.step();
+    assert.match(g.lastRejection(), /is a castle structure — build it on the defence map/, `issuer ${issuer}`);
+  }
+  assert.ok(!g.events.some((e) => e.type === 'building.placed'), 'no castle structure was ever placed on the village map');
+});
+
 // ---------------- cost reservation ----------------
 
 test('costs: reserved in full at placement; insufficiency rejects atomically', () => {

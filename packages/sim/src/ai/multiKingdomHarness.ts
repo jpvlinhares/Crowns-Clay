@@ -57,7 +57,6 @@ export interface MultiKingdomComposition {
   readonly militaryGame: CampaignComposition['militaryGame'];
   readonly armiesGame: CampaignComposition['armiesGame'];
   readonly combatGame: CampaignComposition['combatGame'];
-  readonly castleGame: CampaignComposition['castleGame'];
   readonly siegeGame: CampaignComposition['siegeGame'];
   readonly researchGame: CampaignComposition['researchGame'];
   readonly eventGame: CampaignComposition['eventsGame'];
@@ -129,7 +128,6 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     militaryGame: c.militaryGame,
     armiesGame: c.armiesGame,
     combatGame: c.combatGame,
-    castleGame: c.castleGame,
     siegeGame: c.siegeGame,
     researchGame: c.researchGame,
     eventGame: c.eventsGame,

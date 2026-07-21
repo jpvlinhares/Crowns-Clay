@@ -29,7 +29,6 @@ import type { EventBus } from '../eventBus.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
 import type { VillageGameplay } from './villages.js';
 import type { MilitaryGameplay } from './military.js';
-import type { CastleGameplay } from './castles.js';
 import type { DefenceGameplay } from './defence.js';
 import { SIEGE_BOMBARD_BONUS } from './siege.js';
 import { BASE_MORALE_DAMAGE, CASUALTY_FRACTION_OF_DAMAGE, ROUT_MORALE_THRESHOLD, ROUT_CHANCE_PER_SUBROUND } from './combat.js';
@@ -82,7 +81,6 @@ export interface AssaultInput {
   readonly rng: Rng;
   readonly game: VillageGameplay;
   readonly militaryGame: MilitaryGameplay;
-  readonly castleGame: CastleGameplay;
   readonly defenceGame: DefenceGameplay;
   readonly defenderKingdomIndex: number;
   readonly defenderKingdomId: number;
@@ -93,12 +91,12 @@ export interface AssaultInput {
 // ---------------------------------------------------------------- resolver
 
 export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
-  const { world, rng, militaryGame, castleGame, defenceGame, game } = input;
+  const { world, rng, militaryGame, defenceGame, game } = input;
   const size = DEFENCE_MAP_SIZE;
   const map = defenceGame.mapOf(input.defenderKingdomIndex);
   if (map === undefined) throw new Error('resolveSpatialAssault: no defence map');
   const { Unit, ops } = militaryGame;
-  const Fortification = castleGame.Fortification;
+  const Fortification = defenceGame.Fortification;
   const DefencePost = defenceGame.DefencePost;
   const DefenceStructure = defenceGame.DefenceStructure;
 

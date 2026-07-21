@@ -1,13 +1,15 @@
 /**
  * Village occupation (M47.8; doc 12 R1 — makes the Conquest track reachable).
  *
- * Sieges (M29) only apply to CASTLES ("not a castle — nothing to besiege"),
- * which left plain villages literally unconquerable — the M47.7 audit note.
- * Occupation is the deliberately simple complement: an army standing in an
- * AT-WAR enemy village whose owner fields no defender nearby raises its
- * banner after `OCCUPATION_DAYS` consecutive days. Castles keep their full
- * siege treatment (walls mean the defence graph decides, not a countdown);
- * occupation explicitly skips any village whose enclosure is intact.
+ * Sieges (M29) only apply to villages with a standing DEFENCE LAYER ("no
+ * defence layer — nothing to besiege", M51/M55), which leaves every other
+ * village literally unconquerable — the M47.7 audit note. Occupation is the
+ * deliberately simple complement: an army standing in an AT-WAR enemy
+ * village whose owner fields no defender nearby raises its banner after
+ * `OCCUPATION_DAYS` consecutive days. A layer village keeps its full siege
+ * treatment (the layer decides, not a countdown) — occupation explicitly
+ * skips any village the siege system claims (`options.exempt`, M55: purely
+ * "has a defence layer", no world-map wall enclosure involved at all).
  *
  * The countdown map is real sim state: folded into stateHash and serialized
  * via save()/restore() like every other relational class (M47.6 discipline).
@@ -23,7 +25,6 @@ import type { VillageGameplay } from './villages.js';
 import type { MilitaryGameplay } from './military.js';
 import type { ArmyGameplay } from './armies.js';
 import type { KingdomGameplay } from './kingdom.js';
-import type { CastleGameplay } from './castles.js';
 
 export const OCCUPATION_DAYS = 5; // consecutive days an unopposed army must hold the square
 export const OCCUPATION_RADIUS = 2; // Chebyshev tiles from the village centre that count as "in it"
@@ -94,7 +95,6 @@ export function registerOccupationGameplay(
   militaryGame: MilitaryGameplay,
   armiesGame: ArmyGameplay,
   kingdomGame: KingdomGameplay,
-  castleGame: CastleGameplay,
   options: OccupationOptions,
 ): OccupationGameplay {
   const { VillageCore } = game.comps;

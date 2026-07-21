@@ -10,9 +10,10 @@
  *
  * DESIGN CONSTRAINTS (ADR-4 §6):
  *   - same World, no second store: structures are ordinary entities carrying
- *     `DefenceStructure` (+ the castles.ts `Fortification` HP component, one
- *     damage vocabulary for M51), so queries, access guards, state hashing,
- *     and worldSection persistence all apply unmodified;
+ *     `DefenceStructure` (+ `Fortification`, the HP component — re-homed here
+ *     from the deleted castles.ts at M56, one damage vocabulary for M51), so
+ *     queries, access guards, state hashing, and worldSection persistence all
+ *     apply unmodified;
  *   - structures cost MAIN-ECONOMY resources, drawn atomically from the
  *     kingdom's capital stockpile under existing storage rules (the
  *     check-all-then-deduct-all idiom of army.recruitUnit), recorded on the
@@ -47,7 +48,6 @@ import type { VillageGameplay } from './villages.js';
 import type { EconomyGameplay } from './economy.js';
 import type { KingdomGameplay } from './kingdom.js';
 import type { MilitaryGameplay } from './military.js';
-import type { CastleGameplay } from './castles.js';
 
 const index = (id: number): number => id & 0x3fffff;
 
@@ -67,6 +67,10 @@ export type DefenceStructureComponent = SoAComponent<{
 /** A garrison assignment: this Unit stands at (x, y) of its kingdom's layer. */
 export type DefencePostComponent = SoAComponent<{ x: 'u16'; y: 'u16' }>;
 
+/** Structure HP — re-homed here from castles.ts at M56 (the layer is its only consumer
+ * since M55 retired the village-map fortification path that used to share it). */
+export type FortificationComponent = SoAComponent<{ hp: 'f64'; maxHp: 'f64' }>;
+
 // ---------------------------------------------------------------- state
 
 export interface DefenceMapState {
@@ -80,6 +84,7 @@ export interface DefenceMapState {
 export interface DefenceGameplay {
   readonly DefenceStructure: DefenceStructureComponent;
   readonly DefencePost: DefencePostComponent;
+  readonly Fortification: FortificationComponent;
   mapOf(kingdomIndex: number): DefenceMapState | undefined;
   /** Occupied layer tiles (footprint-expanded) for one kingdom: tile → structure entity. */
   occupancyOf(kingdomIndex: number): ReadonlyMap<number, number>;
@@ -112,12 +117,11 @@ export function registerDefenceGameplay(
   econGame: EconomyGameplay,
   kingdomGame: KingdomGameplay,
   militaryGame: MilitaryGameplay,
-  castleGame: CastleGameplay,
   options: DefenceOptions,
 ): DefenceGameplay {
   const { Stockpile } = game.comps;
   const { Unit } = militaryGame;
-  const { Fortification } = castleGame;
+  const Fortification: FortificationComponent = world.defineSoA('fortification', { hp: 'f64', maxHp: 'f64' });
   const size = DEFENCE_MAP_SIZE;
 
   const DefenceStructure: DefenceStructureComponent = world.defineSoA('defenceStructure', {
@@ -341,6 +345,7 @@ export function registerDefenceGameplay(
   return {
     DefenceStructure,
     DefencePost,
+    Fortification,
     mapOf: (k) => maps.get(k),
     occupancyOf: (k) => occupancyFor(k),
     removeStructure(entity: number): void {

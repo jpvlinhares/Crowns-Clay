@@ -39,7 +39,10 @@ export const CENTER_DEF_ID = 'base:building.village-center';
 export interface VillageComponents {
   readonly VillageCore: SoAComponent<{
     centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8'; taxRate: 'u8';
-    isCastle: 'bool'; // M28: true once the village's defence graph actually encloses tiles (game/castles.ts)
+    // M28 (game/castles.ts, DELETED at M56 — ADR-4 Amendment A1): was true once a village's
+    // wall/gate enclosure actually closed. Stays in the save schema, deprecated, never set
+    // true again — a format bump is not worth it for a field nothing writes or reads.
+    isCastle: 'bool';
   }>;
   readonly VillageName: ObjectComponent<string>;
   readonly Stockpile: ObjectComponent<Map<number, number>>; // interned resource → amount
@@ -157,6 +160,11 @@ export class VillageOps {
 
   /** The single placement rulebook (player, AI, genesis — one code path). */
   validatePlacement(def: BuildingDef, x: number, y: number, village: EntityId | null): PlacementVerdict {
+    // M56 (ADR-4 Amendment A1): the village map is not a fortification surface for anyone,
+    // player or AI — defence lives exclusively on the M51 layer. This is POLICY, not
+    // leak-patching (the earlier 2026-07-20 investigation found no leak — M28 was a
+    // shipped, intentional mechanic — but A1 retires it, so the category is barred here now).
+    if (def.category === 'castle') return no(`'${def.id}' is a castle structure — build it on the defence map`);
     const { w, h } = def.footprint;
     if (x < 0 || y < 0 || x + w > this.terrain.width || y + h > this.terrain.height) {
       return no('out of bounds');
@@ -262,7 +270,7 @@ export class VillageOps {
     this.world.attach(village, this.comps.VillageCore, {
       centerX: x, centerY: y, radius: VILLAGE_RADIUS_T1, tier: 1,
       taxRate: 2, // 'normal' (M16 TAX_RATES; adjust via village.setTaxRate)
-      isCastle: false, // M28: flips true once the defence graph actually encloses tiles
+      isCastle: false, // deprecated M28 field (M56) — never set true again
     });
     this.world.attach(village, this.comps.VillageName, name);
     this.world.attach(village, this.comps.Stockpile, stock);
@@ -277,7 +285,7 @@ export class VillageOps {
       // absent → the composition's starting population applies.
       // M47.6: the owning kingdom rides on the event so subscribers (victory.ts's
       // defeat bookkeeping) never need an ECS read inside another system's
-      // access-guarded scope — the exact hazard castles.ts's own doc describes.
+      // access-guarded scope.
       data: {
         village: village as number, name, x, y,
         ...(settlers !== undefined ? { settlers } : {}),

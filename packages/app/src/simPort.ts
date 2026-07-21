@@ -206,7 +206,7 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
       const map = cc.defenceGame.mapOf(0);
       if (map === undefined) return null;
       const s = world.read(cc.defenceGame.DefenceStructure);
-      const fort = world.read(cc.castleGame.Fortification);
+      const fort = world.read(cc.defenceGame.Fortification);
       const structures: PanelDefenceStructureRec[] = [];
       world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
         if ((s.kingdom[si] as number) !== 0) return;
@@ -309,6 +309,10 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
       : {}),
     buildings: [...db.buildings.values()]
       .filter((def) => !def.tags.includes('center')) // centres come from settlers, not the palette
+      // M56 (ADR-4 Amendment A1): castle-category defs belong to the defence-map palette
+      // (buildable, above), not this village-map one — village.ops.place() rejects them too
+      // (belt-and-braces, matching the earlier 2026-07-20 investigation's approach).
+      .filter((def) => def.category !== 'castle')
       .map((def) => ({
         id: def.id,
         name: def.name,

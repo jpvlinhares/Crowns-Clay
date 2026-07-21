@@ -26,6 +26,8 @@ import { TICKS_PER_DAY } from './time.js';
 import { FAIR_PRESET } from './ai/difficulty.js';
 import { bestSiteNear } from './game/settlers.js';
 import { VILLAGE_MIN_SPACING } from './game/villages.js';
+import { OCCUPATION_DAYS } from './game/occupation.js';
+import { flatTerrain } from './ai/multiKingdomHarness.js';
 import { BASE_CONTENT_FILES, DefinitionDatabase } from '@crowns/data';
 import type { CampaignSettings } from '@crowns/protocol';
 
@@ -408,6 +410,192 @@ test('capitals section: a kingdom that lost every village and re-took one stays 
   assert.equal(loaded.villageOf(1), null, 'reload does not resurrect the binding either (pre-section: it re-derived and revived the brain)');
 
   assertLockstep(original, loaded, 15);
+});
+
+// ---------------- M56 (ADR-4 Amendment A1): the AI's siege-vs-occupy split survives the
+// village-side fortification deletion ----------------
+
+/** What M56 itself actually changed: castle-category defs are rejected in `ops.place()`
+ * (new), `planCastleRing` and its village-map ring block are deleted, and castles.ts is gone.
+ * It does NOT touch the AI's siege-vs-occupy DECISION logic in ai/military.ts — that branch
+ * (`existingSiege !== undefined ? assault-or-lift : ... else if nearest.isCastle ? siege.begin
+ * : nothing`) is unchanged code, M55's territory, already exercised by the M55 tests in this
+ * file and in siege.test.ts, which are part of the full suite this milestone's own Done
+ * criteria require green. So this test's job is a REGRESSION check — confirm the deletions
+ * didn't collaterally break that path — not a test of new AI decision-making, which is why it
+ * drives the siege directly (matching the proven `siegeCapture` pattern from the two tests
+ * above) rather than waiting on the strategic planner and recruit economy to emergently choose
+ * war. A fully emergent version was tried first and rejected after extensive empirical digging:
+ * real worldgen's `fairPlacement` puts capitals ~116 tiles apart, and an unsupplied army —
+ * fiat-spawned or recruited, a general attrition mechanic (armies.ts), unrelated to M56 —
+ * attrits to zero over a march that long; switching to flat terrain fixed that but a
+ * fiat-spawned army ALSO attrited to a handful of men just sitting at home, never clearing
+ * WAR_MIN_STRENGTH, suggesting real recruits carry some supply/fatigue initialization a raw
+ * component attach skips. None of that is what this milestone needs verified.
+ *
+ * Kingdom 1 needs THREE villages, not two — also learned empirically. With only two, capturing
+ * the first triggers `rebindOnLoss` (campaign.ts), reassigning kingdom 1's capital binding to
+ * its one remaining village; since the defence layer is still KINGDOM-indexed pre-M57
+ * (re-keying to village is M57's job), that village immediately inherits
+ * `spatialAssault.applicable` — correctly, given the current architecture — and would need
+ * sieging too, never occupying. A genuinely non-capital village only stays that way for as
+ * long as an "earlier" village remains alive to be the one that falls first, so proving
+ * "sieged" and "occupied" as genuinely different outcomes needs a third, untouched village. */
+const M56_MAP_SIZE = 80;
+
+test('M56: post-deletion, an AI kingdom at war both besieges the enemy capital and occupies a genuinely non-capital village', () => {
+  const c = composeCampaign({
+    seed: 0x56a1,
+    kingdomCount: 2,
+    terrain: flatTerrain(M56_MAP_SIZE, M56_MAP_SIZE),
+    mods: { sources: [] },
+    settings: { mapSize: 'small', kingdomCount: 2, difficulty: 'fair', victory: [], defeatEnabled: false },
+    victory: { enabled: [], defeatEnabled: false },
+    aiDefence: false, // bare keeps: the capital siege is deterministic (established precedent)
+    succession: false, // captures stay plain owner flips — no capitulation-window complexity
+    // village.sendSettlers needs (SETTLER_PARTY.adults 20 + MIN_ADULTS_REMAINING 10) = 30
+    // adults BEFORE it will send a party, and TWO parties are sent from this same capital
+    // (a freshly-founded village has nowhere near enough population to send a second one
+    // itself) — 60 clears both sends with room to spare.
+    startingPopulation: { children: 16, adults: 60, elders: 4 },
+    // Generous wood: the two sends are SEQUENTIAL (site-picking on perfectly flat, uniform-
+    // score terrain always converges to the SAME "best" tile regardless of search radius —
+    // confirmed empirically — so the second dispatch can only target a genuinely different
+    // site once the first has actually founded and occupies its), and each carries 80 wood
+    // (SETTLER_CARRY) — plenty left for the second even after the capital's own construction
+    // manager spends some in between (unrelated to M56, but a real competing consumer).
+    startingStock: { 'base:resource.wood': 400, 'base:resource.stone': 200, 'base:resource.food': 300, 'base:resource.tools': 50 },
+  });
+  c.kernel.step(); // genesis
+
+  const k0Id = c.kingdomGame.kingdomEntities()[0] as number;
+  const k1Id = c.kingdomGame.kingdomEntities()[1] as number;
+  const capital = c.villageOf(1) as number;
+  const home0 = c.villageOf(0) as number;
+  assert.ok(capital !== null && home0 !== null);
+  const index = (id: number): number => id & 0x3fffff;
+  const villageEntity = (vi: number): number => {
+    let id = -1;
+    c.world.query([c.game.comps.VillageCore]).forEach((i, entity) => {
+      if (i === vi) id = entity as number;
+    });
+    return id;
+  };
+  const centreOf = (vi: number): { x: number; y: number } => {
+    const core = c.world.read(c.game.comps.VillageCore);
+    return { x: core.centerX[vi] as number, y: core.centerY[vi] as number };
+  };
+
+  const events: { type: string; tick: number; data: Record<string, unknown> }[] = [];
+  for (const type of [
+    'village.founded', 'army.created', 'siege.begun', 'siege.captured', 'village.occupied', 'village.occupying', 'village.rejected',
+  ]) {
+    c.kernel.subscribe(type, (e) => events.push({ type, tick: e.tick, data: e.data as Record<string, unknown> }));
+  }
+  // kingdom 1's second and third villages — see file header for why THREE are needed. SEQUENTIAL:
+  // the first must actually found (occupying its site) before `bestSiteNear` can pick anywhere
+  // else, since flat, uniform-score terrain has no OTHER signal to break the tie on — confirmed
+  // empirically, dispatching both at once had them target the identical "best" tile every time.
+  const foundNextVillage = (label: string, known: ReadonlySet<number>): number => {
+    const home = centreOf(capital);
+    const site = bestSiteNear(c.game, c.db, home.x, home.y, VILLAGE_MIN_SPACING + 10);
+    assert.ok(site !== null, `${label}: a site exists`);
+    c.kernel.submit({
+      type: 'village.sendSettlers',
+      issuer: 2,
+      payload: { villageId: villageEntity(capital), x: site.x, y: site.y, name: label },
+    });
+    c.kernel.step();
+    let founded = -1;
+    for (let day = 0; day < 15 && founded < 0; day++) {
+      for (let t = 0; t < TICKS_PER_DAY; t++) c.kernel.step();
+      const f = events.find((e) => e.type === 'village.founded' && e.data['kingdom'] === k1Id && !known.has(index(e.data['village'] as number)));
+      if (f !== undefined) founded = index(f.data['village'] as number);
+    }
+    assert.ok(
+      founded >= 0,
+      `${label}: kingdom 1 founded it (rejections ${JSON.stringify(events.filter((e) => e.type === 'village.rejected').slice(-3))})`,
+    );
+    return founded;
+  };
+  const second = foundNextVillage('Second', new Set([capital]));
+  const third = foundNextVillage('Third', new Set([capital, second]));
+  c.fog.reveal(0, second); // see file-header note: scouting radius is unrelated to M56
+  c.fog.reveal(0, third);
+
+  const makeColumn = (atVillage: number, name: string): number => {
+    c.kernel.submit({ type: 'army.createArmy', issuer: 1, payload: { name, villageId: villageEntity(atVillage) } });
+    c.kernel.step();
+    const armyId = (events.filter((e) => e.type === 'army.created').at(-1)?.data['army'] as number) ?? -1;
+    assert.ok(armyId >= 0, `${name}: army created`);
+    const def = c.db.units.get('base:unit.spearman');
+    assert.ok(def !== undefined);
+    const defCode = c.militaryGame.ops.defCode('base:unit.spearman');
+    assert.ok(defCode !== undefined);
+    for (let i = 0; i < 10; i++) {
+      const unit = c.world.spawn();
+      c.world.attach(unit, c.militaryGame.Unit, {
+        def: defCode, kingdomId: k0Id, homeVillage: villageEntity(atVillage), armyId,
+        count: def.popCost.count, progress: 1, complete: true, morale: def.stats.moraleBase,
+      });
+    }
+    return armyId;
+  };
+  const placeArmy = (armyId: number, x: number, y: number): void => {
+    const ai = index(armyId);
+    const m = c.world.write(c.armiesGame.ArmyMovement);
+    m.x[ai] = x;
+    m.y[ai] = y;
+    c.world.writeObj(c.armiesGame.ArmyPath).set(ai, []);
+  };
+
+  c.kernel.submit({ type: 'kingdom.declareWar', issuer: 1, payload: { targetKingdom: 1, casusBelli: true } });
+  c.kernel.step();
+
+  // Army A: marches on and besieges the capital — driven by the test, submitted with kingdom
+  // 0's own issuer, exactly the M55 `siegeCapture` pattern above. This is the REGRESSION
+  // check: `siege.begin` must still accept a real, layer-bearing capital as a target after
+  // M56's deletions, and the assault must still resolve it.
+  const armyA = makeColumn(home0, 'ArmyA');
+  const capitalAt = centreOf(capital);
+  placeArmy(armyA, capitalAt.x, capitalAt.y);
+  c.kernel.submit({ type: 'siege.begin', issuer: 1, payload: { armyId: armyA, villageId: villageEntity(capital) } });
+  c.kernel.step();
+  c.kernel.submit({ type: 'siege.assault', issuer: 1, payload: { armyId: armyA } });
+  c.kernel.step();
+
+  // Army B: placed directly at the THIRD village — a genuinely non-capital village, per the
+  // file header. No siege or occupation command is submitted for it: occupation.ts's daily
+  // countdown is a PASSIVE presence check (committedCount(army) > 0, at war, unopposed), not a
+  // conduct decision, so the test only needs to place the army and let ticks run. This is the
+  // other half of the regression check: `occupation.exempt` must still correctly read this
+  // village as NOT layer-eligible and let the countdown proceed.
+  const armyB = makeColumn(home0, 'ArmyB');
+  const thirdAt = centreOf(third);
+  placeArmy(armyB, thirdAt.x, thirdAt.y);
+
+  for (let day = 0; day < OCCUPATION_DAYS + 10; day++) {
+    for (let t = 0; t < TICKS_PER_DAY; t++) c.kernel.step();
+    if (events.some((e) => e.type === 'village.occupied' && index(e.data['village'] as number) === third && e.data['kingdom'] === k0Id)) break;
+  }
+
+  assert.ok(
+    events.some((e) => e.type === 'siege.begun' && index(e.data['castle'] as number) === capital),
+    'the capital siege was accepted (a real defence layer, correctly still siege-eligible after M56)',
+  );
+  assert.ok(
+    events.some((e) => e.type === 'siege.captured' && index(e.data['castle'] as number) === capital),
+    'the capital fell to the assault',
+  );
+  const occupied = events.find((e) => e.type === 'village.occupied' && index(e.data['village'] as number) === third && e.data['kingdom'] === k0Id);
+  assert.ok(
+    occupied !== undefined,
+    `the third village was taken by occupation's countdown (${JSON.stringify(events.filter((e) => e.type === 'village.occupying').slice(-2))})`,
+  );
+  assert.ok(
+    !events.some((e) => e.type === 'siege.begun' && index(e.data['castle'] as number) === third && e.tick <= (occupied?.tick ?? 0)),
+    'the third village was never siege-eligible before it was occupied — it had no defence layer to besiege',
+  );
 });
 
 test('new-game options round-trip into the save header (R1 T objective)', () => {

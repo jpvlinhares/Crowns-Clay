@@ -233,8 +233,8 @@ export function registerVictoryGameplay(
   // village despawned before the tracker's next cadence) must still count as "had one, now has
   // none", the actual last-village rule, not an artifact of sampling timing.
   // M47.6: the owner rides ON the event (villages.ts) — subscribers fire inside OTHER systems'
-  // access-guarded scopes (settler-move, construction), where an undeclared world.read throws;
-  // castles.ts's dirty-set doc describes the same hazard. No ECS access here.
+  // access-guarded scopes (settler-move, construction), where an undeclared world.read throws.
+  // No ECS access here.
   kernel.subscribe<{ village: number; kingdom?: number }>('village.founded', (event) => {
     everFounded.add(event.data.kingdom ?? (kingdomGame.kingdomEntities()[0] as number));
   });
