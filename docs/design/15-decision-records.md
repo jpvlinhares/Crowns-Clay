@@ -518,13 +518,35 @@ which existing-save handling must map (a 1.0/Phase-8 save's per-kingdom layer be
 kingdom's CAPITAL village's layer, and the capital's cost-free genesis keep is preserved so no
 shipped save loses its defences). Otherwise no world-section format bump: `VillageCore.isCastle` stays in the
 schema (deprecated, never set true again) and `Fortification` stays a registered component
-(re-homed from castles.ts to the defence module — the layer already reuses it), so M28-era saves
-hydrate unchanged. Their standing wall/gate/tower/keep buildings load as INERT ordinary
-buildings — occupancy-blocking, demolishable, no graph, no siege meaning ("grandfathered
-ruins") — and previously-enclosed villages become occupiable; both are accepted one-time
-behaviour snaps, same class as OQ-9's re-derivation snap. The siege save section bumps v2→v3
-(drop `targetBuilding`/`breaches`; a saved active siege of a layer-less castle is lifted by the
-migration — rare, logged). Golden `campaign-demo` and the campaign corpus entry re-record
-intentionally (AI ring-building disappears from recorded histories); terra fixtures are
-untouched. Determinism is unaffected in kind: pure deletions plus command-time gating; named
-PRNG forks mean surviving systems' draws don't shift (ADR-3's property).
+(re-homed from castles.ts to the defence module — the layer already reuses it). Their standing
+wall/gate/tower/keep buildings load as INERT ordinary buildings — occupancy-blocking,
+demolishable, no graph, no siege meaning ("grandfathered ruins") — and previously-enclosed
+villages become occupiable; both are accepted one-time behaviour snaps, same class as OQ-9's
+re-derivation snap. The siege save section bumps v2→v3 (drop `targetBuilding`/`breaches`; a saved
+active siege of a layer-less castle is lifted by the migration — rare, logged).
+
+**Correction (recorded at M56 execution, 2026-07-22) — two predictions above were WRONG, verified
+by actually running the milestone rather than assumed from the plan:**
+- ~~"M28-era saves hydrate unchanged"~~ is FALSE. Deleting castles.ts removes the
+  `castle-defense-rebuild` SYSTEM, not just its derived state — and a save's `systemRngs` names
+  every system that existed when it was recorded. `Kernel.restoreState` throws a
+  composition-mismatch invariant on an unknown saved system name BEFORE any grandfathering logic
+  for the buildings themselves ever runs. M28-era saves do not currently load at all. M60 (below)
+  is corrected to add the missing mechanism.
+- ~~"Golden campaign-demo and the campaign corpus entry re-record intentionally (AI ring-building
+  disappears from recorded histories)"~~ — the RE-RECORD was right, the REASON was not. Verified
+  directly at M56 (temporarily restoring only `Fortification`'s old component-registration
+  position, changing nothing else, reproduced the old golden hashes exactly through tick 3000):
+  the AI never built a single village-map wall in `campaign-demo` — `military.ts`'s ring only ever
+  actually closed at radius 1 (its own 1.x war-cadence fix note said so), so deleting
+  `planCastleRing` changed zero behaviour there. The entire cause is that `World.hash()` folds
+  components in REGISTRATION ORDER, and re-homing `Fortification` moved where it registers.
+  Re-homing a component is apparently not free the way this paragraph assumed.
+- ~~"terra fixtures are untouched"~~ — also not quite true, though harmlessly: both terra corpus
+  saves carry a one-field diff (a stale embedded mod-content hash, current since M55's cue
+  deletion and never refreshed) with `resumeHash` byte-identical, confirming no behavioural
+  change but contradicting the "untouched" claim as written.
+
+Determinism is unaffected IN KIND — pure deletions plus command-time gating; named PRNG forks
+mean surviving systems' draws don't shift (ADR-3's property, and empirically confirmed at M56: all
+53 systems surviving the `castle-defense-rebuild` deletion showed zero PRNG-state drift).
