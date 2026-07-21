@@ -375,9 +375,12 @@ rewritten at Phase 8 entry.
 **Status:** the RETIREMENT is DECIDED (owner directive, 2026-07-20): the M28 on-map castle
 mechanic (enclosure-derived `isCastle`, village-map wall/gate/tower/keep placement, the
 breach-gated legacy assault path) is retired entirely. There will be ONE castle/defence system —
-the M51 defence layer. No defensive structure is buildable on the village map by anyone, player
-or AI. The SCOPE question below (per-village vs. capital-only layers) carries a recommendation
-(B) awaiting owner ratification.
+the M51 defence layer. No WALL, GATEHOUSE or TOWER is buildable on the village map by anyone,
+player or AI. The SCOPE question below is now a THREE-way fork — (A) per-village layers,
+(B) capital-only, (C) keep-gated derived layers (owner-proposed 2026-07-21) — all awaiting owner
+ratification. (C) is the current front-runner and, unlike (A)/(B), makes ONE village-map building
+load-bearing: the Keep, recategorised out of `castle`, gates the layer without creating defence
+geometry on the village map. Ratify the fork before any implementation.
 
 **What this amends.** ADR-4 §6 already ruled "two parallel fortification systems must not ship"
 and chartered retiring the on-map defence graph — but Phase 8 as shipped (M49–M54) implemented
@@ -422,6 +425,72 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   the PunitiveRaid archetype without an object, and remove all mid-war territorial texture —
   real costs for a purism the capital-death rule doesn't need. If the owner intends B2, that is
   a further amendment with its own victory-math workstream; this record recommends against it.
+
+- **(C) Keep-gated derived layers (owner-proposed 2026-07-21 — now the front-runner).** Defence
+  is gated on a BUILDING, not on capital status: a village with no Keep has no defence layer and
+  falls to occupation as open country; building the Keep materialises a layer whose layout is
+  DERIVED from a content template rather than hand-built; the template strengthens as the village
+  tier rises. The layer is uniform across capitals and non-capitals — a capital is simply a
+  village that usually has a better keep. Three properties make this cheaper than (A) while
+  keeping most of what (A) was reaching for:
+  - *It restores what the Keep def already is.* `base:building.keep` ships with
+    `requires: { villageTier: 2 }`, a 20 wood / 60 stone cost, 144 buildTicks,
+    `storage: { capacity: 200 }` and `military: { garrisonCap: 40 }`. It was authored as a
+    village building with economic function; M28 only ever used it as a node in an enclosure
+    graph. (C) needs no new mechanism to make it the gate — only a recategorisation from
+    `castle` to `military`, which lets A1's "no castle-category on the village map" rule stay
+    absolute with ZERO exceptions rather than carving out an allowlist.
+  - *The upgrade ladder is content, not code.* No building-level concept exists in the schema and
+    none is needed: `requires.villageTier` is already the gate and `village.upgrade` already the
+    command, so the ladder is additional defs (Keep @ tier 2, a heavier keep @ tier 3) riding an
+    axis the player already reads.
+  - *Materialisation reuses the shipped genesis pattern.* `defence-genesis` (defence.ts:184) is
+    already idempotent-by-presence — it queries existing structures, spawns only what is missing,
+    and exists as a SYSTEM precisely because the load path hydrates into an empty world.
+    Generalising it from "every kingdom has a keep" to "every keep-bearing village has its
+    template materialised" is the same shape; tier-up re-runs it and spawns only the new entries.
+    Provided templates are ADDITIVE by tier (validator-enforceable), damaged structures are
+    neither healed nor duplicated by a re-run — "villages grow their defences and scars persist"
+    falls out of presence-checking, with no reconciliation rules written.
+
+  **Repair (owner-proposed, and a pre-existing M51 gap independent of this fork).** Today
+  `assault.ts:469` writes damage into `Fortification.hp` and never despawns the structure — a
+  flattened wall persists at hp 0 through save/load, and nothing restores it. A capital that
+  survives three sieges is permanently a ruin. (C) closes it with a Repair action on the Keep's
+  panel costing `def.cost × (1 − hp/maxHp)` summed over the village's structures — no repair-cost
+  table, the def's own build cost IS the repair cost, self-balancing (towers hurt more than wall
+  segments). Three rules are load-bearing: repair is BLOCKED while a siege is active on that
+  village (otherwise a stone-rich defender out-repairs the bombardment and is unbreakable); the
+  VILLAGE's own stores pay (a sacked frontier hamlet genuinely struggles to rebuild while the
+  capital shrugs it off — asymmetry emerging from the economy, not from rules); and the M52 daily
+  manager repairs too, below its stone reserve, or AI castles decay permanently across a long
+  campaign while the player's do not. Recommended shape: the action commits stone immediately and
+  sets ONE field per village (`repairingUntil`), preserving the strike-again-before-they-recover
+  beat that instant repair deletes.
+
+  **What (C) costs.** The layer is kingdom-keyed throughout and must be re-keyed to village:
+  `defenceMapSeed(worldSeed, kingdomIndex)`, `DefenceStructure.kingdom`, `occupancyFor(k)`, the
+  `{ k, seed, version, tiles }[]` save section, `AiDefenceOptions.kingdomIndex`/`capitalOf`, and
+  `defence-genesis`'s `kingdomCount` loop. Mechanical, but it touches every file in the subsystem
+  and is the bulk of the added milestone — under (B) it never happens at all. The AI additionally
+  needs a defence need-evaluator proposing the Keep when a settlement is threatened: new, but one
+  more `SettlementNeed` in the shape of `foodNeed`/`housingNeed` feeding the existing
+  `chooseBuildTarget`, and it REPLACES `planCastleRing`, which A1 deletes regardless — net AI
+  effort is roughly zero. Estimate: ~1–2 milestones beyond (B), against (A)'s 3–4 plus a
+  permanent balance surface.
+
+  **What stays capital-specific is political, not military.** M53's annexation-on-capital-death
+  concerns the crown, not walls: same assault, same repair, different consequence — a non-capital
+  village whose keep falls changes hands; a capital's takes the realm with it. Keeping that split
+  clean is what permits the military layer to be fully uniform. One deliberate exception remains:
+  capitals keep the cost-free genesis keep (defence.ts:170) so shipped balance is preserved — the
+  MECHANISM is uniform, only the starting grant differs ("the crown's seat is fortified by
+  right"). Dropping the grant is maximally uniform but a real balance change; deferred to recert.
+
+  **Open item (C) must resolve.** Under (C) the Keep exists at two scales — a 2×2 village-map
+  building and a substantial central structure on the defence map — but `def.footprint` is one
+  field on one def. Resolve either as a separate defence-map def spawned by the derivation, or an
+  optional second footprint field. This directly gates the footprint work at M59.
 
 **Migration consequences (summary — the plan lives in doc 12 R3/Phase 8.1):** the four
 subsystems from the 2026-07-20 investigation — (1) village build path: castle-category defs
