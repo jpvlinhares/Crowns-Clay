@@ -560,7 +560,45 @@ before any deletion breadth.
 | M56 | Retire village-side fortification | reject `category: 'castle'` in `ops.place()` + drop from the build catalog (policy, per A1); delete `planCastleRing` and `ai/military.ts`'s ring block; delete castles.ts enclosure/defense-graph/`isCastle` derivation, re-homing `Fortification` into the defence module; `AiWarTarget.isCastle` := layer eligibility; occupation drops its `isCastle` exemption (the layer hook stays); delete `castles.test.ts`, add rejection coverage | a castle def is rejected by village placement for player AND AI issuers; in one campaign an AI both besieges a capital and occupies a non-capital |
 | M57 | Legacy saves & corpus | grandfathered M28 structures: load as inert ordinary buildings (occupancy-blocking, demolishable, no graph, no siege meaning); `isCastle` deprecated-in-schema; add an M28-era fixture save to the corpus; torture pass | the M28-era save loads and resumes hash-stable with its walls standing-but-inert; corpus green including the new entry |
 | M58 | Docs & balance recert | GDD §7 rewrite (single system), doc 06 §4 `defenseGraph`/`isCastle` removal, doc 07 §5 delta; bench-balance matrix re-run — war cadence with rings gone (AI castles are now only capitals); Gate P8.1 | balance bands hold; siege/capture cadence no worse than the war-cadence-part-7 baseline |
-| M59 | Footprints, readability & zoom | real multi-tile footprints on the layer — Keep substantial, Tower small, Gatehouse appropriate, Wall stays 1×1 — as CONTENT values, plus tile scale as config; render readability (ground visible around structures, keep drawn as a distinct structure not a flat block, wall segments joined rather than separate squares); ~3× tile scale with a viewport offset and pan | placement, hit-test and draw all agree at multi-tile footprints and at scale; a click at any pan offset resolves to the tile under the cursor; footprint/scale values changed in content alone shift behaviour with no code edit |
+| M59 | Footprints, readability & zoom | real multi-tile footprints on the layer as CONTENT values (Keep 7×7, Tower 3×3, Gatehouse 3×2 + a 2×3 orientation twin, Wall stays 1×1) with hp re-scaled per frontage tile; gatehouse given an actual role (toughness-aware `pickWallTarget`, garrison cap, entries in all three templates); tile scale as config; render readability (ground visible around structures, keep drawn as a distinct structure not a flat block, wall segments joined rather than separate squares); ~3× tile scale with a viewport offset and pan | placement, hit-test and draw all agree at multi-tile footprints and at scale; a click at any pan offset resolves to the tile under the cursor; footprint/scale values changed in content alone shift behaviour with no code edit; every template still builds all its towers (no silent skips); the gatehouse is no longer dominated by the wall |
+
+**M59 detail — sizes, and why they are not free parameters.** The map is 100×100 with a 17×17
+guaranteed-open centre (`KEEP_CLEARING_RADIUS = 8`); a finished concentric castle spans only
+~21–23 tiles, so the keep has offsets −3..+3 before it meets ring 4 or the motte's ±3 garrison
+anchors. Two constraints decide the numbers. (1) **Odd sizes centre, even sizes do not** — the
+keep is placed at `CENTRE − floor(w/2)`, so today's 2×2 sits half a tile off-centre (invisible at
+1×1, obvious at 3× zoom); 5×5 and 7×7 centre exactly. (2) **Any tower above 1×1 silently deletes
+towers from AI castles** — placement is ORIGIN-anchored so footprints grow toward +x/+y, a 2×2
+tower at concentric's (−6,−6) covers (−5,−5) which is a ring-5 wall corner, walls are plan entry
+#1, and `ai/defence.ts` SKIPS occupied tiles rather than failing. Tower size is therefore gated on
+centre-anchored placement, not on picking a number. 7×7 keep additionally needs the motte's ±3
+anchors pushed outward; 5×5 is the zero-template-churn fallback.
+
+**M59 detail — hp must move with footprint.** A multi-tile structure is ONE entity with ONE hp
+pool, so three separate walls (3 × 200 hp, broken one at a time) are not the same as one 3-wide
+structure at 200. Enlarging a footprint without re-scaling hp makes every structure dramatically
+weaker per tile of frontage. Target values:
+
+| | Footprint | Frontage | hp | hp/frontage | Cost |
+|---|---|---|---|---|---|
+| Wall | 1×1 | 1 | 200 | 200 | 8 stone |
+| Gatehouse | 3×2 / 2×3 | 3 | 450 | 150 — the deliberate soft spot | 20 wood + 35 stone |
+| Tower | 3×3 | 3 | 750 | 250 | 70 stone |
+| Keep | 7×7 | 7 | 1400 | 200 | unchanged (cost lives on the village-map def) |
+
+**M59 detail — the gatehouse needs a role, not just a size.** As shipped it is STRICTLY DOMINATED
+by the wall: costlier (15 wood + 10 stone vs 8 stone), less hp (150 vs 200), less armour (3 vs 5),
+no compensating mechanic — there is no reason to build one. It is also mechanically inert on the
+layer: `pickWallTarget` (assault.ts:329) scores blockers purely by Manhattan distance to the keep
+centre and ignores hp and armour entirely, and grepping `'gate'` across the sim finds only the
+type union and `intel.ts` treating it exactly like a wall. (The content file's "a real chokepoint,
+not a hole" describes M28's ENCLOSURE algorithm, which A1 deletes.) No shipped template contains a
+gatehouse either, so AI castles are solid gateless rings. Three fixes, all inside M59: rotation
+via TWO DEFS with swapped footprints (the schema has no orientation field), surfaced in the UI as
+one palette button with a rotate toggle so the twin stays an implementation detail; a
+toughness-aware `pickWallTarget` weighing hp/armour alongside distance so the column actually
+prefers the gate; and `military: { garrisonCap: 8 }` plus gatehouse entries on each wall face of
+all three templates, which is what finally gives AI castles gates.
 
 **If (C) is ratified, add to M56:** re-key the layer from kingdom to village
 (`defenceMapSeed`, `DefenceStructure.kingdom`, `occupancyFor(k)`, the `{ k, seed, version,
@@ -684,3 +722,9 @@ Amendment A1; scope recommendation pending ratification).**
   M56's rather than paid twice. Under (C), re-keying the layer kingdom→village is subsystem-wide
   and carries the phase's main regression risk; against it, (C) closes a pre-existing M51 gap
   (no repair path exists — damaged structures persist at hp 0 forever) that (A) and (B) leave open.
+  M59 is a BALANCE change in a rendering change's clothes and needs the bench-balance matrix
+  re-run with it, not after: footprints are occupancy on the assault flow field, so a larger tower
+  blocks more approach and covers more ground with its `rangedArc`, a larger keep is reachable
+  from more directions, and hp-per-frontage re-scaling moves every breach cost. It also fixes two
+  pre-existing content faults surfaced on 2026-07-21 — a gatehouse strictly dominated by the wall,
+  and templates that build no gates at all — either of which is worth correcting independently.
