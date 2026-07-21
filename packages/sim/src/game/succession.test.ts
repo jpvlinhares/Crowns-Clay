@@ -366,7 +366,7 @@ test('a frozen fallen siege survives save/load in lockstep; siege v1 saves migra
 
   const save = original.saves.snapshot();
   assert.ok(save.sections['succession'] !== undefined, 'succession section present');
-  assert.equal(save.sections['siege']?.version, 2);
+  assert.equal(save.sections['siege']?.version, 3);
 
   const loaded = compose({ trust: 1, aiFromIndex: 1 });
   const report = loaded.saves.hydrate(JSON.parse(JSON.stringify(save)) as typeof save);
@@ -378,15 +378,25 @@ test('a frozen fallen siege survives save/load in lockstep; siege v1 saves migra
   }
   assert.equal(loaded.kernel.stateHash(), original.kernel.stateHash(), 'lockstep through the window');
 
-  // a v1 siege section (pre-M53) migrates: fallenDeadline defaults to 0
+  // a v1 siege section (pre-M53, pre-M55) migrates through BOTH steps: v1→v2 adds
+  // fallenDeadline; v2→v3 drops the legacy breach-gated fields. A genuine v1 save
+  // carries targetBuilding/breaches (the current save, post-M55, never does) — they are
+  // synthesized back in here so the v2→v3 step is actually exercised, not a no-op on
+  // fields that were never there.
   const v1 = JSON.parse(JSON.stringify(save)) as typeof save;
   const siegeSection = v1.sections['siege'] as { version: number; data: Record<string, number>[] };
   siegeSection.version = 1;
-  for (const s of siegeSection.data) delete s['fallenDeadline'];
+  for (const s of siegeSection.data) {
+    delete s['fallenDeadline'];
+    s['targetBuilding'] = 0;
+    s['breaches'] = 0;
+  }
   delete v1.sections['succession'];
   const migrated = compose({ trust: 1, aiFromIndex: 1 });
   const migrationReport = migrated.saves.hydrate(v1);
   assert.ok(migrationReport.some((line) => line.includes('siege: migrated v1 → v2')), JSON.stringify(migrationReport));
+  assert.ok(migrationReport.some((line) => line.includes('siege: migrated v2 → v3')), JSON.stringify(migrationReport));
   const frozen = migrated.siegeGame.state.all().find((s) => s.fallenDeadline !== 0);
   assert.equal(frozen, undefined, 'a migrated v1 siege carries no fallen state');
+  assert.ok(migrated.siegeGame.state.all().length > 0, 'the migrated siege survived the v1→v2→v3 chain');
 });

@@ -767,7 +767,7 @@ function renderModsPanel(): void {
 let panelsState: PlayerPanels | null = null;
 let selectedArmyVillage: number | null = null; // recruit/create-army target village
 /** Armed map action for an army: next map click resolves it (mirrors armedBuild). */
-let armedArmyAction: { kind: 'move' | 'siege' | 'target'; armyId: number } | null = null;
+let armedArmyAction: { kind: 'move' | 'siege'; armyId: number } | null = null;
 /** M51: the assault-origin picker's current choice ('auto' derives server-side). */
 let assaultOrigin = 'auto';
 const battleLog: string[] = [];
@@ -999,19 +999,10 @@ function renderMilitaryPanel(): void {
         command('siege.assault', { armyId: army.id, ...(assaultOrigin !== 'auto' ? { origin: assaultOrigin } : {}) });
         send({ kind: 'requestPanels' });
       });
-      // M51 (the M47.7 gap): the bombard-target picker — armed click on the castle's walls
-      const target = document.createElement('button');
-      target.textContent = armedArmyAction?.kind === 'target' && armedArmyAction.armyId === army.id ? '🎯 click wall…' : '🎯 Target walls';
-      tip(target, 'Then click one of the besieged castle\'s wall/gate/tower segments — daily bombardment pounds it toward a breach (M29). Esc cancels.');
-      target.addEventListener('click', () => {
-        if (store.state.armedBuild !== null) store.armBuild(null);
-        armedArmyAction = { kind: 'target', armyId: army.id };
-        renderMilitaryPanel();
-      });
       const lift = document.createElement('button');
       lift.textContent = '🏳 Lift siege';
       lift.addEventListener('click', () => { command('siege.lift', { armyId: army.id }); send({ kind: 'requestPanels' }); });
-      actions.append(assault, target, lift);
+      actions.append(assault, lift);
     }
     // M51 (the M47.7 gap): sorties — the defender's gambit against a besieger in range
     const sortie = document.createElement('button');
@@ -1907,12 +1898,6 @@ function wireInput(canvas: HTMLCanvasElement): void {
         if (action.kind === 'move') {
           const t = renderer.tileAt(sx, sy);
           command('army.moveTo', { armyId: action.armyId, x: t.x, y: t.y });
-        } else if (action.kind === 'target') {
-          // M51 (the M47.7 gap): pick the bombardment target — the sim validates it is a
-          // wall/gate/tower/keep of the besieged castle and rejects anything else
-          const picked = renderer.pickBuilding(sx, sy);
-          if (picked !== null) command('siege.setTarget', { armyId: action.armyId, buildingId: picked });
-          else notifications.push({ type: 'ui.hint', tick: 0, data: { summary: 'Click a wall/gate/tower segment of the besieged castle to bombard it.' } });
         } else {
           const picked = renderer.pickBuilding(sx, sy);
           const rec = picked !== null ? renderer.buildingRec(picked) : null;

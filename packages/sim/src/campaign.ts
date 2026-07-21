@@ -370,16 +370,18 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // down (it needs the capital bindings), so siege gets a ref it can call at command time.
   const spatialAssault: SpatialAssaultHook = {};
   // M53: like the spatial hook, the capital-fall hook is late-bound — succession
-  // registers at the tail of the composition and fills `claim` there. The whole
-  // capital-death rule package switches on ONE flag (OQ-9 item 2's activation):
-  // occupation exemption, AI capital-siege targeting, and the fall window move
-  // together, so `succession: false` (the harness wrapper) keeps pre-M53 semantics
-  // exactly — captures stay plain owner flips and capitals stay occupiable.
+  // registers at the tail of the composition and fills `claim` there.
+  // M55 (A1) narrowed what `succession: false` turns off. It once switched the whole
+  // package — occupation exemption, AI siege targeting AND the fall window — but the
+  // first two are no longer optional: a village with a defence layer belongs to the siege
+  // system, so it must not ALSO be occupiable, whatever the flag says. Two routes into one
+  // village is the duplication A1 exists to kill. The flag now governs exactly one thing,
+  // the capital-death window itself (registered below); with it off, a capture of a layer
+  // village is a plain owner flip, as before — it just has to be a SIEGE that takes it.
   const capitalFall: CapitalFallHook = {};
-  const capitalDeathRules = options.succession ?? true;
   // M54: late-bound assault counsel (intel registers at the tail; managers register earlier).
   const intelAdvice: { counsel?: (observerIndex: number, castleVillageIndex: number) => 'assault' | 'hold' | 'lift' } = {};
-  const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, castleGame, combatGame, kingdomGame, spatialAssault, capitalFall);
+  const siegeGame = registerSiegeGameplay(kernel, world, game, militaryGame, armiesGame, combatGame, kingdomGame, spatialAssault, capitalFall);
 
   kernel.attachGuard(world);
   kernel.addHashSource('world', (fold) => world.hash(fold));
@@ -689,9 +691,13 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
           villageId: v.vi,
           x: v.x,
           y: v.y,
-          // M53: a defence-layer capital IS a castle to march on (siege-eligible since
-          // M51; with occupation exempting it, the siege is now the ONLY way in)
-          isCastle: castleGame.isCastle(v.vi) || (capitalDeathRules && (spatialAssault.applicable?.(v.vi) ?? false)),
+          // M55 (A1, pulled forward from M56): castle-ness IS the defence layer, so this
+          // mirrors `siege.begin`'s eligibility EXACTLY. It must — the AI reads this flag
+          // to decide between `siege.begin` and letting combat/occupation take an open
+          // village, and any disagreement with the command's own gate is a rejection loop.
+          // Ungated by `capitalDeathRules` for the same reason: the command does not
+          // consult it either.
+          isCastle: spatialAssault.applicable?.(v.vi) ?? false,
         });
       }
     }
@@ -809,7 +815,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
             },
           }
         : {}),
-      spatialSiege: (castleVi) => capitalDeathRules && (spatialAssault.applicable?.(castleVi) ?? false), // M53: assault layer capitals directly
       assaultAdvice: (castleVi) => intelAdvice.counsel?.(k, castleVi) ?? 'assault', // M54: fog-symmetric counsel
       diplomacy: {
         isAtWar(target: EntityId): boolean {
@@ -869,7 +874,9 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         // M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown —
         // the layer is its fortification surface; only a siege takes it. Late-bound:
         // spatialAssault.applicable is assigned after the defence layer registers below.
-        exempt: (vi) => capitalDeathRules && (spatialAssault.applicable?.(vi) ?? false),
+        // M55 (A1): ungated by `capitalDeathRules` so this matches `siege.begin` exactly —
+        // a village the siege system owns must never also be occupiable, and vice versa.
+        exempt: (vi) => spatialAssault.applicable?.(vi) ?? false,
       })
     : null;
   // ---- M49 (Phase 8, ADR-4): the per-kingdom castle-defence layer — maps, keep,
@@ -1182,12 +1189,20 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   });
   saves.register({
     key: 'siege',
-    version: 2, // M53: +fallenDeadline (the capital-death window) — v1 saves migrate below
+    version: 3, // M55: −targetBuilding/−breaches (the legacy breach-gated path) — v1/v2 migrate below
     save: () => siegeGame.state.save(),
     load: (data) => siegeGame.state.restore(data as ReturnType<typeof siegeGame.state.save>),
   });
   saves.registerMigration('siege', 1, (data) =>
     (data as Record<string, number>[]).map((d) => ({ ...d, fallenDeadline: 0 })),
+  );
+  // M55 (A1): the breach-gated path is gone, so its two progress fields go with it. A saved
+  // siege of a castle that has no defence layer cannot be resolved by any surviving path;
+  // it is LIFTED, but not here — a migration sees only its own section's data, never the
+  // world, so the lift is done by the `siege-starvation` system on the first resumed tick,
+  // where the layer is actually knowable and a `siege.ended` event can be published.
+  saves.registerMigration('siege', 2, (data) =>
+    (data as Record<string, number>[]).map(({ targetBuilding: _t, breaches: _b, ...rest }) => rest),
   );
   saves.register({
     key: 'fog',

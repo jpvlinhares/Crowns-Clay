@@ -386,36 +386,21 @@ export function registerAiMilitaryManager(
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
-        // M53: spatial capitals have no bombardable world-map graph — assault directly.
-        // M54: unless the composition's intel counsels otherwise ('hold' waits at the
-        // walls — the siege camp itself refreshes the snapshot within a day; 'lift'
-        // walks away from a hopeless escalade instead of feeding it men).
-        if (options.spatialSiege?.(existingSiege.castle) ?? false) {
-          if (existingSiege.assaultEngagementArmy === 0) {
-            const advice = options.assaultAdvice?.(existingSiege.castle) ?? 'assault';
-            if (advice === 'assault') {
-              kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
-            } else if (advice === 'lift') {
-              kernel.submit({ type: 'siege.lift', issuer: options.issuer, payload: { armyId } });
-            }
-          }
-          return;
-        }
-        // 1.x war-cadence fix: assault THE MOMENT a breach is open (military.ts's documented
-        // intent) — this MUST be checked before re-targeting, because a breach resets
-        // `targetBuilding` to 0, and the old `if (targetBuilding===0) setTarget else if (breaches)
-        // assault` ordering therefore re-aimed at the next wall every single day and NEVER reached
-        // the assault: the balance matrix's sieges bombarded 9+ walls to rubble and issued zero
-        // assaults, so an undefended enemy capital that `siege.assault` would CAPTURE outright
-        // (siege.ts) was instead knocked about until forced peace ended the war. Bombard only while
-        // no breach exists yet; once one is open, storm it.
-        if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
-          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
-        } else if (existingSiege.targetBuilding === 0) {
-          const graph = castleGame.defenseGraphOf(existingSiege.castle);
-          const node = graph.nodes[0];
-          if (node !== undefined) {
-            kernel.submit({ type: 'siege.setTarget', issuer: options.issuer, payload: { armyId, buildingId: node.building } });
+        // M55 (A1): every siege is spatial now, so there is no bombard-vs-assault choice
+        // left to make — a besieging army assaults, waits, or walks away. This also retires
+        // the 1.x war-cadence part-4 bug for good rather than by fix: the old ordering
+        // (`if (targetBuilding===0) setTarget else if (breaches) assault`) re-aimed at the
+        // next wall every day and never reached the assault, so sieges bombarded 9+ walls to
+        // rubble and issued zero assaults. With no walls to aim at, the failure mode is gone.
+        // M54: intel may still counsel otherwise — 'hold' waits at the walls (the siege camp
+        // refreshes the snapshot within a day); 'lift' walks away from a hopeless escalade
+        // instead of feeding it men.
+        if (existingSiege.assaultEngagementArmy === 0) {
+          const advice = options.assaultAdvice?.(existingSiege.castle) ?? 'assault';
+          if (advice === 'assault') {
+            kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+          } else if (advice === 'lift') {
+            kernel.submit({ type: 'siege.lift', issuer: options.issuer, payload: { armyId } });
           }
         }
         return;

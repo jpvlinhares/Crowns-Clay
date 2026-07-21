@@ -54,18 +54,6 @@
     "tags": ["war"],
   },
   {
-    "id": "base:cue.siege-breached",
-    "name": "Siege Breached",
-    "event": "siege.breached",
-    "bus": "worldSfx",
-    "gain": 0.8,
-    "waveform": "noise",
-    "frequencyHz": 90,
-    "durationMs": 600,
-    "placeholder": true,
-    "tags": ["war"],
-  },
-  {
     "id": "base:cue.victory-achieved",
     "name": "Victory Achieved",
     "event": "victory.achieved",

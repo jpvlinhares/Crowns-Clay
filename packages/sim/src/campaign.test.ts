@@ -150,18 +150,30 @@ function composeWar(): ReturnType<typeof composeCampaign> {
     mods: { sources: [] },
     settings: WAR_SETTINGS,
     startingPopulation: { children: 10, adults: 34, elders: 3 },
-    // These tests build capture-and-recapture histories by OCCUPYING capitals — the
-    // pre-M53 rule. M53's capital-death package (occupation exemption + fall window)
-    // is switched off so the divergence scenarios stay constructible; the capitals
-    // SECTION they verify is rule-independent (succession.test.ts owns the new rules).
+    // These tests build capture-and-recapture histories. Taking a kingdom's OWN bound
+    // capital is now (M55, A1) exclusively the siege system's business — its defence
+    // layer makes it occupation-exempt regardless of `succession` (a layer village must
+    // never be reachable by two routes at once, the exact duplication A1 retires). Taking
+    // a village back that is NOT its current owner's bound capital (a village a kingdom
+    // holds but does not call home) stays occupation's business — this is what lets the
+    // SECOND capture in each test below stay unchanged. `succession: false` still governs
+    // exactly one thing, the capital-death window (campaign.ts's narrowed comment) — the
+    // capitals SECTION these tests verify is rule-independent either way
+    // (succession.test.ts owns the capital-death chain itself).
     succession: false,
+    // Keeps stay bare so the spatial assault below is deterministic — the same reason
+    // succession.test.ts composes it out ("a 100-man column falls them deterministically").
+    aiDefence: false,
   });
 }
 
 /** Command-level driver over a campaign composition (the siege.test.ts pattern). */
 function warDriver(c: ReturnType<typeof composeCampaign>) {
   const events: { type: string; data: Record<string, number> }[] = [];
-  for (const type of ['village.founded', 'village.occupied', 'army.created', 'village.rejected']) {
+  for (const type of [
+    'village.founded', 'village.occupied', 'army.created', 'village.rejected',
+    'siege.begun', 'siege.captured',
+  ]) {
     c.kernel.subscribe(type, (e) => events.push({ type, data: e.data as Record<string, number> }));
   }
   const index = (id: number): number => id & 0x3fffff;
@@ -214,6 +226,34 @@ function warDriver(c: ReturnType<typeof composeCampaign>) {
     m.y[ai] = y;
     c.world.writeObj(c.armiesGame.ArmyPath).set(ai, []); // drop any stale march order
   };
+  /** A 100-man column (10 spearman units) — crosses keep-only ground above the keep's
+   * holdStrength (60), unlike `makeArmy`'s single unit. M55: taking a kingdom's own bound
+   * capital is a siege now, so the column that does it needs real weight, the same reason
+   * succession.test.ts's `makeColumn` exists. */
+  const makeColumn = (kingdomIndex: number, atVillage: number): number => {
+    submit('army.createArmy', { name: `T${kingdomIndex}col`, villageId: villageEntity(atVillage) }, kingdomIndex + 1);
+    const created = events.filter((e) => e.type === 'army.created').at(-1);
+    const armyId = created?.data['army'] ?? -1;
+    assert.ok(armyId >= 0, 'column army created');
+    const def = c.db.units.get('base:unit.spearman');
+    assert.ok(def !== undefined);
+    const defCode = c.militaryGame.ops.defCode('base:unit.spearman');
+    assert.ok(defCode !== undefined);
+    for (let i = 0; i < 10; i++) {
+      const unit = c.world.spawn();
+      c.world.attach(unit, c.militaryGame.Unit, {
+        def: defCode,
+        kingdomId: c.kingdomGame.kingdomEntities()[kingdomIndex] as number,
+        homeVillage: villageEntity(atVillage),
+        armyId,
+        count: def.popCost.count,
+        progress: 1,
+        complete: true,
+        morale: def.stats.moraleBase,
+      });
+    }
+    return armyId;
+  };
   /** Step day-by-day until kingdom `winnerId` occupies dense village index `vi`. */
   const occupyUntil = (vi: number, winnerId: number, label: string): void => {
     for (let day = 0; day < 12; day++) {
@@ -222,7 +262,24 @@ function warDriver(c: ReturnType<typeof composeCampaign>) {
     }
     assert.fail(`${label}: occupation never completed (rejections: ${JSON.stringify(events.filter((e) => e.type === 'village.rejected').slice(-3))})`);
   };
-  return { events, villageEntity, centreOf, days, submit, makeArmy, placeArmy, occupyUntil };
+  /** M55: taking a kingdom's own bound capital is exclusively the siege system's business
+   * (its defence layer makes it occupation-exempt). `armyId` must already be at the
+   * castle's gates and its kingdom at war with the defender. */
+  const siegeCapture = (armyId: number, castleVi: number, attackerIssuer: number, label: string): void => {
+    const beforeBegun = events.filter((e) => e.type === 'siege.begun').length;
+    submit('siege.begin', { armyId, villageId: villageEntity(castleVi) }, attackerIssuer);
+    assert.equal(
+      events.filter((e) => e.type === 'siege.begun').length,
+      beforeBegun + 1,
+      `${label}: siege.begin rejected (${JSON.stringify(events.filter((e) => e.type === 'village.rejected').slice(-2))})`,
+    );
+    submit('siege.assault', { armyId }, attackerIssuer);
+    assert.ok(
+      events.some((e) => e.type === 'siege.captured' && index(e.data['castle'] as number) === castleVi),
+      `${label}: assault did not capture the castle (${JSON.stringify(events.filter((e) => e.type === 'village.rejected').slice(-2))})`,
+    );
+  };
+  return { events, villageEntity, centreOf, days, submit, makeArmy, makeColumn, placeArmy, occupyUntil, siegeCapture };
 }
 
 /** Resume both sessions `daysN` days in lockstep: hashes must match daily, and the AI's
@@ -281,13 +338,15 @@ test('capitals section: a re-bound capital survives save/load after the old one 
   assert.ok(v2 >= 0, `kingdom 1 founded its second village (last rejections: ${JSON.stringify(d.events.filter((e) => e.type === 'village.rejected').slice(-2))})`);
   assert.ok(v2 > (v1 as number), 'the second village has the higher dense index (founded later)');
 
-  // war, then kingdom 0 occupies V1 — kingdom 1's binding must move to V2
+  // war, then kingdom 0 takes V1 BY SIEGE (M55: V1 is still kingdom 1's own bound
+  // capital here, so its defence layer makes it occupation-exempt) — kingdom 1's
+  // binding must move to V2
   d.submit('kingdom.declareWar', { targetKingdom: 1 }, 1);
   assert.ok(original.diplomacyGame.state.isAtWar(k0Id, k1Id), 'at war');
-  const a0 = d.makeArmy(0, v0 as number);
+  const a0 = d.makeColumn(0, v0 as number); // a bare keep needs real weight, not one unit
   const p1 = d.centreOf(v1 as number);
-  d.placeArmy(a0, p1.x + 2, p1.y);
-  d.occupyUntil(v1 as number, k0Id, 'kingdom 0 takes V1');
+  d.placeArmy(a0, p1.x, p1.y);
+  d.siegeCapture(a0, v1 as number, 1, 'kingdom 0 takes V1');
   assert.equal(original.villageOf(1), v2, 'binding moved to the second village on losing the capital');
 
   // kingdom 1 re-takes its original capital — the binding must NOT snap back
@@ -322,7 +381,6 @@ test('capitals section: a kingdom that lost every village and re-took one stays 
   const v0 = original.villageOf(0);
   const v1 = original.villageOf(1);
   assert.ok(v0 !== null && v1 !== null);
-  const k0Id = original.kingdomGame.kingdomEntities()[0] as number;
   const k1Id = original.kingdomGame.kingdomEntities()[1] as number;
 
   d.submit('kingdom.declareWar', { targetKingdom: 1 }, 1);
@@ -330,10 +388,11 @@ test('capitals section: a kingdom that lost every village and re-took one stays 
   const p1 = d.centreOf(v1 as number);
   const a1 = d.makeArmy(1, v1 as number);
   d.placeArmy(a1, p1.x + 12, p1.y);
-  // kingdom 0 takes V1 — kingdom 1 now owns nothing: its binding is DELETED, its brain no-ops
-  const a0 = d.makeArmy(0, v0 as number);
-  d.placeArmy(a0, p1.x + 2, p1.y);
-  d.occupyUntil(v1 as number, k0Id, 'kingdom 0 takes V1');
+  // kingdom 0 takes V1 BY SIEGE (M55: still kingdom 1's own bound capital, hence
+  // occupation-exempt) — kingdom 1 now owns nothing: its binding is DELETED, its brain no-ops
+  const a0 = d.makeColumn(0, v0 as number); // a bare keep needs real weight, not one unit
+  d.placeArmy(a0, p1.x, p1.y);
+  d.siegeCapture(a0, v1 as number, 1, 'kingdom 0 takes V1');
   assert.equal(original.villageOf(1), null, 'losing the last village deletes the binding');
 
   // kingdom 1's surviving army re-takes V1 — the winner side never re-binds (current rule)

@@ -1,23 +1,23 @@
 /**
  * Sieges (roadmap M29; GDD §7/§8; doc 08 §8). Phased, per GDD: encircle →
- * bombard (vs. the defence graph, castles.ts) → assault (breach paths) or
- * starve (granary countdown). Sorties let a defending garrison fight back.
+ * assault (spatially, on the defender's defence layer) or starve (granary
+ * countdown). Sorties let a defending garrison fight back.
+ *
+ * M55 (ADR-4 Amendment A1, Phase 8.1): there is ONE siege-resolution path.
+ * `siege.begin` requires a STANDING DEFENCE LAYER — M28's world-map wall
+ * enclosure no longer confers castle-ness, so `siege.setTarget`, the daily
+ * bombard-vs-`Fortification`, `breaches`/`targetBuilding` and the breach-gated
+ * flat assault are all gone. Encirclement, starvation, sortie and lift are
+ * untouched (ADR-4 §2's pacing amendment stands).
  *
  * ENCIRCLE: `siege.begin` sets the besieging army's stance to `siege`
  * (armies.ts's fifth stance, inert since M26 — this is its payoff) and halts
  * it at the castle. One attacker per castle at a time (v1).
  *
- * BOMBARD (daily — sieges pace in days/seasons, not combat sub-ticks):
- * besieger attack (siege-class units count `SIEGE_BOMBARD_BONUS`×) divided by
- * the targeted wall/gate/tower/keep's armor comes off its `Fortification.hp`
- * (castles.ts). At 0 hp the segment is BREACHED — demolished via the same
- * `VillageOps.demolish` a player would use, so castles.ts's existing
- * completed/demolished-driven enclosure rebuild fires with no new plumbing.
- *
- * ASSAULT reuses combat.ts's exact resolver — `Engagement.casualtyMultiplier`
- * set to `ASSAULT_CASUALTY_MULTIPLIER` makes it bloody (GDD §8) without a
- * parallel combat implementation. A SORTIE is the same idea at multiplier 1
- * (the defender's gambit, not a designed bloodbath). `siege-assault-watch`
+ * ASSAULT is resolved by the M51 spatial resolver (assault.ts) walking the
+ * defender's layer — it breaks walls itself, so there is no breach
+ * precondition. A SORTIE is still combat.ts's ordinary resolver at multiplier
+ * 1 (the defender's gambit, not a designed bloodbath). `siege-assault-watch`
  * polls the engagement each tick rather than reacting to `battle.resolved`:
  * event subscribers in this codebase never publish further events (they only
  * ever touch component state), so capture/lift — which must themselves
@@ -42,7 +42,6 @@ import type { VillageGameplay } from './villages.js';
 import type { MilitaryGameplay } from './military.js';
 import { STANCES, type ArmyGameplay } from './armies.js';
 import type { CombatGameplay } from './combat.js';
-import type { CastleGameplay } from './castles.js';
 import type { KingdomGameplay } from './kingdom.js';
 
 const index = (id: number): number => id & 0x3fffff;
@@ -50,9 +49,8 @@ const index = (id: number): number => id & 0x3fffff;
 // ---------------------------------------------------------------- constants
 
 export const SIEGE_RANGE = 1; // tiles (Chebyshev) — besieger must be at the castle
-export const BASE_BOMBARD_DAMAGE = 40; // tuning: attack/armor ratio → wall HP lost per day
-export const SIEGE_BOMBARD_BONUS = 3; // siege-class units count this much vs. the defence graph
-export const ASSAULT_CASUALTY_MULTIPLIER = 2.5; // GDD §8: "storming should be bloody"
+/** Siege-class units count this much toward an assault's wall-breaking (assault.ts). */
+export const SIEGE_BOMBARD_BONUS = 3;
 export const STARVATION_THRESHOLD = 5; // food units — "the granary is effectively empty"
 export const STARVATION_SURRENDER_DAYS = 90; // GDD §8: "should take seasons"
 
@@ -64,8 +62,6 @@ interface Siege {
   readonly castle: number; // villageId
   readonly attackerArmy: number;
   readonly attackerKingdom: number;
-  targetBuilding: number; // 0 = none picked
-  breaches: number;
   daysStarving: number;
   assaultEngagementArmy: number; // 0 = no assault/sortie currently in progress
   /** M53 (OQ-9/OQ-11): tick by which a fallen capital's fate resolves; 0 = not fallen.
@@ -88,7 +84,7 @@ export class SiegeState {
   }
 
   begin(castle: number, attackerArmy: number, attackerKingdom: number): Siege {
-    const s: Siege = { castle, attackerArmy, attackerKingdom, targetBuilding: 0, breaches: 0, daysStarving: 0, assaultEngagementArmy: 0, fallenDeadline: 0 };
+    const s: Siege = { castle, attackerArmy, attackerKingdom, daysStarving: 0, assaultEngagementArmy: 0, fallenDeadline: 0 };
     this.byCastle.set(castle, s);
     this.byArmy.set(attackerArmy, s);
     return s;
@@ -108,8 +104,6 @@ export class SiegeState {
       fold(s.castle);
       fold(s.attackerArmy);
       fold(s.attackerKingdom);
-      fold(s.targetBuilding);
-      fold(s.breaches);
       fold(s.daysStarving);
       fold(s.assaultEngagementArmy);
       fold(s.fallenDeadline);
@@ -118,18 +112,17 @@ export class SiegeState {
 
   /** Save/restore (M47.6): `begin()` re-links both index maps, then the mutable
    * progress fields are copied over — same shape as CombatState's own pair.
-   * v2 (M53) adds `fallenDeadline`; the campaign registers a v1→v2 migration. */
-  save(): { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[] {
+   * v2 (M53) adds `fallenDeadline`; v3 (M55) DROPS `targetBuilding`/`breaches`
+   * with the legacy breach-gated path. The campaign registers both migrations. */
+  save(): { castle: number; attackerArmy: number; attackerKingdom: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[] {
     return this.all().map((s) => ({ ...s }));
   }
 
-  restore(data: readonly { castle: number; attackerArmy: number; attackerKingdom: number; targetBuilding: number; breaches: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[]): void {
+  restore(data: readonly { castle: number; attackerArmy: number; attackerKingdom: number; daysStarving: number; assaultEngagementArmy: number; fallenDeadline: number }[]): void {
     this.byCastle.clear();
     this.byArmy.clear();
     for (const d of data) {
       const s = this.begin(d.castle, d.attackerArmy, d.attackerKingdom);
-      s.targetBuilding = d.targetBuilding;
-      s.breaches = d.breaches;
       s.daysStarving = d.daysStarving;
       s.assaultEngagementArmy = d.assaultEngagementArmy;
       s.fallenDeadline = d.fallenDeadline;
@@ -141,19 +134,20 @@ export class SiegeState {
 
 export type SpatialAssaultOutcome = 'captured' | 'repelled';
 
-/** M51 (ADR-4 §2): the assault phase resolves SPATIALLY on the defender's capital
- * defence layer when one exists. Late-bound (`current` filled by the composition —
- * defence registers after siege); returning null means "not applicable" (non-capital
- * castle, no layer) and the legacy breach-and-engagement path runs unchanged. */
+/** M51 (ADR-4 §2): the assault phase resolves SPATIALLY on the defender's defence
+ * layer. Late-bound (`current` filled by the composition — defence registers after
+ * siege). M55: this is now the ONLY resolution path, so a null return is no longer a
+ * fall-through to a legacy path — it means the layer vanished under a siege that
+ * `applicable` had already admitted, and the assault is refused rather than resolved. */
 export interface SpatialAssaultHook {
   current?: (
     ctx: TickContext,
     siege: { castle: number; attackerArmy: number; attackerKingdom: number },
     origin: 'left' | 'right' | 'top' | 'bottom',
   ) => SpatialAssaultOutcome | null;
-  /** True when this village index is siege-eligible via its defence layer (a capital with a
-   * standing keep) even without a world-map wall enclosure — ADR-4 §6: castle-ness derives
-   * from the layer once it is the fortification surface. */
+  /** True when this village index is siege-eligible: it has a standing defence layer.
+   * M55 (A1): this is the SOLE eligibility test — castle-ness derives from the layer,
+   * never from a world-map wall enclosure. */
   applicable?: (castleVillageIndex: number) => boolean;
 }
 
@@ -184,16 +178,14 @@ export function registerSiegeGameplay(
   game: VillageGameplay,
   militaryGame: MilitaryGameplay,
   armiesGame: ArmyGameplay,
-  castleGame: CastleGameplay,
   combatGame: CombatGameplay,
   kingdomGame: KingdomGameplay,
   spatial?: SpatialAssaultHook,
   capitalFall?: CapitalFallHook,
 ): SiegeGameplay {
-  const { VillageCore, BuildingCore, Stockpile } = game.comps;
-  const { Unit, Army, ops } = militaryGame;
+  const { VillageCore, Stockpile } = game.comps;
+  const { Unit, Army } = militaryGame;
   const { ArmyMovement, ArmyPath } = armiesGame;
-  const { Fortification } = castleGame;
   const { VillageOwner } = kingdomGame;
   const state = new SiegeState();
   kernel.addHashSource('siege', (fold) => state.fold(fold));
@@ -219,25 +211,6 @@ export function registerSiegeGameplay(
       if ((u.armyId[ui] as number) === armyId && (u.complete[ui] as number) === 1) total += u.count[ui] as number;
     });
     return total;
-  };
-
-  /** Any hostile-to-the-attacker garrison army standing at the castle (ascending order). */
-  const defenderAt = (castle: number, defenderKingdom: number): number | undefined => {
-    const a = world.read(Army);
-    const m = world.read(ArmyMovement);
-    const core = world.read(VillageCore);
-    const ci = index(castle);
-    const cx = core.centerX[ci] as number;
-    const cy = core.centerY[ci] as number;
-    let found: number | undefined;
-    world.query([ArmyMovement]).forEach((ai, entity) => {
-      if (found !== undefined) return;
-      if ((a.kingdomId[ai] as number) !== defenderKingdom) return;
-      if (committedCount(entity as number) <= 0) return;
-      const dist = Math.max(Math.abs((m.x[ai] as number) - cx), Math.abs((m.y[ai] as number) - cy));
-      if (dist <= SIEGE_RANGE) found = entity as number;
-    });
-    return found;
   };
 
   const endSiege = (ctx: TickContext, s: Siege, reason: string): void => {
@@ -286,10 +259,11 @@ export function registerSiegeGameplay(
     if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
       return reject(ctx, 'siege.begin', 'no such village');
     }
-    // castle-ness: a world-map wall enclosure (M28), or — M51, ADR-4 §6 — a capital whose
-    // defence layer stands (the layer IS the fortification surface for capitals)
-    if ((world.read(VillageCore).isCastle[index(villageId)] as number) !== 1 && !(spatial?.applicable?.(index(villageId)) ?? false)) {
-      return reject(ctx, 'siege.begin', 'not a castle — nothing to besiege');
+    // M55 (A1): castle-ness IS the defence layer. A world-map wall enclosure confers
+    // nothing — an unfortified village at contact range is combat.ts's and occupation's
+    // business, not the siege system's.
+    if (!(spatial?.applicable?.(index(villageId)) ?? false)) {
+      return reject(ctx, 'siege.begin', 'no defence layer — nothing to besiege');
     }
     const owner = ownerOfVillage(villageId);
     if (owner === undefined) return reject(ctx, 'siege.begin', 'sieges require a multi-kingdom campaign');
@@ -313,22 +287,6 @@ export function registerSiegeGameplay(
     ctx.events.publish({ type: 'siege.begun', tick: ctx.tick, data: { castle: villageId, army: armyId, defender: owner } });
   });
 
-  kernel.registerCommand<{ armyId: number; buildingId: number }>('siege.setTarget', (ctx, p) => {
-    const s = state.siegeOfArmy(p.armyId | 0);
-    if (s === undefined) return reject(ctx, 'siege.setTarget', 'this army is not besieging anything');
-    const buildingId = p.buildingId | 0;
-    if (!world.isAlive(buildingId as EntityId) || !world.has(buildingId as EntityId, BuildingCore)) {
-      return reject(ctx, 'siege.setTarget', 'no such building');
-    }
-    const b = world.read(BuildingCore);
-    const bi = index(buildingId);
-    if (index(b.village[bi] as number) !== s.castle) return reject(ctx, 'siege.setTarget', 'that building is not part of the besieged castle');
-    const def = game.ops.buildingDef(b.def[bi] as number);
-    if (def.defense === undefined) return reject(ctx, 'siege.setTarget', 'only wall/gate/tower/keep segments can be targeted');
-    s.targetBuilding = buildingId;
-    ctx.events.publish({ type: 'siege.targetSet', tick: ctx.tick, data: { castle: s.castle, buildingId } });
-  });
-
   kernel.registerCommand<{ armyId: number }>('siege.lift', (ctx, p, command) => {
     const armyId = p.armyId | 0;
     const kingdomId = kingdomForIssuer(command.issuer);
@@ -347,38 +305,25 @@ export function registerSiegeGameplay(
     if (s.assaultEngagementArmy !== 0) return reject(ctx, 'siege.assault', 'an assault is already under way');
     if (s.fallenDeadline !== 0) return reject(ctx, 'siege.assault', 'the capital has already fallen — its fate is being decided');
 
-    // ---- M51 (ADR-4 §2): a capital with a defence layer resolves SPATIALLY — the walk
-    // handles walls itself, so no breach precondition; casualties and breaches are the
-    // resolver's, and a repulse leaves the siege standing exactly like an inconclusive
-    // legacy assault. Origin: the player's pick, else derived from where the besieger
-    // stands relative to the castle (deterministic).
-    if (spatial?.current !== undefined) {
-      const origin = ((): 'left' | 'right' | 'top' | 'bottom' => {
-        if (p.origin === 'left' || p.origin === 'right' || p.origin === 'top' || p.origin === 'bottom') return p.origin;
-        const core = world.read(VillageCore);
-        const m = world.read(ArmyMovement);
-        const ai = index(armyId);
-        const dx = (m.x[ai] as number) - (core.centerX[s.castle] as number);
-        const dy = (m.y[ai] as number) - (core.centerY[s.castle] as number);
-        return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'top' : 'bottom';
-      })();
-      const outcome = spatial.current(ctx, { castle: s.castle, attackerArmy: s.attackerArmy, attackerKingdom: s.attackerKingdom }, origin);
-      if (outcome !== null) {
-        if (outcome === 'captured') capture(ctx, s);
-        return;
-      }
-    }
-
-    // ---- legacy path (non-capital castles): breach-gated flat engagement ----
-    if (s.breaches <= 0) return reject(ctx, 'siege.assault', 'no breach — bombard the walls first');
-    const defender = defenderAt(s.castle, ownerOfVillage(s.castle) as number);
-    if (defender === undefined) {
-      capture(ctx, s);
-      return;
-    }
-    combatGame.state.begin(s.attackerArmy, defender, ASSAULT_CASUALTY_MULTIPLIER);
-    s.assaultEngagementArmy = defender;
-    ctx.events.publish({ type: 'siege.assaultBegun', tick: ctx.tick, data: { castle: s.castle, army: armyId, defender } });
+    // ---- M51 (ADR-4 §2) / M55 (A1): the ONE path. The walk handles walls itself, so
+    // there is no breach precondition; casualties and breaches are the resolver's, and a
+    // repulse leaves the siege standing. Origin: the player's pick, else derived from
+    // where the besieger stands relative to the castle (deterministic).
+    if (spatial?.current === undefined) return reject(ctx, 'siege.assault', 'no defence layer to assault');
+    const origin = ((): 'left' | 'right' | 'top' | 'bottom' => {
+      if (p.origin === 'left' || p.origin === 'right' || p.origin === 'top' || p.origin === 'bottom') return p.origin;
+      const core = world.read(VillageCore);
+      const m = world.read(ArmyMovement);
+      const ai = index(armyId);
+      const dx = (m.x[ai] as number) - (core.centerX[s.castle] as number);
+      const dy = (m.y[ai] as number) - (core.centerY[s.castle] as number);
+      return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'top' : 'bottom';
+    })();
+    const outcome = spatial.current(ctx, { castle: s.castle, attackerArmy: s.attackerArmy, attackerKingdom: s.attackerKingdom }, origin);
+    // null = the layer went away under a siege `applicable` had admitted; refuse rather
+    // than silently no-op, so the condition is visible instead of looking like a repulse.
+    if (outcome === null) return reject(ctx, 'siege.assault', 'the defence layer is gone');
+    if (outcome === 'captured') capture(ctx, s);
   });
 
   kernel.registerCommand<{ armyId: number }>('siege.sortie', (ctx, p, command) => {
@@ -438,44 +383,40 @@ export function registerSiegeGameplay(
     },
   };
 
-  // ---------------- daily: bombard the target, and starvation (doc 08 §3/§8) ----------------
+  // ---------------- daily: starvation (doc 08 §3/§8) ----------------
+  // The registered NAME stays `siege-bombard` although M55 removed the bombard. A system
+  // name is not a label here: `KernelSaveState.systemRngs` is keyed by it, so every save
+  // carries this string and `restoreState` rejects a composition that no longer registers
+  // it (the exact "composition mismatch" invariant). Renaming would also orphan this
+  // system's named PRNG fork — the very property A1 leaned on when it argued determinism
+  // is unaffected "because surviving systems' draws don't shift". Renaming is therefore a
+  // SAVE-BREAKING change, and doing it here would land a landmine in M60, whose whole job
+  // is loading M28-era saves. If the name is to be fixed, M60 should introduce a
+  // system-name migration first and rename behind it.
   const siegeSystem: SimSystem = {
     name: 'siege-bombard',
     period: TICKS_PER_DAY,
     access: {
-      writes: [Fortification, BuildingCore, ...(VillageOwner !== undefined ? [VillageOwner] : [])],
-      reads: [Unit, Army, Stockpile],
+      writes: [...(VillageOwner !== undefined ? [VillageOwner] : [])],
+      // VillageCore: pre-existing gap (predates M55, confirmed against HEAD), only ever
+      // exercised now that a test drives a starvation capture through composeCampaign's
+      // real subscriber chain rather than the old isolated harness. `capture()` publishes
+      // `siege.captured`; campaign.ts's `rebindOnLoss` subscriber reacts SYNCHRONOUSLY and
+      // reads VillageCore (via `villagesOfKingdom`) — the access-guard requires the
+      // publishing SYSTEM to declare it, since a system's declared scope is what the guard
+      // checks for everything that runs inside its update, subscribers included.
+      reads: [Unit, Army, Stockpile, VillageCore],
     },
     update(ctx: TickContext): void {
       for (const s of state.all()) {
         if (s.fallenDeadline !== 0) continue; // M53: a fallen capital's siege is frozen
-        if (s.targetBuilding !== 0) {
-          if (!world.isAlive(s.targetBuilding as EntityId)) {
-            s.targetBuilding = 0;
-          } else {
-            const b = world.read(BuildingCore);
-            const bi = index(s.targetBuilding);
-            const def = game.ops.buildingDef(b.def[bi] as number);
-            let attackTotal = 0;
-            const u = world.read(Unit);
-            world.query([Unit]).forEach((ui) => {
-              if ((u.armyId[ui] as number) !== s.attackerArmy || (u.complete[ui] as number) !== 1) return;
-              const unitDef = ops.unitDef(u.def[ui] as number);
-              const bonus = unitDef.class === 'siege' ? SIEGE_BOMBARD_BONUS : 1;
-              attackTotal += (u.count[ui] as number) * unitDef.stats.attack * bonus;
-            });
-            const damage = (attackTotal / Math.max(1, def.defense?.armor ?? 1)) * BASE_BOMBARD_DAMAGE;
-            const fort = world.write(Fortification);
-            const hp = Math.max(0, (fort.hp[bi] as number) - damage);
-            fort.hp[bi] = hp;
-            if (hp <= 0) {
-              const target = s.targetBuilding;
-              s.targetBuilding = 0;
-              s.breaches++;
-              game.ops.demolish(ctx, target);
-              ctx.events.publish({ type: 'siege.breached', tick: ctx.tick, data: { castle: s.castle, building: target } });
-            }
-          }
+        // M55: a siege whose castle has no standing layer cannot be resolved by any path,
+        // so it lifts rather than hanging forever. In practice this fires only on LOAD —
+        // it is what carries the v2→v3 migration's "saved sieges of layer-less castles are
+        // lifted" clause, which the pure-data migration function cannot see the world to do.
+        if (!(spatial?.applicable?.(s.castle) ?? false)) {
+          endSiege(ctx, s, 'lifted — no defence layer');
+          continue;
         }
 
         const stock = world.readObj(Stockpile).tryGet(s.castle);

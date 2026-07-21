@@ -138,9 +138,12 @@ export function registerOccupationGameplay(
         const ownerId = owner.kingdom[vi] as number;
         const cx = core.centerX[vi] as number;
         const cy = core.centerY[vi] as number;
-        // castles are the siege system's business while their walls stand — and (M53) so
-        // are defence-layer capitals, whose "walls" live on the layer, not the world map
-        if ((core.isCastle[vi] as number) === 1 || (options.exempt?.(vi) ?? false)) {
+        // Villages with a defence layer are the siege system's business — their "walls"
+        // live on the layer, not the world map. M55 (A1, pulled forward from M56): a
+        // world-map wall enclosure no longer exempts anything, or an M28-enclosed village
+        // would be neither besiegeable (siege.begin wants a layer) nor occupiable — i.e.
+        // untakeable. `isCastle` itself is deleted at M56.
+        if (options.exempt?.(vi) ?? false) {
           state.clear(vi);
           return;
         }
