@@ -367,3 +367,86 @@ must not promise the layer. The 1.x phase inherits clean seams: the combat resol
 fog/knowledge model, save sections, and render core all extend rather than fork. The main cost
 carried forward is temporary duplication of fortification concepts in docs until GDD §7 is
 rewritten at Phase 8 entry.
+
+---
+
+## ADR-4 Amendment A1 — retirement of M28: one castle system (owner-directed 2026-07-20; scope recommendation pending ratification)
+
+**Status:** the RETIREMENT is DECIDED (owner directive, 2026-07-20): the M28 on-map castle
+mechanic (enclosure-derived `isCastle`, village-map wall/gate/tower/keep placement, the
+breach-gated legacy assault path) is retired entirely. There will be ONE castle/defence system —
+the M51 defence layer. No defensive structure is buildable on the village map by anyone, player
+or AI. The SCOPE question below (per-village vs. capital-only layers) carries a recommendation
+(B) awaiting owner ratification.
+
+**What this amends.** ADR-4 §6 already ruled "two parallel fortification systems must not ship"
+and chartered retiring the on-map defence graph — but Phase 8 as shipped (M49–M54) implemented
+the layer for capitals while KEEPING M28 alive as the non-capital fortification path: `siege.begin`
+still honours enclosure-derived `isCastle` (siege.ts:291), `siege.assault` still branches to the
+breach-gated flat resolver for non-capital castles (M51 scoping note: "non-capital castles keep
+the legacy breach-gated path verbatim"), `ai/military.ts` still builds village-map wall rings
+(`planCastleRing`), and `village.build`/the build catalog still accept castle-category defs.
+A1 closes that deviation: the coexistence the M51 scoping note grandfathered is now terminated.
+GDD §7's "shipped delta" wording and doc 07 §5's fortification passage are affected and are
+rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1).
+
+**The scope fork — costed both ways:**
+
+- **(A) Every village gets its own defence layer.** Technically cheap where it looks expensive
+  and expensive where it looks cheap. Maps: `defenceMapSeed(worldSeed, k)` becomes
+  `(worldSeed, villageId)`; generation is fast and RLE storage small, so save size and sim load
+  are non-issues even at ~50 maps (8 kingdoms × settler expansion). The real costs: (1) the M52
+  AI manager is per-kingdom and capital-bound — per-village it needs template assignment,
+  build-queue arbitration, and a SHARED stone budget across N castles (today's
+  `DEFENCE_STONE_RESERVE` assumes one yard); (2) garrison comes from one soldier pool — spreading
+  it across N castles thins every wall and multiplies the M51 draft-rule interactions; (3) M54
+  intel state is per (observer, castle) — it scales by village count, as do stale-snapshot
+  refresh rules; (4) the castle view needs a castle selector and per-village deep links; (5) every
+  young village either gets a layer at founding (empty map = free real estate for the attacker,
+  a balance surface per ADR-4 §5's "terrain is fun-critical" flag — × N maps) or layer-less
+  villages need a separate capture rule, which reintroduces a two-tier system through the back
+  door — the exact thing this amendment exists to kill. (6) Strategically it fights the ratified
+  model: when capital death annexes the realm (M53), besieging hamlets one-by-one is dominated
+  play — cost without depth. Estimate: 3–4 additional milestones plus a permanent balance
+  surface, to buy texture the capital-centric design then makes irrelevant.
+- **(B) Capital-only (RECOMMENDED).** This is ADR-4 §6's ratified reading already — "the defence
+  layer guards the CAPITAL only; non-capital villages keep the existing occupation/capture path."
+  Nearly all work is deletion; no new systems. Non-capital villages remain individually takeable
+  through M47.8 occupation (armies at an undefended village flip it by countdown, contested by
+  field armies) — they are economic territory, defended in the field, not from walls. Realms
+  still fall whole through the capital (M53: destruction annexes, capitulation vassalizes).
+  **One deliberate divergence from the directive's wording:** "non-capital villages… fall when
+  the capital falls" is read as B1 (occupation KEPT alongside capital-fall annexation), not B2
+  (occupation deleted, territory changes hands only via the crown). B2 would delete
+  `occupation.ts`, rework Conquest's village-share victory math into realm-sized quanta, strand
+  the PunitiveRaid archetype without an object, and remove all mid-war territorial texture —
+  real costs for a purism the capital-death rule doesn't need. If the owner intends B2, that is
+  a further amendment with its own victory-math workstream; this record recommends against it.
+
+**Migration consequences (summary — the plan lives in doc 12 R3/Phase 8.1):** the four
+subsystems from the 2026-07-20 investigation — (1) village build path: castle-category defs
+rejected in `ops.place()` and dropped from the catalog, now as policy, not leak-patching;
+(2) AI: `planCastleRing` and `ai/military.ts`'s ring block deleted — AI defence is already the
+M52 template manager on the layer, per-capital, so under B NO new AI work is required;
+`AiWarTarget.isCastle` redefines to spatial-layer eligibility (capitals), everything else at
+contact range is occupation's business, which is already the shipped conduct split;
+(3) siege: single resolution path — `siege.begin` requires a standing defence layer;
+`siege.setTarget`, the bombard-vs-`Fortification` daily, `breaches`, `targetBuilding`, and the
+breach-gated assault branch are deleted; encirclement, starvation, sortie, and lift stay exactly
+as shipped (ADR-4 §2's pacing amendment is untouched); (4) tests: `castles.test.ts` (enclosure
+suite) is deleted with its mechanic; siege tests re-target layer-bearing capitals; new coverage:
+castle-def rejection on village placement, occupation of ex-M28-castle villages, and an M28-era
+save fixture.
+
+**Saves & determinism.** No world-section format bump: `VillageCore.isCastle` stays in the
+schema (deprecated, never set true again) and `Fortification` stays a registered component
+(re-homed from castles.ts to the defence module — the layer already reuses it), so M28-era saves
+hydrate unchanged. Their standing wall/gate/tower/keep buildings load as INERT ordinary
+buildings — occupancy-blocking, demolishable, no graph, no siege meaning ("grandfathered
+ruins") — and previously-enclosed villages become occupiable; both are accepted one-time
+behaviour snaps, same class as OQ-9's re-derivation snap. The siege save section bumps v2→v3
+(drop `targetBuilding`/`breaches`; a saved active siege of a layer-less castle is lifted by the
+migration — rare, logged). Golden `campaign-demo` and the campaign corpus entry re-record
+intentionally (AI ring-building disappears from recorded histories); terra fixtures are
+untouched. Determinism is unaffected in kind: pure deletions plus command-time gating; named
+PRNG forks mean surviving systems' draws don't shift (ADR-3's property).

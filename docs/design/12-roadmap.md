@@ -543,6 +543,29 @@ second scene at M51 only if assault-trace playback outgrows the canvas.
 
 ---
 
+## Phase 8.1 — One Castle (M55–M58, post-1.0 — added by revision R3, plan only)
+
+Chartered by ADR-4 Amendment A1 (doc 15, owner-directed 2026-07-20): the M28 on-map castle
+mechanic is retired ENTIRELY — one castle/defence system, the M51 layer; no defensive structure
+buildable on the village map by anyone. Scope recommendation B (capital-only layers, occupation
+kept for non-capitals) awaits owner ratification; the milestones below assume B. **No
+implementation before that ratification.** Vertical-slice discipline: M55 proves the single
+resolution path end-to-end before any deletion breadth.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M55 | Single siege path (vertical slice) | `siege.begin` eligibility = standing defence layer only; delete the legacy assault branch, `siege.setTarget`, the bombard-vs-`Fortification` daily, `breaches`/`targetBuilding`; siege save v2→v3 migration (fields dropped; saved sieges of layer-less castles lifted); encirclement/starvation/sortie/lift unchanged (ADR-4 §2 pacing intact); player-besieges-AI and AI-besieges-player both resolve end-to-end through M51 | full suite green with the legacy path deleted; a siege v2 save migrates and resumes hash-stable; goldens/corpus re-recorded intentionally |
+| M56 | Retire village-side fortification | reject `category: 'castle'` in `ops.place()` + drop from the build catalog (policy, per A1); delete `planCastleRing` and `ai/military.ts`'s ring block; delete castles.ts enclosure/defense-graph/`isCastle` derivation, re-homing `Fortification` into the defence module; `AiWarTarget.isCastle` := layer eligibility; occupation drops its `isCastle` exemption (the layer hook stays); delete `castles.test.ts`, add rejection coverage | a castle def is rejected by village placement for player AND AI issuers; in one campaign an AI both besieges a capital and occupies a non-capital |
+| M57 | Legacy saves & corpus | grandfathered M28 structures: load as inert ordinary buildings (occupancy-blocking, demolishable, no graph, no siege meaning); `isCastle` deprecated-in-schema; add an M28-era fixture save to the corpus; torture pass | the M28-era save loads and resumes hash-stable with its walls standing-but-inert; corpus green including the new entry |
+| M58 | Docs & balance recert | GDD §7 rewrite (single system), doc 06 §4 `defenseGraph`/`isCastle` removal, doc 07 §5 delta; bench-balance matrix re-run — war cadence with rings gone (AI castles are now only capitals); Gate P8.1 | balance bands hold; siege/capture cadence no worse than the war-cadence-part-7 baseline |
+
+Interaction notes: the pending defence-structure FOOTPRINT work (multi-tile keep/tower/gatehouse
+on the layer, config-driven) becomes cleanly defence-only once M56 lands — sequence it after or
+inside M56. The 1.x war-cadence backlog's remaining items are unaffected except that
+`planCastleRing`'s part-1 fix is superseded by its deletion.
+
+---
+
 ## Dependency & Risk Notes
 
 - Long-pole chains: ECS/determinism (M2–M5) → everything; AI harness (M24) is deliberately early —
@@ -599,3 +622,27 @@ second scene at M51 only if assault-trace playback outgrows the canvas.
   lands inside M48's freeze scope or is explicitly declined in the OQ-9 record.
 - **Risk impact:** none to 1.0. Codifies post-1.0 scope so the defence layer reads as planned
   work rather than a gap.
+
+**R3 — M28 retirement chartered as Phase 8.1 ("One Castle") (owner-directed 2026-07-20, ADR-4
+Amendment A1; scope recommendation pending ratification).**
+
+- **Change:** four milestones (M55–M58, "Phase 8.1 — One Castle") appended as planned post-1.0
+  scope: retire the M28 on-map castle mechanic entirely — single siege-resolution path (M51),
+  village-side castle placement removed for player and AI, legacy saves grandfathered, docs and
+  balance recertified. Plan only; no implementation is chartered until the A1 scope
+  recommendation (B: capital-only layers, occupation kept) is ratified.
+- **Why:** ADR-4 §6 ruled "two parallel fortification systems must not ship", but Phase 8 as
+  shipped kept M28 alive as the non-capital path (the M51 scoping note's explicit grandfather).
+  The 2026-07-20 investigation showed the coexistence is now load-bearing confusion: castle defs
+  placeable on village maps through the ordinary catalog, an AI fortification loop
+  (`planCastleRing`) whose part-1 fix serviced a mechanic slated for deletion, and a forked
+  `siege.assault`.
+- **Affected documents:** this doc (12); doc 15 (ADR-4 Amendment A1); GDD §7, doc 06 §4, and
+  doc 07 §5 rewrites land inside M58, not before.
+- **Affected milestones:** none shipped; Phase 8 (M49–M54) remains closed — this is new scope,
+  not a reopening. The 1.x war-cadence backlog is unaffected except part 1's `planCastleRing`
+  fix, superseded by deletion at M56.
+- **Risk impact:** removes a standing two-system design risk and the M28 balance surface.
+  Adds a one-time save-behaviour snap for M28-era saves (walls become inert; ex-castles become
+  occupiable) — accepted, same class as OQ-9's re-derivation snap. Goldens/corpus re-record
+  intentionally at M55/M56.
