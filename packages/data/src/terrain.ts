@@ -188,6 +188,14 @@ export class DefinitionDatabase {
       techSeen.add(t.id);
     }
     const techMap = new Map(techs.map((t) => [t.id, t]));
+    // 1.0 content-completeness: a unit's recruit gate must name a real tech (referential,
+    // mirroring `unlocks` below). Checked here rather than in the unit block above because
+    // that block throws before techMap is built.
+    for (const u of units) {
+      if (u.requiresTech !== undefined && !techMap.has(u.requiresTech)) {
+        integrity.push(`unit '${u.id}' requiresTech references unknown tech '${u.requiresTech}'`);
+      }
+    }
     for (const t of techs) {
       for (const preId of t.prerequisites) {
         const pre = techMap.get(preId);

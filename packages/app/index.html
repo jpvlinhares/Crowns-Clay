@@ -41,6 +41,13 @@
     .vchip .nm { color: #d8b060; font-weight: 600; }
     .vchip .f { color: #b8ae9a; }
     .vchip .f b { color: #e8e0d0; font-weight: 600; display: inline-block; min-width: 2.5ch; text-align: right; }
+    /* One delimited box per resource ([Wood 100]) — used by the player's HUD bar and the
+       Realms panel. Data-driven: every resource (base or modded) gets a box automatically. */
+    .rbox { display: inline-flex; align-items: baseline; gap: .3rem; padding: 0 .35rem; white-space: nowrap;
+            background: #201c15; border: 1px solid #3a3226; border-radius: 3px; font-variant-numeric: tabular-nums; }
+    .rbox .rl { color: #9a9080; text-transform: capitalize; }
+    .rbox b { color: #e8e0d0; font-weight: 600; }
+    .goods-row { display: flex; flex-wrap: wrap; gap: .25rem .3rem; }
     button { background: #2a241b; color: #e8e0d0; border: 1px solid #4a4030;
              padding: .25rem .6rem; cursor: pointer; font: inherit; border-radius: 3px; }
     button:hover { background: #3a3226; }
@@ -48,7 +55,10 @@
     button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
     button[aria-disabled="true"]:hover { background: #2a241b; }
     #game { flex: 1; min-height: 0; position: relative; }
-    #game canvas { position: absolute; inset: 0; touch-action: none; }
+    /* Direct child only: the full-screen Pixi world canvas. A descendant selector here also
+       caught the Castle panel's nested defence-map canvas, absolutely-positioning it out of flow
+       so it floated as a second overlapping layer over the panel's own content. */
+    #game > canvas { position: absolute; inset: 0; touch-action: none; }
     #status.error { color: #e07070; }
     .hint { opacity: .6; }
     /* ---- M18 panel framework, toasts ---- */
@@ -152,6 +162,30 @@
     #newgame .actions { display: flex; gap: .6rem; margin-top: .9rem; }
     #newgame .actions button { flex: 1; padding: .5rem .6rem; }
     #newgame .actions #btn-begin-campaign { background: #d8b060; color: #14120f; border-color: #d8b060; font-weight: 600; }
+    /* ---- Castle defence: full-screen view (relocated from the 300px dock) ---- */
+    #castle-view-backdrop { position: absolute; inset: 0; z-index: 7; display: flex;
+             align-items: center; justify-content: center; background: rgba(10, 9, 7, .82); }
+    #castle-view-backdrop[hidden] { display: none; }
+    #castle-view { width: 95vw; height: 92vh; display: flex; flex-direction: column;
+             background: #1a1712; border: 1px solid #4a4030; border-radius: 6px;
+             box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden; }
+    #castle-view > header { display: flex; justify-content: space-between; align-items: center;
+             padding: .35rem .3rem .35rem .7rem; background: #2a241b; color: #d8b060;
+             text-transform: uppercase; font-size: 12px; border-bottom: 1px solid #4a4030; }
+    #castle-view > header button { border: none; background: none; color: inherit; font-size: 18px;
+             line-height: 1; cursor: pointer; padding: 0 .4rem; }
+    #castle-view-main { flex: 1; min-height: 0; display: flex; }
+    /* the map fills the large majority of the view; the toolbar is a fixed-width side rail so
+       it never shrinks the canvas (only the wrap flexes) */
+    #castle-view-canvas-wrap { flex: 1; min-width: 0; display: flex; align-items: center;
+             justify-content: center; padding: .6rem; background: #14120f; }
+    #castle-view-canvas-wrap canvas { background: #232019; border: 1px solid #3a3226;
+             image-rendering: pixelated; }
+    #castle-view-tools { width: 280px; flex-shrink: 0; overflow-y: auto; padding: .5rem .7rem;
+             border-left: 1px solid #4a4030; font-size: 12px; }
+    #castle-view-tools .row { display: flex; gap: .4rem; align-items: center; margin: .3rem 0; flex-wrap: wrap; }
+    #castle-view-tools button.armed { background: #d8b060; color: #14120f; }
+    #castle-view-tools canvas { display: block; margin: .3rem 0; }
   </style>
 </head>
 <body>
@@ -218,6 +252,21 @@
         <h2 id="end-screen-title"></h2>
         <p id="end-screen-body"></p>
         <div><button id="end-screen-continue">Keep playing</button></div>
+      </div>
+    </div>
+    <!-- Castle defence: its own full-screen view (relocated out of the 300px dock so the
+         map is big enough to place walls/gates/towers precisely). Presentation-only — reads
+         the same `panels.defence` projection and sends the same defence.* commands. -->
+    <div id="castle-view-backdrop" hidden>
+      <div id="castle-view" role="dialog" aria-modal="true" aria-label="Castle defence">
+        <header>
+          <span>🏰 Castle defence</span>
+          <button id="castle-view-close" title="Close (Esc)" aria-label="Close castle view">×</button>
+        </header>
+        <div id="castle-view-main">
+          <div id="castle-view-canvas-wrap"></div>
+          <aside id="castle-view-tools" aria-label="Castle build and garrison controls"></aside>
+        </div>
       </div>
     </div>
     <!-- M47.6 (doc 12 R1): the new-game screen — seed, map, kingdoms, difficulty, victory,

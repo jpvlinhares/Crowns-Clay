@@ -46,6 +46,51 @@ const index = (id: number): number => id & 0x3fffff;
 
 export const BARRACKS_DEF = 'base:building.barracks';
 export const RECRUIT_ORDER = ['base:unit.spearman', 'base:unit.militia'] as const; // preference order, cheapest fallback
+
+// ---- roster adoption (1.0 content-completeness): once the AI can recruit the full GDD §6
+// roster, it should ACTUALLY field a mixed army as its warfare techs unlock better units —
+// not spam one unit type, and not degenerate into always-the-strongest. A stateless class
+// ROTATION does both: the slot is chosen by the kingdom's current unit count, and each slot
+// takes the best UNLOCKED unit of its class (strongest-first), so composition upgrades
+// automatically without any scoring to tune. Two line slots keep an infantry backbone.
+// GATED on the composition supplying `isUnitUnlocked` — the harness wrapper does NOT, so it
+// keeps the pinned single-unit RECRUIT_ORDER behaviour byte-identical.
+export const RECRUIT_ROTATION = ['line', 'ranged', 'line', 'cavalry'] as const;
+export const RECRUIT_BY_CLASS: Readonly<Record<string, readonly string[]>> = {
+  line: ['base:unit.swordsman', 'base:unit.spearman', 'base:unit.militia'],
+  ranged: ['base:unit.crossbowman', 'base:unit.archer'],
+  cavalry: ['base:unit.knight', 'base:unit.cavalry'],
+  siege: ['base:unit.trebuchet', 'base:unit.ram', 'base:unit.catapult'],
+};
+/** Siege engines the AI keeps at most, and only while actually prosecuting a ConquestWar
+ * with an army already raised — they're dead weight outside a siege and costly in adults. */
+export const AI_SIEGE_CAP = 2;
+/** The AI keeps building line/ranged/cavalry before it invests in a siege train. */
+export const AI_SIEGE_MIN_UNITS = 4;
+
+/**
+ * Today's recruit choice from the class rotation — a PURE function of (own composition,
+ * plan, unlock predicate), so the decision is testable in isolation and deterministic.
+ * A ConquestWar with an army already raised adds a siege engine (under the cap); otherwise
+ * the rotation slot (chosen by unit count) picks the best UNLOCKED unit of its class, falling
+ * back to the line — then militia — so a still-locked slot never stalls recruiting. Affordability
+ * is deliberately NOT modelled here: the recruit command enforces it (reject-and-retry), and
+ * the caller's food/workforce gates already guarantee population for any unit.
+ */
+export function pickRosterRecruit(
+  totalUnits: number,
+  siegeUnits: number,
+  plan: string,
+  unlocked: (defId: string) => boolean,
+): string {
+  const bestOfClass = (cls: string): string | undefined => (RECRUIT_BY_CLASS[cls] ?? []).find(unlocked);
+  if (plan === 'ConquestWar' && totalUnits >= AI_SIEGE_MIN_UNITS && siegeUnits < AI_SIEGE_CAP) {
+    const engine = bestOfClass('siege');
+    if (engine !== undefined) return engine;
+  }
+  const slot = RECRUIT_ROTATION[totalUnits % RECRUIT_ROTATION.length] as string;
+  return bestOfClass(slot) ?? bestOfClass('line') ?? 'base:unit.militia';
+}
 export const WAR_MIN_STRENGTH = 20; // committed troop count before marching to war
 /** M46 balance fix (doc 01 §8 SC-2): recruiting costs `UnitDef.popCost` ADULTS, permanently,
  * whether or not the war they were raised for ever happens — an unconditional daily recruit
@@ -71,15 +116,25 @@ export const WALL_DEF = 'base:building.wall';
 export const CASTLE_RING_RADIUS = 6;
 const WAR_STANCE_CONTACT_RANGE = 1; // Chebyshev — "arrived" for tactical purposes
 
-/** Fixed 3×3-at-`radius` perimeter (mirrors castles.test.ts's proven fixture shape) — a v1
- * simplification of doc 07 §5's terrain-adapted castle templates. */
+/** Full closed square perimeter at Chebyshev distance `radius` (every tile on the ring, not just
+ * its 8 corners/midpoints) — a v1 simplification of doc 07 §5's terrain-adapted castle templates.
+ * 1.x war-cadence fix: the previous 8-point version only actually CLOSED at radius 1 (matching
+ * castles.test.ts's fixture, where corner and edge-midpoint tiles are already adjacent); at
+ * `CASTLE_RING_RADIUS`'s radius 6 those 8 points left 5-tile gaps on every side, so
+ * `castles.ts`'s 4-connected flood-fill always found a way through and `isCastle` never flipped
+ * true for any AI-built capital — the balance matrix's confirmed "no capital sieges ever mounted"
+ * finding traces here: `military.ts`'s own tactical-war gate never even attempts `siege.begin`
+ * against a target whose `AiWarTarget.isCastle` reads false (campaign.ts's `warTargetsFor`).
+ * Tiles are ordered walking the perimeter so the AI's one-wall-per-day build queue closes the
+ * loop visibly, edge by edge, rather than jumping between distant points. */
 export function planCastleRing(centerX: number, centerY: number, radius: number): readonly { x: number; y: number }[] {
   const r = radius;
-  return [
-    { x: centerX - r, y: centerY - r }, { x: centerX, y: centerY - r }, { x: centerX + r, y: centerY - r },
-    { x: centerX - r, y: centerY + r }, { x: centerX, y: centerY + r }, { x: centerX + r, y: centerY + r },
-    { x: centerX - r, y: centerY }, { x: centerX + r, y: centerY },
-  ];
+  const tiles: { x: number; y: number }[] = [];
+  for (let x = centerX - r; x <= centerX + r; x++) tiles.push({ x, y: centerY - r }); // top edge, left→right
+  for (let y = centerY - r + 1; y <= centerY + r; y++) tiles.push({ x: centerX + r, y }); // right edge, top→bottom
+  for (let x = centerX + r - 1; x >= centerX - r; x--) tiles.push({ x, y: centerY + r }); // bottom edge, right→left
+  for (let y = centerY + r - 1; y >= centerY - r + 1; y--) tiles.push({ x: centerX - r, y }); // left edge, bottom→top
+  return tiles;
 }
 
 export interface AiWarTarget {
@@ -107,6 +162,11 @@ export interface AiMilitaryOptions {
   /** M47.8: the kingdom this AI holds its heaviest grudge against (doc 07 §7) — a PunitiveRaid
    * prefers that kingdom's villages over merely-nearest targets. Optional and additive. */
   readonly grudgeTarget?: () => EntityId | null;
+  /** 1.0 roster adoption: true when this kingdom may recruit `defId` (ungated units always;
+   * tech-gated units once the kingdom knows the tech). PRESENCE switches the recruiter from
+   * the pinned single-unit RECRUIT_ORDER to the class rotation — omit it (the harness wrapper)
+   * to keep the old behaviour byte-identical. */
+  readonly isUnitUnlocked?: (defId: string) => boolean;
   /** Known (fog-gated) hostile villages worth marching on — omit for buildup-only behaviour
    * (recruit/assemble/fortify, never marches to war). */
   readonly warTargets?: () => readonly AiWarTarget[];
@@ -154,7 +214,7 @@ export function registerAiMilitaryManager(
   options: AiMilitaryOptions,
 ): void {
   const { VillageCore, BuildingCore } = game.comps;
-  const { Unit, Army } = military;
+  const { Unit, Army, ops } = military;
   const { ArmyMovement } = armies;
   const searchRadius = options.searchRadius ?? VILLAGE_RADIUS_T1;
 
@@ -175,6 +235,23 @@ export function registerAiMilitaryManager(
     });
     return total;
   };
+
+  // ---- roster adoption (1.0): pick the recruit for today, given the kingdom's own units and
+  // its unlocked techs. Pure over declared reads (Unit) — pop/gold affordability is left to the
+  // recruit command (reject-and-retry, the pre-existing discipline), and the daily food/workforce
+  // gates above already guarantee pop for any unit (all cost ≤ 10 adults). Returns null = skip. ----
+  const unlocked = (defId: string): boolean => options.isUnitUnlocked?.(defId) ?? true;
+  const ownUnits = (siegeOnly = false): number => {
+    const u = world.read(Unit);
+    let n = 0;
+    world.query([Unit]).forEach((ui) => {
+      if ((u.kingdomId[ui] as number) !== (options.kingdomId as number)) return;
+      if (siegeOnly && ops.unitDef(u.def[ui] as number).class !== 'siege') return;
+      n++;
+    });
+    return n;
+  };
+  const pickRecruit = (plan: string): string => pickRosterRecruit(ownUnits(), ownUnits(true), plan, unlocked);
 
   const system: SimSystem = {
     name: options.id !== undefined ? `ai-military-${options.id}` : 'ai-military',
@@ -233,10 +310,11 @@ export function registerAiMilitaryManager(
         const keepsWorkforce = adultsAfter >= RECRUIT_MIN_ADULTS_REMAINING;
         const actuallyFed = (pop.foodSecurity[vi] as number) >= RECRUIT_MIN_FOOD_SECURITY;
         if (hasFoodSurplus && staysAboveFloor && keepsWorkforce && actuallyFed) {
-          for (const defId of RECRUIT_ORDER) {
-            kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
-            break; // rejected silently (unaffordable etc.) is fine — retried next day
-          }
+          // roster adoption wired ⇒ the class rotation picks a mixed army from the unlocked
+          // roster; otherwise (the harness) the pinned single-unit RECRUIT_ORDER, byte-identical.
+          const defId = options.isUnitUnlocked !== undefined ? pickRecruit(plan) : (RECRUIT_ORDER[0] as string);
+          kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
+          // rejected silently (unaffordable etc.) is fine — retried next day
         }
         // neither gate met: skip recruiting today, retried tomorrow — MilitaryBuildup stays the
         // active plan (a deferral, not a cancellation); the food-need evaluator (ai/needs.ts) the
@@ -285,11 +363,26 @@ export function registerAiMilitaryManager(
         }
       }
 
-      // tactical war conduct (doc 07 §3) — ConquestWar and PunitiveRaid (M47.8)
-      if ((plan !== 'ConquestWar' && plan !== 'PunitiveRaid') || options.warTargets === undefined) return;
+      // tactical war conduct (doc 07 §3). ConquestWar/PunitiveRaid both INITIATE and conduct war;
+      // MilitaryBuildup CONDUCTS a war already in progress but never opens a new front.
+      // 1.x war-cadence fix: ai/planner.ts routinely reverts an aggressor to MilitaryBuildup the
+      // instant its army marches out — the marching army stops counting toward at-home military
+      // strength, so ConquestWar's utility (aggression × relativeAdvantage × militaryStrength)
+      // drops below MilitaryBuildup's — which used to STRAND a committed army at the enemy's gate,
+      // idle, until the flat 90-day forced-peace clock (diplomacy.ts) ended the war with no siege
+      // ever mounted. A committed army (already besieging, or already at war with a known target)
+      // must see its war through regardless of the plan's second thoughts; under MilitaryBuildup it
+      // still never DECLARES a new war (target selection below is restricted to at-war enemies).
+      if (options.warTargets === undefined) return;
+      const initiatesWar = plan === 'ConquestWar' || plan === 'PunitiveRaid';
+      const existingSiege = siegeGame.state.siegeOfArmy(armyId);
+      const diplomacy = options.diplomacy;
+      const allTargets = options.warTargets();
+      const atWarTargets = diplomacy === undefined ? [] : allTargets.filter((t) => diplomacy.isAtWar(t.kingdomId as EntityId));
+      const committedToWar = existingSiege !== undefined || atWarTargets.length > 0;
+      if (!initiatesWar && !committedToWar) return;
       if (committedCount(armyId) < WAR_MIN_STRENGTH) return;
 
-      const existingSiege = siegeGame.state.siegeOfArmy(armyId);
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
@@ -308,19 +401,30 @@ export function registerAiMilitaryManager(
           }
           return;
         }
-        if (existingSiege.targetBuilding === 0) {
+        // 1.x war-cadence fix: assault THE MOMENT a breach is open (military.ts's documented
+        // intent) — this MUST be checked before re-targeting, because a breach resets
+        // `targetBuilding` to 0, and the old `if (targetBuilding===0) setTarget else if (breaches)
+        // assault` ordering therefore re-aimed at the next wall every single day and NEVER reached
+        // the assault: the balance matrix's sieges bombarded 9+ walls to rubble and issued zero
+        // assaults, so an undefended enemy capital that `siege.assault` would CAPTURE outright
+        // (siege.ts) was instead knocked about until forced peace ended the war. Bombard only while
+        // no breach exists yet; once one is open, storm it.
+        if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
+          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+        } else if (existingSiege.targetBuilding === 0) {
           const graph = castleGame.defenseGraphOf(existingSiege.castle);
           const node = graph.nodes[0];
           if (node !== undefined) {
             kernel.submit({ type: 'siege.setTarget', issuer: options.issuer, payload: { armyId, buildingId: node.building } });
           }
-        } else if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
-          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
         }
         return;
       }
 
-      let targets = options.warTargets();
+      // ConquestWar/PunitiveRaid may march on any known enemy (declaring war below as needed); a
+      // MilitaryBuildup continuation marches ONLY on enemies it is already at war with, so it
+      // finishes the war ConquestWar started without silently becoming a second ConquestWar.
+      let targets = initiatesWar ? allTargets : atWarTargets;
       if (targets.length === 0) return;
       // M47.8 (doc 07 §7): a PunitiveRaid marches on WHOEVER WRONGED US, not whoever's closest —
       // narrow the target list to the grudge-holder's villages when the composition supplies one.

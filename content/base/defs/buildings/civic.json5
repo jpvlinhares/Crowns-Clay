@@ -28,7 +28,12 @@
     "cost": { "base:resource.stone": 15 },
     "buildTicks": 36,
     "terrainTags": ["open"],
-    "serviceAura": { "need": "water", "strength": 1, "radius": 6 },
+    // 1.0 content-completeness: 'water' was read by nothing (mechanically inert).
+    // Decision: the Well contributes JOY through the same aura path the Tavern
+    // proves out (population.ts's service-joy sum, SERVICE_JOY_CAP-bounded) —
+    // clean water is quality of life, not a survival loop. Strength is content:
+    // modest next to the Tavern's 8; the cap keeps well-spam from stacking.
+    "serviceAura": { "need": "joy", "strength": 3, "radius": 6 },
     "tags": [],
   },
   {

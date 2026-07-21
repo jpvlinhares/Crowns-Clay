@@ -31,12 +31,16 @@ import type { Kernel, SimSystem } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from './villages.js';
 
-export const BASE_STORAGE = 150; // per resource, before storage buildings
+// 1.x: raised 150→200 (materials) and 50→150 (food) so the campaign starting kit (wood 200 /
+// food 150, DEFAULT_CAMPAIGN_STOCK) sits within cap at start instead of over it, and Terra's own
+// 200-wood start likewise stops sitting over the old 150 cap. A granary/storage building is still
+// needed to hoard beyond these; production rates and yields are unchanged.
+export const BASE_STORAGE = 200; // per resource, before storage buildings
 export const OUTBOX_DAYS = 2; // building inventory holds this many days of output before stalling
 // The keep's built-in FOOD larder. Food beyond this needs granary (storage) capacity to be
 // held; without it, the surplus spoils (GDD §3 — a granary is an early priority). Food is the
 // only resource with a reduced base cap; every other good still starts from BASE_STORAGE.
-export const KEEP_FOOD_BUFFER = 50;
+export const KEEP_FOOD_BUFFER = 150;
 
 /**
  * Read-side of the kingdom's StatModifiers board (M16) — structural so the

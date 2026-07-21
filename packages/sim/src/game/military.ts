@@ -94,6 +94,15 @@ export interface MilitaryGameplay {
   registerUnitExtension(comp: Component): void;
 }
 
+export interface MilitaryOptions {
+  /** 1.0 content-completeness: gate `UnitDef.requiresTech` units on the recruiter's known
+   * techs. DEFAULT OPEN — omitted (the harness, most tests) recruits every unit regardless,
+   * so nothing pre-existing changes; only a composition that wires research (campaign.ts →
+   * `researchGame.isKnown`) enforces the gate. Consulted ONLY for units that declare
+   * `requiresTech`, so ungated (grandfathered) units are byte-identical either way. */
+  isTechKnown?(kingdomId: EntityId, techId: string): boolean;
+}
+
 export function registerMilitaryGameplay(
   kernel: Kernel,
   world: World,
@@ -101,6 +110,7 @@ export function registerMilitaryGameplay(
   game: VillageGameplay,
   popGame: PopulationGameplay,
   kingdomGame: KingdomGameplay,
+  options: MilitaryOptions = {},
 ): MilitaryGameplay {
   const { VillageCore, BuildingCore, Stockpile } = game.comps;
   const { Population } = popGame;
@@ -158,6 +168,14 @@ export function registerMilitaryGameplay(
       if (buildingDef.military?.recruits?.includes(def.id)) canTrain = true;
     });
     if (!canTrain) return reject(ctx, 'army.recruitUnit', `no building in this village trains '${def.id}'`);
+
+    // tech gate (1.0): a unit declaring `requiresTech` needs that tech known by the
+    // recruiting kingdom. Default-open — no hook wired ⇒ ungated (harness/tests); ungated
+    // units skip the check entirely, staying byte-identical.
+    if (def.requiresTech !== undefined && options.isTechKnown !== undefined && !options.isTechKnown(kingdomId, def.requiresTech)) {
+      const techName = db.techs.get(def.requiresTech)?.name ?? def.requiresTech;
+      return reject(ctx, 'army.recruitUnit', `requires the '${techName}' technology`);
+    }
 
     // check-all-then-deduct-all: population, resources, gold
     const field = cohortField(def.popCost.cohort);

@@ -318,6 +318,13 @@ export class VillageOps {
     return building;
   }
 
+  /** The village entity a building belongs to, or null if the building is gone. Used by the
+   * ownership guard on `village.demolish` (the command carries a building id, not a village id). */
+  villageOfBuilding(buildingId: number): number | null {
+    if (!this.world.isAlive(buildingId as EntityId)) return null;
+    return this.world.read(this.comps.BuildingCore).village[buildingId & 0x3fffff] as number;
+  }
+
   demolish(ctx: TickContext, buildingId: number): true | string {
     const building = buildingId as EntityId;
     if (!this.world.isAlive(building)) return 'no such building';
@@ -422,11 +429,19 @@ export interface VillageSettings {
   haulerTarget: number;
 }
 
+/** 1.x ownership guard: does the kingdom acting for `issuer` own `villageId`? Supplied by
+ * kingdom.ts (which owns `VillageOwner`) via `setOwnershipGuard` after both layers exist. */
+export type VillageOwnershipGuard = (issuer: number, villageId: number) => boolean;
+
 export interface VillageGameplay {
   readonly comps: VillageComponents;
   readonly ops: VillageOps;
   readonly settings: VillageSettings;
   readonly terrain: TerrainAccessor;
+  /** 1.x: inject the ownership authority for village-mutating commands (build/demolish here,
+   * upgrade in settlers.ts, setTaxRate in kingdom.ts). Late-bound because kingdom.ts — which owns
+   * `VillageOwner` — registers after this layer. Un-set ⇒ no restriction (single-kingdom/Terra). */
+  setOwnershipGuard(guard: VillageOwnershipGuard): void;
 }
 
 export function registerVillageGameplay(
@@ -448,15 +463,23 @@ export function registerVillageGameplay(
     ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
   };
 
+  // 1.x ownership guard (late-bound from kingdom.ts; un-set ⇒ allow, i.e. single-kingdom/Terra).
+  let ownershipGuard: VillageOwnershipGuard | null = null;
+  const ownsVillage = (issuer: number, villageId: number): boolean =>
+    ownershipGuard === null || ownershipGuard(issuer, villageId);
+
   kernel.registerCommand<{ x: number; y: number; name: string }>('village.found', (ctx, p) => {
     const result = ops.found(ctx, p.x | 0, p.y | 0, String(p.name ?? 'Nameless'), startingStock);
     if (typeof result === 'string') rejected(ctx, 'village.found', result);
   });
-  kernel.registerCommand<{ villageId: number; def: string; x: number; y: number }>('village.build', (ctx, p) => {
+  kernel.registerCommand<{ villageId: number; def: string; x: number; y: number }>('village.build', (ctx, p, command) => {
+    if (!ownsVillage(command.issuer, p.villageId | 0)) return rejected(ctx, 'village.build', 'not your village');
     const result = ops.place(ctx, p.villageId | 0, String(p.def), p.x | 0, p.y | 0);
     if (typeof result === 'string') rejected(ctx, 'village.build', result);
   });
-  kernel.registerCommand<{ buildingId: number }>('village.demolish', (ctx, p) => {
+  kernel.registerCommand<{ buildingId: number }>('village.demolish', (ctx, p, command) => {
+    const village = ops.villageOfBuilding(p.buildingId | 0);
+    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village');
     const result = ops.demolish(ctx, p.buildingId | 0);
     if (typeof result === 'string') rejected(ctx, 'village.demolish', result);
   });
@@ -491,5 +514,8 @@ export function registerVillageGameplay(
   });
 
   kernel.registerSystem(constructionSystem(world, comps, ops, settings));
-  return { comps, ops, settings, terrain };
+  return {
+    comps, ops, settings, terrain,
+    setOwnershipGuard(guard: VillageOwnershipGuard): void { ownershipGuard = guard; },
+  };
 }

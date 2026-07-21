@@ -26,6 +26,7 @@ import {
   DEFAULT_PLAN_ARCHETYPES,
   type Considerations,
   type PlanArchetype,
+  type PersonalityWeights,
 } from './planner.js';
 import { registerAiConstructionManager } from './manager.js';
 import type { NeedContext } from './needs.js';
@@ -80,7 +81,7 @@ const archetypeById = (id: string): PlanArchetype => DEFAULT_PLAN_ARCHETYPES.fin
 test('utility: DevelopHeartland rises with growthHeadroom, weighted by economy', () => {
   const low: Considerations = {
     economyStrength: 0.5, growthHeadroom: 0.1, settleReadiness: 0, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0, warCommitment: 0,
   };
   const high: Considerations = { ...low, growthHeadroom: 0.9 };
   const utility = archetypeById('DevelopHeartland').utility;
@@ -90,7 +91,7 @@ test('utility: DevelopHeartland rises with growthHeadroom, weighted by economy',
 test('utility: ExpandSettle rises with settleReadiness and the expansion weight', () => {
   const c: Considerations = {
     economyStrength: 0.8, growthHeadroom: 0.2, settleReadiness: 0.8, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0, warCommitment: 0,
   };
   const utility = archetypeById('ExpandSettle').utility;
   const lowExpansion = utility(c, { ...DEFAULT_PERSONALITY_WEIGHTS, expansion: 0.1 });
@@ -100,7 +101,7 @@ test('utility: ExpandSettle rises with settleReadiness and the expansion weight'
 
 test('utility: Recover is a hard 1 under crisis, 0 otherwise', () => {
   const utility = archetypeById('Recover').utility;
-  const neutral = { militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0 } as const;
+  const neutral = { militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0, warCommitment: 0 } as const;
   assert.equal(utility({ economyStrength: 0.9, growthHeadroom: 0.1, settleReadiness: 0.5, crisisSignal: 0, allianceOpportunity: 0, ...neutral }, DEFAULT_PERSONALITY_WEIGHTS), 0);
   assert.equal(utility({ economyStrength: 0.1, growthHeadroom: 0.9, settleReadiness: 0, crisisSignal: 1, allianceOpportunity: 0, ...neutral }, DEFAULT_PERSONALITY_WEIGHTS), 1);
 });
@@ -108,13 +109,36 @@ test('utility: Recover is a hard 1 under crisis, 0 otherwise', () => {
 test('utility: TechRace rises with researchOpportunity and the tech weight; inert without a research context', () => {
   const c: Considerations = {
     economyStrength: 0.8, growthHeadroom: 0.2, settleReadiness: 0, crisisSignal: 0,
-    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0.9, grievance: 0,
+    allianceOpportunity: 0, militaryStrength: 0, relativeAdvantage: 0.5, researchOpportunity: 0.9, grievance: 0, warCommitment: 0,
   };
   const utility = archetypeById('TechRace').utility;
   const lowTech = utility(c, { ...DEFAULT_PERSONALITY_WEIGHTS, tech: 0.1 });
   const highTech = utility(c, { ...DEFAULT_PERSONALITY_WEIGHTS, tech: 0.9 });
   assert.ok(highTech > lowTech);
   assert.equal(utility({ ...c, researchOpportunity: 0 }, DEFAULT_PERSONALITY_WEIGHTS), 0);
+});
+
+test('utility: ConquestWar — the weak→strong ladder is unchanged at peace, but warCommitment makes a declared war stick (1.x war-cadence)', () => {
+  const conquest = archetypeById('ConquestWar').utility;
+  const buildup = archetypeById('MilitaryBuildup').utility;
+  const warlike: PersonalityWeights = { ...DEFAULT_PERSONALITY_WEIGHTS, aggression: 0.9, economy: 0.6 };
+  // A symmetric, mid-strength peacetime standoff — the exact configuration the war-cadence probe
+  // found ConquestWar stuck at ~0.225, permanently below MilitaryBuildup.
+  const standoff: Considerations = {
+    economyStrength: 0.95, growthHeadroom: 0.2, settleReadiness: 0, crisisSignal: 0,
+    allianceOpportunity: 0, militaryStrength: 0.5, relativeAdvantage: 0.5, researchOpportunity: 0, grievance: 0, warCommitment: 0,
+  };
+  // At peace the ladder is intact: MilitaryBuildup still outscores ConquestWar (no premature war).
+  assert.ok(buildup(standoff, warlike) > conquest(standoff, warlike), 'at peace, MilitaryBuildup must still win the standoff');
+  // warCommitment is additive and inert at 0: peacetime score is byte-for-byte the M30 formula.
+  assert.equal(conquest(standoff, warlike), Math.min(1, 0.9 * 0.5 * 0.5), 'warCommitment=0 preserves the original aggression×advantage×strength');
+  // Once at war, commitment flips it decisively above MilitaryBuildup so the war is prosecuted.
+  const atWar: Considerations = { ...standoff, warCommitment: 1 };
+  assert.ok(conquest(atWar, warlike) > buildup(atWar, warlike), 'at war, ConquestWar must dominate to see the war through');
+  // A lukewarm (low-aggression) kingdom dragged into war stays ambivalent — commitment is
+  // aggression-scaled, not an unconditional override.
+  const lukewarm: PersonalityWeights = { ...DEFAULT_PERSONALITY_WEIGHTS, aggression: 0.1 };
+  assert.ok(conquest(atWar, lukewarm) < conquest(atWar, warlike), 'commitment scales with aggression');
 });
 
 test('considerations: a fresh, well-stocked, empty village is not in crisis', () => {

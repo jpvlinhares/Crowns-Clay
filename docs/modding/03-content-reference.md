@@ -154,9 +154,17 @@ Modifier `target` must be one of: `village.happinessDrift`, `village.productionE
 | `recruitTicks` | integer ≥ 1 | training duration |
 | `popCost.cohort` | `"child"` \| `"adult"` \| `"elder"` | which cohort the recruit is drawn from |
 | `popCost.count` | integer ≥ 1 | |
+| `requiresTech` | tech id | *optional* — the kingdom must KNOW this tech to recruit the unit; must name a real tech (checked at load) |
 | `tags` | string[] | |
 
 A building only trains a unit if the unit's id appears in that building's `military.recruits`.
+
+`requiresTech` is a second, independent gate on top of that list: the barracks may list a unit
+while the tech still locks it. A unit with no `requiresTech` is recruitable as soon as a
+building trains it (every pre-1.0 unit works this way, unchanged). Note the gate is enforced by
+the composition, not the def — a composition that wires no research (the AI harness, most tests)
+treats every unit as unlocked, so `requiresTech` is inert there rather than an error. Base
+content gates the five techs-already-named units: swordsman, crossbowman, knight, ram, trebuchet.
 
 ## Techs (`defs/techs/*.json5`)
 

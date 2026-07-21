@@ -109,6 +109,7 @@ export function composeMultiKingdom(options: MultiKingdomOptions): MultiKingdomC
     aiDefence: false, // M52 postdates the pinned M22-M46 outcomes (same reasoning as above)
     succession: false, // M53 (capital death / sack / new lords) postdates them too
     intel: false, // M54 (snapshots / garrison beliefs / assault advice) likewise
+    rosterAdoption: false, // 1.0 roster rotation postdates the pinned M22–M46 recruit outcomes
     historySeeding: false,
     victory: options.victory ?? { enabled: [], defeatEnabled: false },
     ...(options.aiFromIndex !== undefined ? { aiFromIndex: options.aiFromIndex } : {}),

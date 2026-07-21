@@ -87,6 +87,7 @@ export {
   type WorldGenStage,
   type ProgressFn,
 } from './worldgen/types.js';
+export { guaranteeStartResources, startHarvesterRequirements, type HarvesterRequirement } from './worldgen/resourceGuarantee.js';
 export {
   registerVillageGameplay,
   defineVillageComponents,
@@ -204,9 +205,14 @@ export {
 } from './ai/manager.js';
 export {
   registerAiMilitaryManager,
+  pickRosterRecruit,
   planCastleRing,
   BARRACKS_DEF,
   RECRUIT_ORDER,
+  RECRUIT_ROTATION,
+  RECRUIT_BY_CLASS,
+  AI_SIEGE_CAP,
+  AI_SIEGE_MIN_UNITS,
   WAR_MIN_STRENGTH,
   WALL_DEF,
   CASTLE_RING_RADIUS,
@@ -234,6 +240,7 @@ export {
   registerMilitaryGameplay,
   MilitaryOps,
   type MilitaryGameplay,
+  type MilitaryOptions,
   type UnitComponent,
   type ArmyComponent,
 } from './game/military.js';

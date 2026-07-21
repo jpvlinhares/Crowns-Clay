@@ -52,7 +52,7 @@ import { registerOccupationGameplay } from './game/occupation.js';
 import { registerDefenceGameplay, KEEP_DEF } from './game/defence.js';
 import { generateWorld } from './worldgen/pipeline.js';
 import { Biome, type MapSize, type WorldDef } from './worldgen/types.js';
-import { registerVillageGameplay, VILLAGE_MIN_SPACING, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
+import { registerVillageGameplay, VILLAGE_MIN_SPACING, VILLAGE_RADIUS_T1, type TerrainAccessor, type VillageGameplay } from './game/villages.js';
 import { bestSiteNear } from './game/settlers.js';
 import { registerPopulationGameplay } from './game/population.js';
 import { registerEconomyGameplay } from './game/economy.js';
@@ -73,6 +73,7 @@ import { registerResearchGameplay } from './game/research.js';
 import { registerEventGameplay } from './game/events.js';
 import { registerVictoryGameplay, type VictoryOptions } from './game/victory.js';
 import { scoreKingdomSites, type FairPlacementResult } from './worldgen/fairPlacement.js';
+import { guaranteeStartResources, startHarvesterRequirements } from './worldgen/resourceGuarantee.js';
 import { SaveManager, kernelSection, worldSection } from './persistence.js';
 import { registerAiConstructionManager, type AiConstructionOptions } from './ai/manager.js';
 import {
@@ -104,9 +105,14 @@ const index = (id: number): number => id & 0x3fffff;
  * (The harness wrapper keeps its historical 300-tool stock — tests pinned to it.)
  */
 export const DEFAULT_CAMPAIGN_STOCK: Readonly<Record<string, number>> = {
-  'base:resource.wood': 2000,
-  'base:resource.stone': 500,
-  'base:resource.food': 300,
+  // 1.x pacing: a leaner starter kit for a slower early game (was wood 2000 / stone 500 /
+  // food 300). Held-amounts only — production rates, yields, and conversion are untouched
+  // (pace is tuned separately via day-length). Applies to every kingdom (the one-rulebook
+  // principle above). The keep buffers (economy.ts BASE_STORAGE / KEEP_FOOD_BUFFER) were raised
+  // to 200 / 150 so this kit sits within cap at start rather than over it.
+  'base:resource.wood': 200,
+  'base:resource.stone': 100,
+  'base:resource.food': 150,
   'base:resource.tools': 25,
 };
 
@@ -169,6 +175,10 @@ export interface ComposeCampaignOptions {
   /** M54 (ADR-4 §4): stale structure snapshots + garrison beliefs + the AI assault
    * advice they feed. Default true; the harness wrapper opts out (pinned runs). */
   readonly intel?: boolean;
+  /** 1.0 content-completeness: AI recruits the full GDD §6 roster (class rotation) as its
+   * warfare techs unlock it, instead of the pinned single-unit order. Default true; the
+   * harness wrapper opts out to keep its M22–M46 recruit outcomes byte-identical. */
+  readonly rosterAdoption?: boolean;
   /** GDD §13 "history seeding": kingdoms start mutually AWARE of each other's capitals
    * (medieval realms knew their neighbours) — later villages stay fog-hidden until scouted.
    * Without it, start sites sit beyond scout range and no kingdom ever discovers another —
@@ -345,7 +355,14 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   kingdomGameRef.current = kingdomGame;
 
   // War stack (M25-M29).
-  const militaryGame = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdomGame);
+  // Research registers further down but the recruit tech-gate (1.0) needs it now — late-bound
+  // ref, same idiom as the spatial/capital hooks. Default-open until assigned (it always is,
+  // below); a unit with no `requiresTech` never consults it, so the gate is inert for the
+  // grandfathered roster and the harness alike.
+  const researchGameRef: { current?: ReturnType<typeof registerResearchGameplay> } = {};
+  const militaryGame = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdomGame, {
+    isTechKnown: (kingdomId, techId) => researchGameRef.current?.isKnown(kingdomId, techId) ?? true,
+  });
   const armiesGame = registerArmyGameplay(kernel, world, game, militaryGame, kingdomGame);
   const combatGame = registerCombatGameplay(kernel, world, militaryGame, armiesGame, kingdomGame);
   const castleGame = registerCastleGameplay(kernel, world, db, game);
@@ -377,6 +394,20 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
 
   // ---- multi-kingdom genesis at fairness-checked sites (M22) ----
   const placement = scoreKingdomSites(game, db, options.kingdomCount);
+  // GDD §13 start-resource guarantee: scoreSite (settlers.ts) never scores `mineable` at all (wood
+  // only gets a soft pull), so whether a capital could ever reach stone was pure chance — this
+  // patches the ALREADY-CHOSEN sites' terrain deterministically so both wood and stone are always
+  // buildable within the tier-1 radius, same footing for both. MUST run identically on a fresh
+  // campaign and on every reload — `placement` is recomputed the same way both times (pure
+  // function of the seed-regenerated terrain), so this stays reproducible; it must NOT be folded
+  // into the once-only genesis system below, which never re-runs on load. Skipped when the caller
+  // supplies its own `terrain` accessor directly (no generated `worldDef` to patch — test harness path).
+  if (worldDef !== null) {
+    const harvesterRequirements = startHarvesterRequirements(db);
+    for (const site of placement.sites) {
+      guaranteeStartResources(worldDef.layers, worldDef.width, worldDef.height, site.x, site.y, VILLAGE_RADIUS_T1, harvesterRequirements);
+    }
+  }
   const villageIndexByKingdom = new Map<number, number>();
   const villageNameOf = options.villageNameOf ?? ((k: number): string => `Kingdom-${k}`);
 
@@ -609,6 +640,19 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     // Phase is a stagger offset (kernel.ts), so late registration keeps its cadence.
   }
 
+  // 1.x war-cadence (doc 12 backlog part 6): is this kingdom committed to an active war? True
+  // while it is at war with ANY other kingdom — the planner's ConquestWar commitment term reads
+  // this so a declared war is prosecuted to resolution instead of abandoned the next planning week.
+  const atWarWithAnyone = (kingdomIndex: number): boolean => {
+    const myId = kingdomGame.kingdomEntities()[kingdomIndex];
+    if (myId === undefined) return false;
+    for (let other = 0; other < options.kingdomCount; other++) {
+      if (other === kingdomIndex) continue;
+      const otherId = kingdomGame.kingdomEntities()[other];
+      if (otherId !== undefined && diplomacyGame.state.isAtWar(myId as number, otherId as number)) return true;
+    }
+    return false;
+  };
   const militaryContextFor = (kingdomIndex: number): AiMilitaryContext => ({
     ownStrength(): number {
       const myId = kingdomGame.kingdomEntities()[kingdomIndex];
@@ -626,6 +670,9 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         out.push(believedStrengthOf(kingdomIndex, other) ?? committedStrengthOf(otherId as number));
       }
       return out;
+    },
+    warCommitment(): number {
+      return atWarWithAnyone(kingdomIndex) ? 1 : 0;
     },
   });
   const warTargetsFor = (kingdomIndex: number): readonly AiWarTarget[] => {
@@ -652,7 +699,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   };
 
   // ---- research (M32) ----
-  const researchGameRef: { current?: ReturnType<typeof registerResearchGameplay> } = {};
   const researchGame = registerResearchGameplay(kernel, world, db, game, kingdomGame, {
     knownByNeighbor(kingdomId: EntityId, techId: string): boolean {
       const myIndex = kingdomGame.kingdomEntities().indexOf(kingdomId);
@@ -694,6 +740,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
 
   // ---- per-kingdom AI (M19-M33), kingdoms aiFromIndex..n-1 ----
   const sharedPlanState = defineAiPlanState(world);
+  const rosterAdoption = options.rosterAdoption ?? true; // 1.0: AI recruits the full roster (wrapper opts out)
   for (let k = aiFromIndex; k < options.kingdomCount; k++) {
     const dctx = diplomacyContextFor(k);
     const managerOptions: AiConstructionOptions = {
@@ -750,6 +797,18 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       getPlan: () => planner.currentPlan(),
       warTargets: () => warTargetsFor(k),
       grudgeTarget: () => dctx.strongestGrudge?.()?.target ?? null, // M47.8: PunitiveRaid aims here
+      // 1.0 roster adoption: the AI recruits the full roster as its warfare techs unlock it.
+      // Gated on the flag so the harness wrapper (rosterAdoption: false) keeps pinned behaviour.
+      ...(rosterAdoption
+        ? {
+            isUnitUnlocked: (defId: string): boolean => {
+              const def = db.units.get(defId);
+              if (def?.requiresTech === undefined) return true; // ungated units always available
+              const myId = kingdomGame.kingdomEntities()[k];
+              return myId !== undefined && (researchGameRef.current?.isKnown(myId, def.requiresTech) ?? false);
+            },
+          }
+        : {}),
       spatialSiege: (castleVi) => capitalDeathRules && (spatialAssault.applicable?.(castleVi) ?? false), // M53: assault layer capitals directly
       assaultAdvice: (castleVi) => intelAdvice.counsel?.(k, castleVi) ?? 'assault', // M54: fog-symmetric counsel
       diplomacy: {
@@ -795,6 +854,13 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       return kingdomId !== 0 ? { component: VillageOwner, kingdomId: kingdomId as EntityId } : undefined;
     }, VillageOwner);
   }
+
+  // ---- 1.x ownership guard: village-mutating commands act only on the issuer's own villages.
+  // Injected here (after both layers exist) into the settler + village command handlers; kingdom.ts
+  // already guards village.setTaxRate directly. Multi-kingdom only — kingdomGame.ownsVillage returns
+  // true when there's no VillageOwner, so single-kingdom / Terra compositions are unrestricted.
+  game.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
+  settlerGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
 
   // ---- M47.8: occupation — the non-castle conquest path (campaign-only; wrapper opts out) ----
   const occupationGame = (options.occupation ?? true)

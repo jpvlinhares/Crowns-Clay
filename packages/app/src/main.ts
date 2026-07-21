@@ -9,7 +9,7 @@
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
 import { BASE_TICKS_PER_SECOND, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
-import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel } from '@crowns/ui';
+import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel, type VillageInfo } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
 import { EN_LOCALE } from './locale/en.js';
@@ -47,30 +47,54 @@ const hud = {
   status: document.getElementById('status') as HTMLElement,
   villages: document.getElementById('village-stats') as HTMLElement,
 };
-const villageStats = new Map<number, { name: string; population: number; food: number; happiness: number; goods?: Record<string, number> }>();
+/** One delimited box per resource — e.g. [Wood 100]. Shared by the player's HUD bar and the
+ * Realms panel so both read identically. */
+function resourceBox(label: string, value: string | number): HTMLElement {
+  const box = el('span', undefined, 'rbox');
+  box.append(el('span', label, 'rl'));
+  const b = document.createElement('b');
+  b.textContent = String(value);
+  box.append(b);
+  return box;
+}
 
-/** One fixed-column chip per village (built via DOM, not string concat, so names
- * never need escaping and tabular-numeral values sit in stable slots). */
+/** Ordered, data-driven resource boxes for a village: pop, joy, food, then every OTHER good the
+ * sim reports (base or modded), in the sim's stable order — nothing hardcoded per resource, so a
+ * modded resource gets its own box automatically. Order per 1.x spec: pop · joy · food · goods. */
+function villageResourceBoxes(s: VillageInfo): HTMLElement[] {
+  const boxes = [resourceBox('pop', s.population), resourceBox('joy', s.happiness), resourceBox('food', s.food)];
+  for (const [good, amount] of Object.entries(s.goods)) boxes.push(resourceBox(good, amount));
+  return boxes;
+}
+
+/** The main-view HUD bar shows ONLY the player's own villages (1.x: rival kingdoms' goods moved
+ * to the Realms panel). One fixed chip per owned village, resources in delimited boxes. */
 function renderVillageChips(): void {
   const host = hud.villages;
   host.replaceChildren();
-  const field = (label: string, value: string | number): HTMLElement => {
-    const span = document.createElement('span');
-    span.className = 'f';
-    const b = document.createElement('b');
-    b.textContent = String(value);
-    span.append(`${label} `, b);
-    return span;
-  };
-  for (const s of villageStats.values()) {
-    const chip = document.createElement('span');
-    chip.className = 'vchip';
-    const name = document.createElement('span');
-    name.className = 'nm';
-    name.textContent = s.name;
-    chip.append(name, field('pop', s.population), field('food', s.food), field('joy', s.happiness));
-    for (const [good, amount] of Object.entries(s.goods ?? {})) chip.append(field(good, amount));
+  for (const s of [...store.state.villages.values()].filter((v) => v.owned).sort((a, b) => a.id - b.id)) {
+    const chip = el('span', undefined, 'vchip');
+    chip.append(el('span', s.name, 'nm'), ...villageResourceBoxes(s));
     host.append(chip);
+  }
+}
+
+/** Realms panel (1.x): every rival (non-owned) village and its stored goods — the same boxed,
+ * data-driven rendering as the player's own bar, just relocated off the main view. */
+function renderRealmsPanel(): void {
+  const body = realmsPanel.body;
+  body.replaceChildren();
+  const foreign = [...store.state.villages.values()].filter((v) => !v.owned).sort((a, b) => a.id - b.id);
+  if (foreign.length === 0) {
+    body.append(el('div', 'No rival settlements known yet.', 'hint'));
+    return;
+  }
+  body.append(el('div', 'Stored goods of rival kingdoms’ settlements.', 'hint'));
+  for (const s of foreign) {
+    body.append(el('div', s.name, 'ledger-heading'));
+    const row = el('div', undefined, 'goods-row');
+    row.append(...villageResourceBoxes(s));
+    body.append(row);
   }
 }
 let speed: Speed = 1;
@@ -245,8 +269,8 @@ const diplomacyPanel = panels.register('diplomacy', 'Diplomacy', '🤝');
 const militaryPanel = panels.register('military', 'Military', '⚔');
 const researchPanel = panels.register('research', 'Research', '📜');
 const victoryPanel = panels.register('victory', 'Victory', '🏆');
-// M50 (Phase 8): the capital's castle-defence layer — build palette + garrison posting
-const castlePanel = panels.register('castle', 'Castle', '🏰');
+// 1.x: rival kingdoms' stored goods live here, off the main view (dedicated window).
+const realmsPanel = panels.register('realms', 'Realms', '🌐');
 const modsPanel = panels.register('mods', 'Mods', '🧩');
 const helpPanel = panels.register('help', 'Keybinds', '⌨');
 villagePanel.open();
@@ -257,6 +281,44 @@ const el = (tag: string, text?: string, className?: string): HTMLElement => {
   if (className !== undefined) node.className = className;
   return node;
 };
+
+// M50 (Phase 8), rebuilt 1.x: the capital's castle-defence layer now opens as its OWN
+// full-screen view (out of the cramped 300px dock) so the map is big enough to place walls,
+// gates and towers precisely. Presentation-only — same `panels.defence` projection, same
+// defence.* commands, the seeded map generation/persistence is untouched. Its toolbar button
+// is hand-wired (not a dock panel) but kept in the same slot, just before Realms.
+const castleViewBackdrop = document.getElementById('castle-view-backdrop') as HTMLElement;
+const castleToolbarBtn = document.createElement('button');
+castleToolbarBtn.textContent = '🏰';
+castleToolbarBtn.title = 'Castle';
+castleToolbarBtn.setAttribute('aria-label', 'Castle');
+castleToolbarBtn.setAttribute('aria-pressed', 'false');
+{
+  const toolbar = document.getElementById('ui-toolbar') as HTMLElement;
+  toolbar.insertBefore(castleToolbarBtn, toolbar.querySelector('[aria-label="Realms"]'));
+}
+const castleView = {
+  isOpen: (): boolean => !castleViewBackdrop.hidden,
+  open(): void {
+    castleViewBackdrop.hidden = false;
+    castleToolbarBtn.classList.add('active');
+    castleToolbarBtn.setAttribute('aria-pressed', 'true');
+    send({ kind: 'requestPanels' }); // pull a fresh defence snapshot for the freshly-opened view
+    renderCastlePanel();
+  },
+  close(): void {
+    castleViewBackdrop.hidden = true;
+    castleToolbarBtn.classList.remove('active');
+    castleToolbarBtn.setAttribute('aria-pressed', 'false');
+    castleAction = null; // leaving the view disarms any half-armed build/post order
+  },
+  toggle(): void {
+    if (this.isOpen()) this.close();
+    else this.open();
+  },
+};
+castleToolbarBtn.addEventListener('click', () => castleView.toggle());
+(document.getElementById('castle-view-close') as HTMLButtonElement).addEventListener('click', () => castleView.close());
 
 // ---------- tooltips (M42; doc 01 §3 "legible depth" — no hidden modifiers) ----------
 /** Attach a keyboard+hover tooltip (TooltipController, event-delegated — no per-element wiring). */
@@ -301,34 +363,41 @@ function renderVillagePanel(): void {
     body.append(tip(el('div', goods, 'row'), 'Stockpiled resources — spent on construction, upkeep, and edicts.'));
   }
 
-  const taxRow = el('div', undefined, 'row');
-  taxRow.append(el('span', 'tax'));
-  const select = document.createElement('select');
-  select.setAttribute('aria-label', 'Tax rate');
-  tip(select, 'Higher rates raise gold income but bleed happiness daily — punitive rates are self-defeating (GDD §2).');
-  ['none', 'low', 'normal', 'high', 'punitive'].forEach((name, rate) => {
-    const option = document.createElement('option');
-    option.value = String(rate);
-    option.textContent = name;
-    option.selected = rate === v.taxRate;
-    select.append(option);
-  });
-  select.addEventListener('change', () => command('village.setTaxRate', { villageId: v.id, rate: Number(select.value) }));
-  taxRow.append(select);
-  const upgrade = document.createElement('button');
-  upgrade.textContent = appLocale.resolve(localeKey('ui.village.upgrade-tier'));
-  if (v.tier === 1) {
-    tip(
-      upgrade,
-      `Tier 2 needs: pop ${TIER2_REQUIREMENTS.population} (have ${v.population}) · ` +
-        `${TIER2_REQUIREMENTS.distinctBuildings} distinct completed buildings · ` +
-        `${Object.entries(TIER2_REQUIREMENTS.materials).map(([id, amt]) => `${amt} ${id.split('.').pop()}`).join(' + ')} · ` +
-        `happiness ${TIER2_REQUIREMENTS.happiness} (have ${v.happiness})`,
-    );
+  // 1.x: tax rate and tier upgrade are OWNER-ONLY actions (the sim rejects them for foreign
+  // villages regardless; hiding the controls avoids implying a settlement you don't rule is
+  // editable). A foreign village shows its vitals above, read-only, and no tax/tier row.
+  if (v.owned) {
+    const taxRow = el('div', undefined, 'row');
+    taxRow.append(el('span', 'tax'));
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Tax rate');
+    tip(select, 'Higher rates raise gold income but bleed happiness daily — punitive rates are self-defeating (GDD §2).');
+    ['none', 'low', 'normal', 'high', 'punitive'].forEach((name, rate) => {
+      const option = document.createElement('option');
+      option.value = String(rate);
+      option.textContent = name;
+      option.selected = rate === v.taxRate;
+      select.append(option);
+    });
+    select.addEventListener('change', () => command('village.setTaxRate', { villageId: v.id, rate: Number(select.value) }));
+    taxRow.append(select);
+    const upgrade = document.createElement('button');
+    upgrade.textContent = appLocale.resolve(localeKey('ui.village.upgrade-tier'));
+    if (v.tier === 1) {
+      tip(
+        upgrade,
+        `Tier 2 needs: pop ${TIER2_REQUIREMENTS.population} (have ${v.population}) · ` +
+          `${TIER2_REQUIREMENTS.distinctBuildings} distinct completed buildings · ` +
+          `${Object.entries(TIER2_REQUIREMENTS.materials).map(([id, amt]) => `${amt} ${id.split('.').pop()}`).join(' + ')} · ` +
+          `happiness ${TIER2_REQUIREMENTS.happiness} (have ${v.happiness})`,
+      );
+    }
+    upgrade.addEventListener('click', () => command('village.upgrade', { villageId: v.id }));
+    taxRow.append(upgrade);
+    body.append(taxRow);
+  } else {
+    body.append(el('div', 'A rival kingdom’s settlement — you can observe it, but not govern it.', 'hint'));
   }
-  upgrade.addEventListener('click', () => command('village.upgrade', { villageId: v.id }));
-  taxRow.append(upgrade);
-  body.append(taxRow);
 
   if (store.state.villages.size > 1) {
     const pick = el('div', undefined, 'row');
@@ -822,16 +891,28 @@ function renderMilitaryPanel(): void {
   tip(villageSelect, 'Recruits draw population from this village permanently (a real trade-off, GDD §6) — it needs a barracks.');
   villageRow.append(villageSelect);
   body.append(villageRow);
+  // 1.0: tech-gated units (swordsman/crossbowman/knight/ram/trebuchet) show LOCKED with the
+  // tech name until the player researches it. The real guard is server-side (the recruit
+  // command rejects it either way); this is just so the palette reads honestly.
+  const knownTechs = new Set(panelsState.research?.known ?? []);
   for (const unit of catalog?.units ?? []) {
+    const locked = unit.requiresTech !== undefined && !knownTechs.has(unit.requiresTech);
     const row = el('div', undefined, 'row');
     const b = document.createElement('button');
-    b.textContent = `${unit.name} — ${unit.popCost} adults, ${unit.costGold}⛁`;
+    b.textContent = locked
+      ? `🔒 ${unit.name} — needs ${unit.requiresTechName ?? 'a technology'}`
+      : `${unit.name} — ${unit.popCost} adults, ${unit.costGold}⛁`;
     tip(b, `${unit.unitClass} · equipment: ${unit.cost.map(([n, a]) => `${a} ${n.toLowerCase()}`).join(', ') || 'none'} · ` +
-      `upkeep ${unit.upkeepGold}⛁/season · trains ${Math.round(unit.recruitTicks / 24)} days`);
-    b.addEventListener('click', () => {
-      if (selectedArmyVillage !== null) command('army.recruitUnit', { villageId: selectedArmyVillage, unitDef: unit.id });
-      send({ kind: 'requestPanels' });
-    });
+      `upkeep ${unit.upkeepGold}⛁/season · trains ${Math.round(unit.recruitTicks / 24)} days` +
+      (locked ? `\nLocked — research ${unit.requiresTechName ?? unit.requiresTech} to recruit.` : ''));
+    if (locked) {
+      b.setAttribute('aria-disabled', 'true');
+    } else {
+      b.addEventListener('click', () => {
+        if (selectedArmyVillage !== null) command('army.recruitUnit', { villageId: selectedArmyVillage, unitDef: unit.id });
+        send({ kind: 'requestPanels' });
+      });
+    }
     row.append(b);
     body.append(row);
   }
@@ -1064,30 +1145,43 @@ function decodeRle(pairs: readonly number[], total: number): Uint8Array {
   return out;
 }
 
+/** Pixels-per-tile so the defence map fills the large majority of its full-screen wrap.
+ * Measures the live wrap; falls back to a viewport estimate before the view is laid out
+ * (rendered-while-hidden). Non-integer scale is fine — the draw already overdraws by +0.5. */
+function castleMapScale(size: number): number {
+  const wrap = document.getElementById('castle-view-canvas-wrap');
+  const avail =
+    wrap !== null && wrap.clientWidth > 0 && wrap.clientHeight > 0
+      ? Math.min(wrap.clientWidth, wrap.clientHeight) - 20 // leave the wrap's padding breathing room
+      : Math.min(window.innerWidth * 0.62, window.innerHeight * 0.82); // pre-layout fallback
+  return Math.max(200, avail) / size;
+}
+
 function renderCastlePanel(): void {
-  const body = castlePanel.body;
-  body.replaceChildren();
+  const canvasWrap = document.getElementById('castle-view-canvas-wrap') as HTMLElement;
+  const tools = document.getElementById('castle-view-tools') as HTMLElement;
+  canvasWrap.replaceChildren();
+  tools.replaceChildren();
   const st = panelsState?.defence;
   if (st === undefined || st === null) {
-    body.append(el('div', CAMPAIGN_ONLY_HINT, 'hint'));
+    tools.append(el('div', CAMPAIGN_ONLY_HINT, 'hint'));
     return;
   }
   const tiles = decodeRle(st.tiles, st.size * st.size);
   const structureAt = (tx: number, ty: number) =>
     st.structures.find((r) => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
 
-  body.append(el('h3', 'Castle defence', 'ledger-heading'));
   const status = el('div', undefined, 'hint');
   status.textContent =
     castleAction === null ? 'Pick a structure or unit below, then click the map. Esc cancels.'
     : castleAction.mode === 'build' ? `Placing ${castleAction.def.split('.').pop() ?? ''} — click open ground`
     : castleAction.mode === 'demolish' ? 'Demolishing — click one of your structures'
     : 'Posting garrison — click the tile to hold';
-  body.append(status);
+  tools.append(status);
 
-  // -- the map --
+  // -- the map: sized to fill the large majority of the view (big tiles for precise placement) --
   const canvas = document.createElement('canvas');
-  const scale = 2.7; // 100 tiles into the 300px dock (minus padding)
+  const scale = castleMapScale(st.size);
   canvas.width = Math.floor(st.size * scale);
   canvas.height = Math.floor(st.size * scale);
   canvas.style.cursor = castleAction === null ? 'default' : 'crosshair';
@@ -1157,7 +1251,7 @@ function renderCastlePanel(): void {
       renderCastlePanel();
     });
     summary.append(clear);
-    body.append(summary);
+    tools.append(summary);
   }
 
   canvas.addEventListener('click', (e) => {
@@ -1177,10 +1271,10 @@ function renderCastlePanel(): void {
     }
     send({ kind: 'requestPanels' });
   });
-  body.append(canvas);
+  canvasWrap.append(canvas);
 
   // -- build palette --
-  body.append(el('h3', 'Build', 'ledger-heading'));
+  tools.append(el('h3', 'Build', 'ledger-heading'));
   const palette = el('div', undefined, 'row');
   for (const b of st.buildable) {
     const btn = document.createElement('button');
@@ -1201,14 +1295,14 @@ function renderCastlePanel(): void {
     renderCastlePanel();
   });
   palette.append(demolishBtn);
-  body.append(palette);
+  tools.append(palette);
 
   // -- garrison --
-  body.append(el('h3', 'Garrison', 'ledger-heading'));
+  tools.append(el('h3', 'Garrison', 'ledger-heading'));
   const postedIds = new Set(st.posts.map((p) => p.unitId));
   const idle = (panelsState?.units ?? []).filter((unit) => unit.complete && unit.armyId === 0 && !postedIds.has(unit.id));
   if (idle.length === 0 && st.posts.length === 0) {
-    body.append(el('div', 'No idle units — recruit in the Military panel; garrison shares the same soldier pool.', 'hint'));
+    tools.append(el('div', 'No idle units — recruit in the Military panel; garrison shares the same soldier pool.', 'hint'));
   }
   for (const unit of idle) {
     const row = el('div', undefined, 'row');
@@ -1222,7 +1316,7 @@ function renderCastlePanel(): void {
       renderCastlePanel();
     });
     row.append(postBtn);
-    body.append(row);
+    tools.append(row);
   }
   for (const p of st.posts) {
     const unit = panelsState?.units.find((x) => x.id === p.unitId);
@@ -1235,20 +1329,20 @@ function renderCastlePanel(): void {
       send({ kind: 'requestPanels' });
     });
     row.append(unpostBtn);
-    body.append(row);
+    tools.append(row);
   }
 
   // -- enemy intel (M54, ADR-4 §4): the STALE snapshot — walls as last seen, garrison
   // as your scouts' noisy belief. Never live truth; the "as of" line is the warning. --
   const intel = panelsState?.enemyIntel ?? [];
   if (intel.length > 0) {
-    body.append(el('h3', 'Enemy castles (intel)', 'ledger-heading'));
+    tools.append(el('h3', 'Enemy castles (intel)', 'ledger-heading'));
     for (const rec of intel) {
       const asOfDay = Math.floor(rec.asOfTick / 24);
       const garrison = rec.believedGarrison === null ? 'garrison unknown' : `garrison ~${rec.believedGarrison} (believed)`;
       const head = el('div', `${rec.name} — walls as of day ${asOfDay} · ${garrison}`, 'row');
       tip(head, 'A snapshot from your last scouting contact — the layout may have changed since.\nGarrison is a belief: contact-refreshed, decaying, never exact.');
-      body.append(head);
+      tools.append(head);
       const c = document.createElement('canvas');
       const s = 1.6; // compact stale view
       c.width = Math.floor(rec.size * s);
@@ -1271,7 +1365,7 @@ function renderCastlePanel(): void {
         gg.fillStyle = 'rgba(120, 100, 60, 0.25)';
         gg.fillRect(0, 0, c.width, c.height);
       }
-      body.append(c);
+      tools.append(c);
     }
   }
 }
@@ -1284,6 +1378,7 @@ function renderWarPanels(): void {
   renderCastlePanel();
 }
 renderWarPanels(); // initial hint state before any campaign boots
+renderRealmsPanel(); // 1.x: rival-goods window — initial "none known yet" hint
 
 // A panel/toast surface is rebuilt wholesale (replaceChildren) on store/snapshot updates.
 // That must NOT happen while the user is mid-interaction with it: replacing a live <select>
@@ -1459,7 +1554,6 @@ worker.onmessage = (event: MessageEvent) => {
           renderer.setBuildings(message.buildings ?? []);
           renderer.setRoads(message.roads ?? []);
           renderer.centerOnTile(focus.x, focus.y);
-          villageStats.clear();
           hud.villages.textContent = '';
         } else {
           void bootRenderer(message.world.widthTiles, message.world.heightTiles, message.entities, message.terrain, message.buildings, message.roads, focus);
@@ -1468,12 +1562,10 @@ worker.onmessage = (event: MessageEvent) => {
       return;
     case 'snapshotDelta': {
       renderer?.mirror.applyDelta(message);
-      for (const stat of message.villageStats ?? []) {
-        villageStats.set(stat.id, stat);
-      }
-      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0 })));
+      store.applyVillageStats((message.villageStats ?? []).map((s) => ({ ...s, goods: s.goods ?? {}, housing: s.housing ?? 0, stockCap: s.stockCap ?? 0, foodCap: s.foodCap ?? 0, owned: s.owned ?? true })));
       if ((message.villageStats?.length ?? 0) > 0) {
         renderVillageChips();
+        renderRealmsPanel();
       }
       if (renderer !== null) {
         for (const rec of message.buildingsAdded ?? []) renderer.addBuilding(rec);
@@ -1550,7 +1642,7 @@ worker.onmessage = (event: MessageEvent) => {
           if (playerKingdomId !== null && defender === playerKingdomId) {
             setSpeed(0);
             notifications.push({ type: 'siege.begunOnPlayer', tick: gameEvent.tick, data: gameEvent.data as Record<string, unknown> });
-            castlePanel.open();
+            castleView.open();
             toastSurfaced = true;
           }
         } else if (gameEvent.type === 'siege.capitalFallen') {
@@ -1930,14 +2022,15 @@ const KEYBINDS: readonly Keybind[] = [
   { key: 'Y', description: 'Toggle Victory panel', action: () => victoryPanel.toggle() },
   { key: 'M', description: 'Toggle Mods panel', action: () => modsPanel.toggle() },
   { key: '`', description: 'Toggle debug / sandbox editor panel', action: () => setDebugOpen(!debugOpen) },
-  { key: 'Escape', description: 'Cancel armed build/army/castle order, or close keybind help', action: (): void => {
+  { key: 'Escape', description: 'Cancel armed build/army/castle order, close the castle view or keybind help', action: (): void => {
     if (armedArmyAction !== null) {
       armedArmyAction = null;
       renderMilitaryPanel();
     } else if (castleAction !== null) {
       castleAction = null;
       renderCastlePanel();
-    } else if (store.state.armedBuild !== null) store.armBuild(null);
+    } else if (castleView.isOpen()) castleView.close();
+    else if (store.state.armedBuild !== null) store.armBuild(null);
     else if (demolishArmed) { demolishArmed = false; renderBuildingPanel(); }
     else if (helpPanel.isOpen()) helpPanel.close();
   } },

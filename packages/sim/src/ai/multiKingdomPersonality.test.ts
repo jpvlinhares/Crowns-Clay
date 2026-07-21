@@ -45,7 +45,7 @@ const GENEROUS: Considerations = {
   allianceOpportunity: 0.6,
   militaryStrength: 0.5,
   relativeAdvantage: 0.6,
-  researchOpportunity: 0.6, grievance: 0,
+  researchOpportunity: 0.6, grievance: 0, warCommitment: 0,
 };
 
 function fingerprintOf(weights: PersonalityWeights): number[] {

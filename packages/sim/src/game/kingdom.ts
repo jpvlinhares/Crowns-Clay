@@ -160,6 +160,10 @@ export interface KingdomGameplay {
   readonly mods: StatModifiers;
   /** Village → owning kingdom (M22); only defined when `kingdomCount > 1` was requested. */
   readonly VillageOwner?: SoAComponent<{ kingdom: 'eid' }>;
+  /** 1.x ownership guard: does `issuer`'s kingdom own `villageId`? True when there's no
+   * `VillageOwner` (single-kingdom / Terra). The action-side authority for village-mutating
+   * commands, injected into settler/village command handlers via their `setOwnershipGuard`. */
+  ownsVillage(issuer: number, villageId: number): boolean;
   kingdomEntity(): EntityId | null;
   /** All kingdom entities, player first (issuer 1), then AI kingdoms in spawn order (M22). */
   kingdomEntities(): readonly EntityId[];
@@ -255,6 +259,19 @@ export function registerKingdomGameplay(
    * single-kingdom behaviour when kingdomCount is 1 (every existing test uses issuer: 1). */
   const kingdomForIssuer = (issuer: number): EntityId | null => kingdomIds[issuer - 1] ?? kingdomIds[0] ?? null;
 
+  /** 1.x ownership guard: does the kingdom acting on `issuer`'s behalf own `villageId`? True in
+   * single-kingdom compositions (no `VillageOwner` — Terra, most unit tests: no ownership concept,
+   * so no restriction). This is the ACTION-side authority for village-mutating commands
+   * (setTaxRate/upgrade/build/demolish) — the player (issuer 1 = kingdom 0) can only touch its own
+   * settlements, AI (issuer k+1 = kingdom k) only its own, no matter how the command was reached. */
+  const ownsVillage = (issuer: number, villageId: number): boolean => {
+    if (VillageOwner === undefined) return true;
+    const kingdomId = kingdomForIssuer(issuer);
+    if (kingdomId === null) return false;
+    if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageOwner)) return false;
+    return (world.read(VillageOwner).kingdom[index(villageId)] as number) === (kingdomId as number);
+  };
+
   // ---------------- modifier board: edicts + offices, one rebuild ----------------
   // NB: the modifier board (`mods`) is shared across all kingdoms (M22 scoping note,
   // docs/design/07-ai-design.md) — only the player's kingdom (kingdomIds[0]) ever enacts
@@ -321,9 +338,10 @@ export function registerKingdomGameplay(
     ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
   };
 
-  kernel.registerCommand<{ villageId: number; rate: number }>('village.setTaxRate', (ctx, p) => {
+  kernel.registerCommand<{ villageId: number; rate: number }>('village.setTaxRate', (ctx, p, command) => {
     const village = p.villageId as EntityId;
     if (!world.isAlive(village)) return reject(ctx, 'village.setTaxRate', 'no such village');
+    if (!ownsVillage(command.issuer, p.villageId)) return reject(ctx, 'village.setTaxRate', 'not your village');
     const rate = p.rate | 0;
     if (rate < 0 || rate >= TAX_RATES.length) {
       return reject(ctx, 'village.setTaxRate', `rate must be 0..${TAX_RATES.length - 1} (none/low/normal/high/punitive)`);
@@ -586,6 +604,8 @@ export function registerKingdomGameplay(
     ledger,
     mods,
     ...(VillageOwner !== undefined ? { VillageOwner } : {}),
+    /** 1.x ownership guard for village-mutating commands — see the `ownsVillage` definition. */
+    ownsVillage,
     kingdomEntity: () => kingdomIds[0] ?? null,
     kingdomEntities: () => kingdomIds,
     treasury(): number {

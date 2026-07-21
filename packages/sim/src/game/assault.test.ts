@@ -35,6 +35,9 @@ function compose(): ReturnType<typeof composeCampaign> {
     // (the M47.8/M51 bookkeeping gap). M53's capital-death chain intercepts that
     // capture for layer capitals — switched off here; succession.test.ts owns it.
     succession: false,
+    // Pin a full stone reserve so the AI raises a whole castle to assault (these test the
+    // wall-breach RESOLVER, not economy pacing — decoupled from the 1.x leaner-start default).
+    startingStock: { 'base:resource.wood': 2000, 'base:resource.stone': 500, 'base:resource.food': 300, 'base:resource.tools': 25 },
   });
 }
 

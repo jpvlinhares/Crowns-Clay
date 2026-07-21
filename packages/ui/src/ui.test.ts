@@ -26,6 +26,7 @@ const village = (id: number, over: Partial<Parameters<UIStore['applyVillageStats
   taxRate: 2,
   cx: id * 30,
   cy: 30,
+  owned: true,
   ...over,
 });
 

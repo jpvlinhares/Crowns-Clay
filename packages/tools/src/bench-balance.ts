@@ -49,11 +49,17 @@ const SEED_BASE = 9000;
  * harness the M46 numbers were tuned on. */
 const REAL = process.argv.includes('--real');
 
-// Same "generic Warmonger/Builder stand-in" convention M24's own nightly harness
-// uses (multiKingdom.test.ts) — alternating aggression/economy-leaning weights so
-// both economy AND war pacing have something real to observe, not just growth.
-const WEIGHTS_A: PersonalityWeights = { expansion: 0.6, economy: 0.4, riskTolerance: 0.6, diplomacyTrust: 0.3, aggression: 0.6 };
-const WEIGHTS_B: PersonalityWeights = { expansion: 0.3, economy: 0.8, riskTolerance: 0.3, diplomacyTrust: 0.6, aggression: 0.2 };
+// 1.x war-cadence backlog (2026-07-18): the original "generic Warmonger/Builder stand-in"
+// pair (aggression 0.6/0.2, citing multiKingdom.test.ts's naming convention) never once
+// declared a war across the whole matrix — every campaign raced to a `prosperity` victory
+// by year 15-16 before either weight profile's war machinery had real runway. Replaced with
+// `multiKingdomWar.test.ts`'s AGGRESSIVE/PASSIVE pair verbatim — the one weight combination
+// in this repo PROVEN (by that test) to actually declare war and win it against a real
+// opposing army within a test-sized number of years, not just reasoned to. Same alternating
+// convention (even index = aggressive, odd = passive), so a 4-kingdom run still mixes
+// aggressive-vs-aggressive and aggressive-vs-passive matchups.
+const WEIGHTS_A: PersonalityWeights = { expansion: 0.3, economy: 0.6, riskTolerance: 0.7, diplomacyTrust: 0.2, aggression: 0.9 };
+const WEIGHTS_B: PersonalityWeights = { expansion: 0.2, economy: 0.9, riskTolerance: 0.3, diplomacyTrust: 0.5, aggression: 0 };
 
 interface RunResult {
   readonly seed: number;
@@ -73,6 +79,16 @@ interface RunResult {
   readonly capitulations: number;
   readonly destructions: number;
   readonly risings: number;
+  /** 1.x war-cadence backlog telemetry: does a declared war ever actually REACH a siege,
+   * and does a mounted siege ever REACH an assault? Distinguishes "never marches" from
+   * "arrives but never assaults" — the roadmap's "no capital sieges mounted" finding had
+   * no counter to confirm which stage was stalling. */
+  readonly siegesBegun: number;
+  readonly assaultsBegun: number;
+  /** 1.x war-cadence: sieges that CAPTURED the castle. An undefended capital captures outright on
+   * the first breach (no `siege.assaultBegun` fires — that's only for a defended garrison fight),
+   * so this is the outcome counter that reveals sieges actually RESOLVING, not just beginning. */
+  readonly siegesCaptured: number;
 }
 
 function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): RunResult {
@@ -92,7 +108,19 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       : composeMultiKingdom({
           seed,
           kingdomCount,
-          mapSize: 260,
+          // 1.x war-cadence backlog, part 3 (2026-07-18): the previous 260 put adjacent
+          // kingdoms ~130-150 tiles apart against a STATIC 48-tile scouting radius
+          // (ai/scouting.ts's SCOUT_REVEAL_RADIUS, no active exploration) — rivals could
+          // never discover each other for an entire 100-year run, at any aggression, which
+          // is what part 2's weight retune ran into. 65 was picked by direct measurement
+          // (not derived from `fairPlacement`'s ring formula alone — the flat harness's
+          // uniform terrain biases site selection in ways worth checking empirically): at
+          // kingdomCount=4 it gives all 6 pairwise inter-capital distances <= 48 tiles,
+          // reproducibly across seeds 9000-9002, while still founding all four kingdoms
+          // cleanly clear of VILLAGE_MIN_SPACING (24). Tuned for kingdomCount=4 (this
+          // tool's default and the only count exercised so far) — a different `--kingdoms`
+          // value may need its own recalibration.
+          mapSize: 65,
           aiFromIndex: 0,
           weightsOf: (k) => (k % 2 === 0 ? WEIGHTS_A : WEIGHTS_B),
           difficulty: DIFFICULTY_PRESETS[level],
@@ -121,6 +149,12 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
     composed.kernel.subscribe('kingdom.capitulated', () => capitulations++);
     composed.kernel.subscribe('kingdom.destroyed', () => destructions++);
     composed.kernel.subscribe('kingdom.newLordRisen', () => risings++);
+    let siegesBegun = 0;
+    let assaultsBegun = 0;
+    let siegesCaptured = 0;
+    composed.kernel.subscribe('siege.begun', () => siegesBegun++);
+    composed.kernel.subscribe('siege.assaultBegun', () => assaultsBegun++);
+    composed.kernel.subscribe('siege.captured', () => siegesCaptured++);
 
     composed.kernel.step(); // genesis
     const totalTicks = YEARS * TICKS_PER_YEAR;
@@ -155,6 +189,9 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       capitulations,
       destructions,
       risings,
+      siegesBegun,
+      assaultsBegun,
+      siegesCaptured,
     };
   } catch (error) {
     return {
@@ -172,6 +209,9 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       capitulations: 0,
       destructions: 0,
       risings: 0,
+      siegesBegun: 0,
+      assaultsBegun: 0,
+      siegesCaptured: 0,
     };
   }
 }
@@ -197,7 +237,8 @@ for (const level of DIFFICULTY_LEVELS) {
       const outcome = r.winner === null ? `no winner by year ${YEARS} (SOFT-LOCK RISK)` : `${r.winner.type} in year ${r.winner.year}`;
       console.log(
         `OK     ${level.padEnd(6)} seed=${seed} k=${kc} · ${outcome} · eliminated=${r.kingdomsEliminated}/${kc} · ` +
-          `wars ${r.warsDeclared}/${r.warsEnded} ended · occupations ${r.occupations} · ` +
+          `wars ${r.warsDeclared}/${r.warsEnded} ended · sieges ${r.siegesBegun} assaults ${r.assaultsBegun} captures ${r.siegesCaptured} · ` +
+          `occupations ${r.occupations} · ` +
           `capitulated ${r.capitulations} · destroyed ${r.destructions} · risen ${r.risings} · ` +
           `pop=[${r.finalPopulations.map((p) => p.toFixed(0)).join(',')}] (${ms}ms)`,
       );
@@ -214,8 +255,11 @@ const clean = results.filter((r) => !r.crashed);
 const starvedAtPeace = clean.filter((r) => r.warsDeclared === 0 && r.finalPopulations.some((p) => p <= 0));
 const warsStarted = clean.reduce((n, r) => n + r.warsDeclared, 0);
 const warsEnded = clean.reduce((n, r) => n + r.warsEnded, 0);
+const totalSieges = clean.reduce((n, r) => n + r.siegesBegun, 0);
+const totalAssaults = clean.reduce((n, r) => n + r.assaultsBegun, 0);
+const totalCaptures = clean.reduce((n, r) => n + r.siegesCaptured, 0);
 const victoryTypes = new Set(clean.filter((r) => r.winner !== null).map((r) => r.winner?.type));
-console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
+console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · sieges: ${totalSieges} begun, ${totalAssaults} assaulted, ${totalCaptures} captured · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
 if (crashes.length > 0) {
   console.error(`FAIL: ${crashes.length} campaign(s) crashed (SC-2 violation)`);
   process.exitCode = 1;

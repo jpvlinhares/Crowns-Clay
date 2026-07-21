@@ -134,6 +134,16 @@ AI's cooperation. Combat/siege engagement itself is unchanged by any of this (st
 existing "no active NAP ⇒ hostile" gate, M27/M30) — `atWar` layers negotiable, tracked diplomatic
 state on top, it isn't a new prerequisite for the fighting to start.
 
+**1.0 roster-adoption delta (content-completeness):** the recruiter is no longer "always
+`RECRUIT_ORDER[0]`". A stateless class ROTATION (`pickRosterRecruit`) picks today's unit from the
+kingdom's own composition: slot = unit count % 4 over `[line, ranged, line, cavalry]`, each slot
+taking the best UNLOCKED unit of its class, siege engines only under `ConquestWar` with an army
+raised and under a cap. Mechanism, not scoring — mixed armies with an infantry backbone that
+upgrade themselves as warfare techs land, with no utility surface to tune. Two caveats recorded in
+doc 12's war-cadence backlog part 8: it is currently INERT (the real composition's AI is
+resource-starved and never raises a barracks), and AI tech PRIORITIES are unchanged, so the
+capstone units (Knight, Trebuchet) stay late and personality-flavoured until that post-1.0 item.
+
 **M53 delta (Phase 8; OQ-9/OQ-11):** two additions, both deliberately evaluator-reusing rather
 than new brains. (1) *Capital sieges:* with occupation now exempting defence-layer capitals, the
 military manager marks them as castles in its target list and — via the `spatialSiege` hook —
