@@ -536,23 +536,23 @@ export function registerDiplomacyGameplay(
     const n = kingdomGame.kingdomEntities().length;
     return Math.max(0, Math.min(n - 1, issuer - 1));
   };
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   kernel.registerCommand<{ targetKingdom: number; gold: number }>('kingdom.sendGift', (ctx, p, command) => {
     const senderIndex = indexForIssuer(command.issuer);
     const senderId = kingdomAt(senderIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
-    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.sendGift', 'no such kingdom');
-    if (senderId === targetId) return reject(ctx, 'kingdom.sendGift', 'cannot gift yourself');
-    if (!options.hasDiscovered(senderIndex, targetId)) return reject(ctx, 'kingdom.sendGift', 'kingdom not yet discovered');
+    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.sendGift', 'no such kingdom', command.issuer);
+    if (senderId === targetId) return reject(ctx, 'kingdom.sendGift', 'cannot gift yourself', command.issuer);
+    if (!options.hasDiscovered(senderIndex, targetId)) return reject(ctx, 'kingdom.sendGift', 'kingdom not yet discovered', command.issuer);
     const gold = Math.max(0, p.gold);
     const k = world.write(kingdomGame.Kingdom);
     const si = index(senderId as number);
     const ti = index(targetId as number);
     if ((k.treasury[si] as number) < gold) {
-      return reject(ctx, 'kingdom.sendGift', `insufficient gold (${(k.treasury[si] as number).toFixed(0)}/${gold})`);
+      return reject(ctx, 'kingdom.sendGift', `insufficient gold (${(k.treasury[si] as number).toFixed(0)}/${gold})`, command.issuer);
     }
     k.treasury[si] = (k.treasury[si] as number) - gold;
     k.treasury[ti] = (k.treasury[ti] as number) + gold;
@@ -568,9 +568,9 @@ export function registerDiplomacyGameplay(
     const senderIndex = indexForIssuer(command.issuer);
     const senderId = kingdomAt(senderIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
-    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.sendInsult', 'no such kingdom');
-    if (senderId === targetId) return reject(ctx, 'kingdom.sendInsult', 'cannot insult yourself');
-    if (!options.hasDiscovered(senderIndex, targetId)) return reject(ctx, 'kingdom.sendInsult', 'kingdom not yet discovered');
+    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.sendInsult', 'no such kingdom', command.issuer);
+    if (senderId === targetId) return reject(ctx, 'kingdom.sendInsult', 'cannot insult yourself', command.issuer);
+    if (!options.hasDiscovered(senderIndex, targetId)) return reject(ctx, 'kingdom.sendInsult', 'kingdom not yet discovered', command.issuer);
     const opinionDelta = state.applyInsult(senderId as number, targetId as number, ctx.tick);
     ctx.events.publish({
       type: 'diplomacy.insultSent',
@@ -584,14 +584,14 @@ export function registerDiplomacyGameplay(
     const proposerId = kingdomAt(proposerIndex);
     const targetIndex = p.targetKingdom | 0;
     const targetId = kingdomAt(targetIndex);
-    if (proposerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.proposePact', 'no such kingdom');
-    if (proposerId === targetId) return reject(ctx, 'kingdom.proposePact', 'cannot pact with yourself');
+    if (proposerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.proposePact', 'no such kingdom', command.issuer);
+    if (proposerId === targetId) return reject(ctx, 'kingdom.proposePact', 'cannot pact with yourself', command.issuer);
     if (!options.hasDiscovered(proposerIndex, targetId) || !options.hasDiscovered(targetIndex, proposerId)) {
-      return reject(ctx, 'kingdom.proposePact', 'kingdoms have not made contact');
+      return reject(ctx, 'kingdom.proposePact', 'kingdoms have not made contact', command.issuer);
     }
     const pactType: PactType = p.pactType === 'trade' ? 'trade' : p.pactType === 'alliance' ? 'alliance' : 'nonAggression';
     if (state.hasPact(proposerId as number, targetId as number, pactType)) {
-      return reject(ctx, 'kingdom.proposePact', 'pact already active');
+      return reject(ctx, 'kingdom.proposePact', 'pact already active', command.issuer);
     }
     const opinion = state.opinionOf(proposerId as number, targetId as number);
     const evaluation = evaluateDeal(opinion, pactType, options.personalityOf(targetId), state.reputationOf(proposerId as number));
@@ -614,10 +614,10 @@ export function registerDiplomacyGameplay(
     const senderIndex = indexForIssuer(command.issuer);
     const senderId = kingdomAt(senderIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
-    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.breakPact', 'no such kingdom');
+    if (senderId === undefined || targetId === undefined) return reject(ctx, 'kingdom.breakPact', 'no such kingdom', command.issuer);
     const pactType: PactType = p.pactType === 'trade' ? 'trade' : p.pactType === 'alliance' ? 'alliance' : 'nonAggression';
     if (!state.hasPact(senderId as number, targetId as number, pactType)) {
-      return reject(ctx, 'kingdom.breakPact', 'no such pact');
+      return reject(ctx, 'kingdom.breakPact', 'no such pact', command.issuer);
     }
     state.removePact(senderId as number, targetId as number, pactType);
     state.applyOpinionDelta(senderId as number, targetId as number, BREAK_PACT_OPINION_PENALTY);
@@ -669,12 +669,12 @@ export function registerDiplomacyGameplay(
     const declarerIndex = indexForIssuer(command.issuer);
     const declarerId = kingdomAt(declarerIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
-    if (declarerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.declareWar', 'no such kingdom');
-    if (declarerId === targetId) return reject(ctx, 'kingdom.declareWar', 'cannot declare war on yourself');
-    if (!options.hasDiscovered(declarerIndex, targetId)) return reject(ctx, 'kingdom.declareWar', 'kingdom not yet discovered');
-    if (state.isAtWar(declarerId as number, targetId as number)) return reject(ctx, 'kingdom.declareWar', 'already at war');
+    if (declarerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.declareWar', 'no such kingdom', command.issuer);
+    if (declarerId === targetId) return reject(ctx, 'kingdom.declareWar', 'cannot declare war on yourself', command.issuer);
+    if (!options.hasDiscovered(declarerIndex, targetId)) return reject(ctx, 'kingdom.declareWar', 'kingdom not yet discovered', command.issuer);
+    if (state.isAtWar(declarerId as number, targetId as number)) return reject(ctx, 'kingdom.declareWar', 'already at war', command.issuer);
     if (state.lordOf(declarerId as number) !== undefined) {
-      return reject(ctx, 'kingdom.declareWar', 'a vassal cannot declare war independently');
+      return reject(ctx, 'kingdom.declareWar', 'a vassal cannot declare war independently', command.issuer);
     }
     const casusBelli = p.casusBelli === true;
     state.declareWar(declarerId as number, targetId as number);
@@ -700,13 +700,13 @@ export function registerDiplomacyGameplay(
     const proposerIndex = indexForIssuer(command.issuer);
     const proposerId = kingdomAt(proposerIndex);
     const targetId = kingdomAt(p.targetKingdom | 0);
-    if (proposerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.proposePeace', 'no such kingdom');
-    if (!state.isAtWar(proposerId as number, targetId as number)) return reject(ctx, 'kingdom.proposePeace', 'not at war');
+    if (proposerId === undefined || targetId === undefined) return reject(ctx, 'kingdom.proposePeace', 'no such kingdom', command.issuer);
+    if (!state.isAtWar(proposerId as number, targetId as number)) return reject(ctx, 'kingdom.proposePeace', 'not at war', command.issuer);
     const tribute = Math.max(0, p.tribute ?? 0);
     const ki = index(proposerId as number);
     const k = world.write(kingdomGame.Kingdom);
     if (tribute > 0 && (k.treasury[ki] as number) < tribute) {
-      return reject(ctx, 'kingdom.proposePeace', `insufficient gold for tribute (${(k.treasury[ki] as number).toFixed(0)}/${tribute})`);
+      return reject(ctx, 'kingdom.proposePeace', `insufficient gold for tribute (${(k.treasury[ki] as number).toFixed(0)}/${tribute})`, command.issuer);
     }
     const exhaustion = state.warExhaustionOf(proposerId as number, targetId as number);
     const evaluation = evaluatePeaceDeal(exhaustion, tribute, options.personalityOf(targetId), state.reputationOf(proposerId as number));
@@ -750,15 +750,15 @@ export function registerDiplomacyGameplay(
     const proposerId = kingdomAt(proposerIndex);
     const counterpartIndex = p.counterpart | 0;
     const counterpartId = kingdomAt(counterpartIndex);
-    if (proposerId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.proposeVassalage', 'no such kingdom');
-    if (proposerId === counterpartId) return reject(ctx, 'kingdom.proposeVassalage', 'cannot vassalize yourself');
+    if (proposerId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.proposeVassalage', 'no such kingdom', command.issuer);
+    if (proposerId === counterpartId) return reject(ctx, 'kingdom.proposeVassalage', 'cannot vassalize yourself', command.issuer);
     if (!options.hasDiscovered(proposerIndex, counterpartId) || !options.hasDiscovered(counterpartIndex, proposerId)) {
-      return reject(ctx, 'kingdom.proposeVassalage', 'kingdoms have not made contact');
+      return reject(ctx, 'kingdom.proposeVassalage', 'kingdoms have not made contact', command.issuer);
     }
     const vassal = p.asVassal ? (proposerId as number) : (counterpartId as number);
     const lord = p.asVassal ? (counterpartId as number) : (proposerId as number);
-    if (state.isVassal(vassal)) return reject(ctx, 'kingdom.proposeVassalage', 'already a vassal');
-    if (state.isVassal(lord)) return reject(ctx, 'kingdom.proposeVassalage', 'a vassal cannot itself hold vassals');
+    if (state.isVassal(vassal)) return reject(ctx, 'kingdom.proposeVassalage', 'already a vassal', command.issuer);
+    if (state.isVassal(lord)) return reject(ctx, 'kingdom.proposeVassalage', 'a vassal cannot itself hold vassals', command.issuer);
     const perspective = p.asVassal ? 'lord' : 'vassal'; // the COUNTERPART evaluates the offer
     const evaluation = evaluateVassalageDeal(
       perspective,
@@ -783,10 +783,10 @@ export function registerDiplomacyGameplay(
     const senderIndex = indexForIssuer(command.issuer);
     const senderId = kingdomAt(senderIndex);
     const counterpartId = kingdomAt(p.counterpart | 0);
-    if (senderId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.breakVassalage', 'no such kingdom');
+    if (senderId === undefined || counterpartId === undefined) return reject(ctx, 'kingdom.breakVassalage', 'no such kingdom', command.issuer);
     const senderIsVassal = state.lordOf(senderId as number) === (counterpartId as number);
     const senderIsLord = state.lordOf(counterpartId as number) === (senderId as number);
-    if (!senderIsVassal && !senderIsLord) return reject(ctx, 'kingdom.breakVassalage', 'no such vassalage');
+    if (!senderIsVassal && !senderIsLord) return reject(ctx, 'kingdom.breakVassalage', 'no such vassalage', command.issuer);
     const vassal = senderIsVassal ? (senderId as number) : (counterpartId as number);
     state.breakVassalage(vassal);
     if (senderIsVassal) state.applyOpinionDelta(senderId as number, counterpartId as number, BREAK_VASSALAGE_OPINION_PENALTY); // rebellion

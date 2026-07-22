@@ -495,8 +495,13 @@ export function registerVillageGameplay(
   const ops = new VillageOps(world, comps, db, terrain);
   const settings: VillageSettings = { laborGated: false, haulerTarget: 0 };
 
-  const rejected = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  // `issuer` rides along so the client can tell a PLAYER's own rejected order from an AI
+  // kingdom's — the AI construction manager deliberately submits unaffordable orders and
+  // relies on this rejection to retry later (see ai/manager.ts's module doc), so without an
+  // issuer every AI kingdom's routine "insufficient wood" noise was indistinguishable from
+  // the player's own and surfaced as a toast regardless of whose order it was.
+  const rejected = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   // 1.x ownership guard (late-bound from kingdom.ts; un-set ⇒ allow, i.e. single-kingdom/Terra).
@@ -504,20 +509,20 @@ export function registerVillageGameplay(
   const ownsVillage = (issuer: number, villageId: number): boolean =>
     ownershipGuard === null || ownershipGuard(issuer, villageId);
 
-  kernel.registerCommand<{ x: number; y: number; name: string }>('village.found', (ctx, p) => {
+  kernel.registerCommand<{ x: number; y: number; name: string }>('village.found', (ctx, p, command) => {
     const result = ops.found(ctx, p.x | 0, p.y | 0, String(p.name ?? 'Nameless'), startingStock);
-    if (typeof result === 'string') rejected(ctx, 'village.found', result);
+    if (typeof result === 'string') rejected(ctx, 'village.found', result, command.issuer);
   });
   kernel.registerCommand<{ villageId: number; def: string; x: number; y: number }>('village.build', (ctx, p, command) => {
-    if (!ownsVillage(command.issuer, p.villageId | 0)) return rejected(ctx, 'village.build', 'not your village');
+    if (!ownsVillage(command.issuer, p.villageId | 0)) return rejected(ctx, 'village.build', 'not your village', command.issuer);
     const result = ops.place(ctx, p.villageId | 0, String(p.def), p.x | 0, p.y | 0);
-    if (typeof result === 'string') rejected(ctx, 'village.build', result);
+    if (typeof result === 'string') rejected(ctx, 'village.build', result, command.issuer);
   });
   kernel.registerCommand<{ buildingId: number }>('village.demolish', (ctx, p, command) => {
     const village = ops.villageOfBuilding(p.buildingId | 0);
-    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village');
+    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village', command.issuer);
     const result = ops.demolish(ctx, p.buildingId | 0);
-    if (typeof result === 'string') rejected(ctx, 'village.demolish', result);
+    if (typeof result === 'string') rejected(ctx, 'village.demolish', result, command.issuer);
   });
 
   // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
@@ -527,19 +532,19 @@ export function registerVillageGameplay(
   // separate bypass here: granting resources then issuing the ordinary
   // `village.build` achieves the same "spawn a building" outcome through the
   // one already-validated placement rulebook, rather than a second one.
-  kernel.registerCommand<{ villageId: number; resource: string; amount: number }>('sandbox.grantResource', (ctx, p) => {
-    if (!sandboxEnabled) return rejected(ctx, 'sandbox.grantResource', 'sandbox mode is not enabled');
+  kernel.registerCommand<{ villageId: number; resource: string; amount: number }>('sandbox.grantResource', (ctx, p, command) => {
+    if (!sandboxEnabled) return rejected(ctx, 'sandbox.grantResource', 'sandbox mode is not enabled', command.issuer);
     const village = p.villageId as EntityId;
     if (!world.isAlive(village) || !world.has(village, comps.VillageCore)) {
-      return rejected(ctx, 'sandbox.grantResource', 'no such village');
+      return rejected(ctx, 'sandbox.grantResource', 'no such village', command.issuer);
     }
     if (!db.resources.has(String(p.resource))) {
-      return rejected(ctx, 'sandbox.grantResource', `unknown resource '${String(p.resource)}'`);
+      return rejected(ctx, 'sandbox.grantResource', `unknown resource '${String(p.resource)}'`, command.issuer);
     }
     const amount = Number(p.amount);
-    if (!(amount > 0)) return rejected(ctx, 'sandbox.grantResource', 'amount must be a positive number');
+    if (!(amount > 0)) return rejected(ctx, 'sandbox.grantResource', 'amount must be a positive number', command.issuer);
     const stock = world.readObj(comps.Stockpile).tryGet((village as number) & 0x3fffff);
-    if (stock === undefined) return rejected(ctx, 'sandbox.grantResource', 'village has no stockpile');
+    if (stock === undefined) return rejected(ctx, 'sandbox.grantResource', 'village has no stockpile', command.issuer);
     const code = ops.resourceCode(String(p.resource)) as number;
     stock.set(code, (stock.get(code) ?? 0) + amount);
     ctx.events.publish({

@@ -110,8 +110,8 @@ export function registerArmyGameplay(
     }
   });
 
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   // an army is positioned and given movement state the moment military.ts creates it
@@ -131,20 +131,20 @@ export function registerArmyGameplay(
 
   kernel.registerCommand<{ armyId: number; x: number; y: number }>('army.moveTo', (ctx, p, command) => {
     const army = (p.armyId | 0) as EntityId;
-    if (!world.isAlive(army) || !world.has(army, ArmyMovement)) return reject(ctx, 'army.moveTo', 'no such army');
+    if (!world.isAlive(army) || !world.has(army, ArmyMovement)) return reject(ctx, 'army.moveTo', 'no such army', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(army as number)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.moveTo', 'not your army');
+      return reject(ctx, 'army.moveTo', 'not your army', command.issuer);
     }
     const x = p.x | 0;
     const y = p.y | 0;
     if (x < 0 || y < 0 || x >= terrain.width || y >= terrain.height || !hpaTerrain.passableAt(x, y)) {
-      return reject(ctx, 'army.moveTo', 'destination is impassable or out of bounds');
+      return reject(ctx, 'army.moveTo', 'destination is impassable or out of bounds', command.issuer);
     }
     const ai = index(army as number);
     const m = world.write(ArmyMovement);
     const route = paths.route(Math.round(m.x[ai] as number), Math.round(m.y[ai] as number), x, y);
-    if (route === null) return reject(ctx, 'army.moveTo', 'no route to that destination');
+    if (route === null) return reject(ctx, 'army.moveTo', 'no route to that destination', command.issuer);
     world.writeObj(ArmyPath).set(ai, route);
     m.pathIndex[ai] = 0;
     m.progress[ai] = 0;
@@ -154,13 +154,13 @@ export function registerArmyGameplay(
 
   kernel.registerCommand<{ armyId: number; stance: string }>('army.setStance', (ctx, p, command) => {
     const army = (p.armyId | 0) as EntityId;
-    if (!world.isAlive(army) || !world.has(army, ArmyMovement)) return reject(ctx, 'army.setStance', 'no such army');
+    if (!world.isAlive(army) || !world.has(army, ArmyMovement)) return reject(ctx, 'army.setStance', 'no such army', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(army as number)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.setStance', 'not your army');
+      return reject(ctx, 'army.setStance', 'not your army', command.issuer);
     }
     const stanceIndex = STANCES.indexOf(p.stance as Stance);
-    if (stanceIndex === -1) return reject(ctx, 'army.setStance', `unknown stance '${String(p.stance)}' (${STANCES.join('/')})`);
+    if (stanceIndex === -1) return reject(ctx, 'army.setStance', `unknown stance '${String(p.stance)}' (${STANCES.join('/')})`, command.issuer);
     const ai = index(army as number);
     const m = world.write(ArmyMovement);
     m.stance[ai] = stanceIndex;

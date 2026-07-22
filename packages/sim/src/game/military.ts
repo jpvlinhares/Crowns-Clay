@@ -125,8 +125,8 @@ export function registerMilitaryGameplay(
     for (let i = 0; i < name.length; i++) fold(name.charCodeAt(i));
   });
 
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   const kingdomForIssuer = (issuer: number): EntityId | undefined => {
@@ -148,15 +148,15 @@ export function registerMilitaryGameplay(
   kernel.registerCommand<{ villageId: number; unitDef: string }>('army.recruitUnit', (ctx, p, command) => {
     const villageId = p.villageId | 0;
     const village = villageId as EntityId;
-    if (!world.isAlive(village) || !world.has(village, Population)) return reject(ctx, 'army.recruitUnit', 'no such village');
+    if (!world.isAlive(village) || !world.has(village, Population)) return reject(ctx, 'army.recruitUnit', 'no such village', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === undefined) return reject(ctx, 'army.recruitUnit', 'no kingdom');
+    if (kingdomId === undefined) return reject(ctx, 'army.recruitUnit', 'no kingdom', command.issuer);
     if (VillageOwner !== undefined) {
       const owner = world.read(VillageOwner).kingdom[index(villageId)] as number;
-      if (owner !== (kingdomId as number)) return reject(ctx, 'army.recruitUnit', 'village belongs to another kingdom');
+      if (owner !== (kingdomId as number)) return reject(ctx, 'army.recruitUnit', 'village belongs to another kingdom', command.issuer);
     }
     const def = db.units.get(String(p.unitDef));
-    if (def === undefined) return reject(ctx, 'army.recruitUnit', `unknown unit '${String(p.unitDef)}'`);
+    if (def === undefined) return reject(ctx, 'army.recruitUnit', `unknown unit '${String(p.unitDef)}'`, command.issuer);
     const code = ops.defCode(def.id) as number;
 
     // barracks gate: a complete building in this village must train this unit
@@ -167,14 +167,14 @@ export function registerMilitaryGameplay(
       const buildingDef = game.ops.buildingDef(b.def[i] as number);
       if (buildingDef.military?.recruits?.includes(def.id)) canTrain = true;
     });
-    if (!canTrain) return reject(ctx, 'army.recruitUnit', `no building in this village trains '${def.id}'`);
+    if (!canTrain) return reject(ctx, 'army.recruitUnit', `no building in this village trains '${def.id}'`, command.issuer);
 
     // tech gate (1.0): a unit declaring `requiresTech` needs that tech known by the
     // recruiting kingdom. Default-open — no hook wired ⇒ ungated (harness/tests); ungated
     // units skip the check entirely, staying byte-identical.
     if (def.requiresTech !== undefined && options.isTechKnown !== undefined && !options.isTechKnown(kingdomId, def.requiresTech)) {
       const techName = db.techs.get(def.requiresTech)?.name ?? def.requiresTech;
-      return reject(ctx, 'army.recruitUnit', `requires the '${techName}' technology`);
+      return reject(ctx, 'army.recruitUnit', `requires the '${techName}' technology`, command.issuer);
     }
 
     // check-all-then-deduct-all: population, resources, gold
@@ -182,17 +182,17 @@ export function registerMilitaryGameplay(
     const pop = world.read(Population);
     const vi = index(villageId);
     if ((pop[field][vi] as number) < def.popCost.count) {
-      return reject(ctx, 'army.recruitUnit', `insufficient ${def.popCost.cohort}s (${(pop[field][vi] as number).toFixed(0)}/${def.popCost.count})`);
+      return reject(ctx, 'army.recruitUnit', `insufficient ${def.popCost.cohort}s (${(pop[field][vi] as number).toFixed(0)}/${def.popCost.count})`, command.issuer);
     }
     const stock = world.readObj(Stockpile).get(vi);
     for (const [resId, amount] of Object.entries(def.cost)) {
       const have = stock.get(game.ops.resourceCode(resId) as number) ?? 0;
-      if (have < amount) return reject(ctx, 'army.recruitUnit', `insufficient ${resId} (${have}/${amount})`);
+      if (have < amount) return reject(ctx, 'army.recruitUnit', `insufficient ${resId} (${have}/${amount})`, command.issuer);
     }
     const ki = index(kingdomId as number);
     const k = world.write(Kingdom);
     if ((k.treasury[ki] as number) < def.costGold) {
-      return reject(ctx, 'army.recruitUnit', `insufficient gold (${(k.treasury[ki] as number).toFixed(0)}/${def.costGold})`);
+      return reject(ctx, 'army.recruitUnit', `insufficient gold (${(k.treasury[ki] as number).toFixed(0)}/${def.costGold})`, command.issuer);
     }
 
     world.write(Population)[field][vi] = (pop[field][vi] as number) - def.popCost.count;
@@ -214,12 +214,12 @@ export function registerMilitaryGameplay(
 
   kernel.registerCommand<{ unitId: number }>('army.disbandUnit', (ctx, p, command) => {
     const unit = (p.unitId | 0) as EntityId;
-    if (!world.isAlive(unit) || !world.has(unit, Unit)) return reject(ctx, 'army.disbandUnit', 'no such unit');
+    if (!world.isAlive(unit) || !world.has(unit, Unit)) return reject(ctx, 'army.disbandUnit', 'no such unit', command.issuer);
     const u = world.read(Unit);
     const ui = index(unit as number);
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (u.kingdomId[ui] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.disbandUnit', 'not your unit');
+      return reject(ctx, 'army.disbandUnit', 'not your unit', command.issuer);
     }
     const def = ops.unitDef(u.def[ui] as number);
     returnPopulation(u.homeVillage[ui] as number, def.popCost.cohort, u.count[ui] as number);
@@ -232,9 +232,9 @@ export function registerMilitaryGameplay(
 
   kernel.registerCommand<{ name: string; villageId: number }>('army.createArmy', (ctx, p, command) => {
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === undefined) return reject(ctx, 'army.createArmy', 'no kingdom');
+    if (kingdomId === undefined) return reject(ctx, 'army.createArmy', 'no kingdom', command.issuer);
     const village = (p.villageId | 0) as EntityId;
-    if (!world.isAlive(village) || !world.has(village, VillageCore)) return reject(ctx, 'army.createArmy', 'no such village');
+    if (!world.isAlive(village) || !world.has(village, VillageCore)) return reject(ctx, 'army.createArmy', 'no such village', command.issuer);
     const vi = index(p.villageId);
     const core = world.read(VillageCore);
     const army = world.spawn();
@@ -248,19 +248,19 @@ export function registerMilitaryGameplay(
 
   kernel.registerCommand<{ unitId: number; armyId: number }>('army.assignUnit', (ctx, p, command) => {
     const unit = (p.unitId | 0) as EntityId;
-    if (!world.isAlive(unit) || !world.has(unit, Unit)) return reject(ctx, 'army.assignUnit', 'no such unit');
+    if (!world.isAlive(unit) || !world.has(unit, Unit)) return reject(ctx, 'army.assignUnit', 'no such unit', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
     const u = world.write(Unit);
     const ui = index(unit as number);
     if (kingdomId === undefined || (u.kingdomId[ui] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.assignUnit', 'not your unit');
+      return reject(ctx, 'army.assignUnit', 'not your unit', command.issuer);
     }
     const armyId = p.armyId | 0;
     if (armyId !== 0) {
       const army = armyId as EntityId;
-      if (!world.isAlive(army) || !world.has(army, Army)) return reject(ctx, 'army.assignUnit', 'no such army');
+      if (!world.isAlive(army) || !world.has(army, Army)) return reject(ctx, 'army.assignUnit', 'no such army', command.issuer);
       if ((world.read(Army).kingdomId[index(armyId)] as number) !== (kingdomId as number)) {
-        return reject(ctx, 'army.assignUnit', 'not your army');
+        return reject(ctx, 'army.assignUnit', 'not your army', command.issuer);
       }
     }
     u.armyId[ui] = armyId;
@@ -269,10 +269,10 @@ export function registerMilitaryGameplay(
 
   kernel.registerCommand<{ armyId: number }>('army.disbandArmy', (ctx, p, command) => {
     const army = (p.armyId | 0) as EntityId;
-    if (!world.isAlive(army) || !world.has(army, Army)) return reject(ctx, 'army.disbandArmy', 'no such army');
+    if (!world.isAlive(army) || !world.has(army, Army)) return reject(ctx, 'army.disbandArmy', 'no such army', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(army as number)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.disbandArmy', 'not your army');
+      return reject(ctx, 'army.disbandArmy', 'not your army', command.issuer);
     }
     const u = world.write(Unit);
     world.query([Unit]).forEach((i) => {

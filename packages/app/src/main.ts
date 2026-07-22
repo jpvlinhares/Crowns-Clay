@@ -1900,6 +1900,16 @@ worker.onmessage = (event: MessageEvent) => {
           battleLog.push(`t${gameEvent.tick} ${gameEvent.type.replace(/^(battle|siege|diplomacy)\./, '')} ${detail}`);
           if (battleLog.length > BATTLE_LOG_CAP) battleLog.splice(0, battleLog.length - BATTLE_LOG_CAP);
         }
+        // M62: village.rejected/defence.rejected fire for EVERY kingdom's failed orders —
+        // the AI construction/defence managers deliberately submit orders they haven't
+        // pre-checked the affordability of and rely on this rejection to retry later (see
+        // ai/manager.ts's module doc), so without this guard an AI kingdom's routine
+        // "insufficient wood" noise was indistinguishable from the player's own order
+        // failing. `issuer 1` is the player (kingdom 0) by convention — the same check
+        // simPort.ts's panel-refresh gate already uses.
+        const isRejection = gameEvent.type === 'village.rejected' || gameEvent.type === 'defence.rejected';
+        const rejectionIssuer = isRejection ? (gameEvent.data as { issuer?: number }).issuer : undefined;
+        if (isRejection && rejectionIssuer !== 1) continue;
         if (notifications.push(gameEvent) !== undefined) toastSurfaced = true;
         audioDirector.push(gameEvent);
       }

@@ -286,9 +286,9 @@ export function registerEconomyGameplay(
   // GDD §3 player interaction: per-village stockpile limits. limit < 0 clears.
   kernel.registerCommand<{ villageId: number; resource: string; limit: number }>(
     'village.setStockLimit',
-    (ctx, p) => {
+    (ctx, p, command) => {
       const reject = (reason: string): void => {
-        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.setStockLimit', reason } });
+        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.setStockLimit', reason, issuer: command.issuer } });
       };
       const village = p.villageId as EntityId;
       if (!world.isAlive(village)) return reject('no such village');

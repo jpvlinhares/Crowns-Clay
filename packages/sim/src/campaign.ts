@@ -1169,20 +1169,20 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     const wd = worldDef;
     const biome = wd.layers.biome;
     const { width, height } = wd;
-    const rejectSandbox = (ctx: TickContext, what: string, reason: string): void => {
-      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+    const rejectSandbox = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
     };
-    kernel.registerCommand<{ x: number; y: number; biomeCode: number }>('sandbox.editTerrain', (ctx, payload) => {
-      if (!sandboxEnabled) return rejectSandbox(ctx, 'sandbox.editTerrain', 'sandbox mode is not enabled');
+    kernel.registerCommand<{ x: number; y: number; biomeCode: number }>('sandbox.editTerrain', (ctx, payload, command) => {
+      if (!sandboxEnabled) return rejectSandbox(ctx, 'sandbox.editTerrain', 'sandbox mode is not enabled', command.issuer);
       const x = payload.x | 0;
       const y = payload.y | 0;
       const code = payload.biomeCode | 0;
-      if (x < 0 || y < 0 || x >= width || y >= height) return rejectSandbox(ctx, 'sandbox.editTerrain', 'out of bounds');
-      if (db.terrainByCode[code] === undefined) return rejectSandbox(ctx, 'sandbox.editTerrain', `unknown biome code ${code}`);
-      if (code === Biome.Ocean || code === Biome.Coast) return rejectSandbox(ctx, 'sandbox.editTerrain', 'cannot paint water (land-only edits)');
+      if (x < 0 || y < 0 || x >= width || y >= height) return rejectSandbox(ctx, 'sandbox.editTerrain', 'out of bounds', command.issuer);
+      if (db.terrainByCode[code] === undefined) return rejectSandbox(ctx, 'sandbox.editTerrain', `unknown biome code ${code}`, command.issuer);
+      if (code === Biome.Ocean || code === Biome.Coast) return rejectSandbox(ctx, 'sandbox.editTerrain', 'cannot paint water (land-only edits)', command.issuer);
       const i = y * width + x;
       const oldCode = biome[i] as number;
-      if (oldCode === Biome.Ocean || oldCode === Biome.Coast) return rejectSandbox(ctx, 'sandbox.editTerrain', 'cannot repaint a water tile');
+      if (oldCode === Biome.Ocean || oldCode === Biome.Coast) return rejectSandbox(ctx, 'sandbox.editTerrain', 'cannot repaint a water tile', command.issuer);
       if (oldCode === code) return;
       biome[i] = code;
       wd.stats.biomeCounts[oldCode] = (wd.stats.biomeCounts[oldCode] as number) - 1;

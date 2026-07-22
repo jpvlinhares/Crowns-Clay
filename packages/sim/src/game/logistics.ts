@@ -284,10 +284,10 @@ export function registerLogisticsGameplay(
     return true;
   };
 
-  kernel.registerCommand<{ villageId: number; x: number; y: number }>('village.buildRoad', (ctx, p) => {
+  kernel.registerCommand<{ villageId: number; x: number; y: number }>('village.buildRoad', (ctx, p, command) => {
     const result = buildRoad(ctx, p.villageId | 0, p.x | 0, p.y | 0);
     if (typeof result === 'string') {
-      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.buildRoad', reason: result } });
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.buildRoad', reason: result, issuer: command.issuer } });
     }
   });
 

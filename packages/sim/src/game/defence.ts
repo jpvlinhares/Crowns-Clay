@@ -399,8 +399,12 @@ export function registerDefenceGameplay(
   // (single-kingdom/Terra).
   let ownershipGuard: ((issuer: number, villageIndex: number) => boolean) | null = null;
   const ownsVillage = (issuer: number, villageIndex: number): boolean => ownershipGuard === null || ownershipGuard(issuer, villageIndex);
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'defence.rejected', tick: ctx.tick, data: { what, reason } });
+  // `issuer` rides along for the same reason villages.ts's `rejected` carries it (M52's AI
+  // defence manager submits `defence.build` orders it hasn't pre-checked the affordability
+  // of, the same "let the command reject it" pattern) — without it the client can't tell an
+  // AI kingdom's routine rejection from the player's own.
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'defence.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
   const buildable = (vi: number, def: BuildingDef, x: number, y: number): string | null => {
     const map = maps.get(vi);
@@ -420,29 +424,29 @@ export function registerDefenceGameplay(
   kernel.registerCommand<{ villageId: number; def: string; x: number; y: number }>('defence.build', (ctx, p, command) => {
     const villageId = p.villageId | 0;
     if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
-      return reject(ctx, 'defence.build', 'no such village');
+      return reject(ctx, 'defence.build', 'no such village', command.issuer);
     }
     const vi = index(villageId);
-    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.build', 'not your village');
+    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.build', 'not your village', command.issuer);
     const def = db.buildings.get(String(p.def));
-    if (def === undefined) return reject(ctx, 'defence.build', `unknown building '${String(p.def)}'`);
-    if (def.defense === undefined) return reject(ctx, 'defence.build', 'only defensive structures (wall/gate/tower/keep) belong on the defence layer');
+    if (def === undefined) return reject(ctx, 'defence.build', `unknown building '${String(p.def)}'`, command.issuer);
+    if (def.defense === undefined) return reject(ctx, 'defence.build', 'only defensive structures (wall/gate/tower/keep) belong on the defence layer', command.issuer);
     // M59: kind-based, not id-based — the keep-core (defence-map) scale is genesis-only
     // regardless of which def carries it, matching how `defenceFootprintOf` already
     // separates the two scales rather than special-casing KEEP_DEF.
-    if (def.defense.kind === 'keep') return reject(ctx, 'defence.build', 'the keep stands where it was founded');
+    if (def.defense.kind === 'keep') return reject(ctx, 'defence.build', 'the keep stands where it was founded', command.issuer);
     const x = p.x | 0;
     const y = p.y | 0;
     const why = buildable(vi, def, x, y);
-    if (why !== null) return reject(ctx, 'defence.build', why);
+    if (why !== null) return reject(ctx, 'defence.build', why, command.issuer);
 
     // cost: check-all-then-deduct-all from the STRUCTURE'S OWN VILLAGE stockpile (M57:
     // no longer pooled through a kingdom capital — see the module doc comment)
     const stock = world.readObj(Stockpile).tryGet(vi);
-    if (stock === undefined) return reject(ctx, 'defence.build', 'village has no stockpile');
+    if (stock === undefined) return reject(ctx, 'defence.build', 'village has no stockpile', command.issuer);
     for (const [resId, amount] of Object.entries(def.cost)) {
       const have = stock.get(game.ops.resourceCode(resId) as number) ?? 0;
-      if (have < amount) return reject(ctx, 'defence.build', `insufficient ${resId} (${have}/${amount})`);
+      if (have < amount) return reject(ctx, 'defence.build', `insufficient ${resId} (${have}/${amount})`, command.issuer);
     }
     const mutStock = world.writeObj(Stockpile).get(vi);
     for (const [resId, amount] of Object.entries(def.cost)) {
@@ -458,14 +462,14 @@ export function registerDefenceGameplay(
   kernel.registerCommand<{ structureId: number }>('defence.demolish', (ctx, p, command) => {
     const id = p.structureId | 0;
     if (!world.isAlive(id as EntityId) || !world.has(id as EntityId, DefenceStructure)) {
-      return reject(ctx, 'defence.demolish', 'no such structure');
+      return reject(ctx, 'defence.demolish', 'no such structure', command.issuer);
     }
     const s = world.read(DefenceStructure);
     const si = index(id);
     const vi = index(s.village[si] as number);
-    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.demolish', 'not your structure');
+    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.demolish', 'not your structure', command.issuer);
     const def = game.ops.buildingDef(s.def[si] as number);
-    if (def.defense?.kind === 'keep') return reject(ctx, 'defence.demolish', 'the keep cannot be demolished');
+    if (def.defense?.kind === 'keep') return reject(ctx, 'defence.demolish', 'the keep cannot be demolished', command.issuer);
     vacate(vi, id, def, s.x[si] as number, s.y[si] as number);
     world.despawn(id as EntityId);
     ctx.events.publish({ type: 'defence.demolished', tick: ctx.tick, data: { village: vi, structure: id, def: def.id } });
@@ -474,19 +478,19 @@ export function registerDefenceGameplay(
   kernel.registerCommand<{ unitId: number; x: number; y: number }>('defence.post', (ctx, p, command) => {
     const unitId = p.unitId | 0;
     if (!world.isAlive(unitId as EntityId) || !world.has(unitId as EntityId, Unit)) {
-      return reject(ctx, 'defence.post', 'no such unit');
+      return reject(ctx, 'defence.post', 'no such unit', command.issuer);
     }
     const u = world.read(Unit);
     const ui = index(unitId);
     const homeVillage = index(u.homeVillage[ui] as number);
-    if (!ownsVillage(command.issuer, homeVillage)) return reject(ctx, 'defence.post', 'not your unit');
-    if ((u.complete[ui] as number) !== 1) return reject(ctx, 'defence.post', 'the unit is still training');
-    if ((u.armyId[ui] as number) !== 0) return reject(ctx, 'defence.post', 'the unit marches with an army — disband it from the army first');
+    if (!ownsVillage(command.issuer, homeVillage)) return reject(ctx, 'defence.post', 'not your unit', command.issuer);
+    if ((u.complete[ui] as number) !== 1) return reject(ctx, 'defence.post', 'the unit is still training', command.issuer);
+    if ((u.armyId[ui] as number) !== 0) return reject(ctx, 'defence.post', 'the unit marches with an army — disband it from the army first', command.issuer);
     const x = p.x | 0;
     const y = p.y | 0;
     const map = maps.get(homeVillage);
-    if (map === undefined || x < 0 || y < 0 || x >= size || y >= size) return reject(ctx, 'defence.post', 'out of bounds');
-    if (map.tiles[y * size + x] !== DEFENCE_TILE.open) return reject(ctx, 'defence.post', 'not open ground');
+    if (map === undefined || x < 0 || y < 0 || x >= size || y >= size) return reject(ctx, 'defence.post', 'out of bounds', command.issuer);
+    if (map.tiles[y * size + x] !== DEFENCE_TILE.open) return reject(ctx, 'defence.post', 'not open ground', command.issuer);
     if (world.has(unitId as EntityId, DefencePost)) {
       const post = world.write(DefencePost);
       post.x[ui] = x;
@@ -500,11 +504,11 @@ export function registerDefenceGameplay(
   kernel.registerCommand<{ unitId: number }>('defence.unpost', (ctx, p, command) => {
     const unitId = p.unitId | 0;
     if (!world.isAlive(unitId as EntityId) || !world.has(unitId as EntityId, DefencePost)) {
-      return reject(ctx, 'defence.unpost', 'the unit is not posted');
+      return reject(ctx, 'defence.unpost', 'the unit is not posted', command.issuer);
     }
     const u = world.read(Unit);
     const homeVillage = index(u.homeVillage[index(unitId)] as number);
-    if (!ownsVillage(command.issuer, homeVillage)) return reject(ctx, 'defence.unpost', 'not your unit');
+    if (!ownsVillage(command.issuer, homeVillage)) return reject(ctx, 'defence.unpost', 'not your unit', command.issuer);
     world.detach(unitId as EntityId, DefencePost);
     ctx.events.publish({ type: 'defence.unposted', tick: ctx.tick, data: { village: homeVillage, unit: unitId } });
   });
@@ -512,25 +516,25 @@ export function registerDefenceGameplay(
   kernel.registerCommand<{ villageId: number }>('defence.repair', (ctx, p, command) => {
     const villageId = p.villageId | 0;
     if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
-      return reject(ctx, 'defence.repair', 'no such village');
+      return reject(ctx, 'defence.repair', 'no such village', command.issuer);
     }
     const vi = index(villageId);
-    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.repair', 'not your village');
+    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.repair', 'not your village', command.issuer);
     // load-bearing (ADR-4 A1): otherwise a stone-rich defender out-repairs the bombardment
     // and is unbreakable — this is the one rule that becomes an exploit if missed.
-    if (options.isUnderSiege(vi)) return reject(ctx, 'defence.repair', 'cannot repair while under siege');
+    if (options.isUnderSiege(vi)) return reject(ctx, 'defence.repair', 'cannot repair while under siege', command.issuer);
     const already = repairingUntil.get(vi);
-    if (already !== undefined && already > ctx.tick) return reject(ctx, 'defence.repair', 'already repairing');
+    if (already !== undefined && already > ctx.tick) return reject(ctx, 'defence.repair', 'already repairing', command.issuer);
     const cost = repairCostOf(vi);
-    if (cost.size === 0) return reject(ctx, 'defence.repair', 'nothing to repair');
+    if (cost.size === 0) return reject(ctx, 'defence.repair', 'nothing to repair', command.issuer);
 
     // cost: check-all-then-deduct-all from the VILLAGE'S OWN stockpile (never the
     // kingdom's — the same asymmetry defence.build's cost already draws)
     const stock = world.readObj(Stockpile).tryGet(vi);
-    if (stock === undefined) return reject(ctx, 'defence.repair', 'village has no stockpile');
+    if (stock === undefined) return reject(ctx, 'defence.repair', 'village has no stockpile', command.issuer);
     for (const [resId, amount] of cost) {
       const have = stock.get(game.ops.resourceCode(resId) as number) ?? 0;
-      if (have < amount) return reject(ctx, 'defence.repair', `insufficient ${resId} (${have}/${amount})`);
+      if (have < amount) return reject(ctx, 'defence.repair', `insufficient ${resId} (${have}/${amount})`, command.issuer);
     }
     const mutStock = world.writeObj(Stockpile).get(vi);
     for (const [resId, amount] of cost) {

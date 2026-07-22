@@ -190,8 +190,8 @@ export function registerSiegeGameplay(
   const state = new SiegeState();
   kernel.addHashSource('siege', (fold) => state.fold(fold));
 
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   const kingdomForIssuer = (issuer: number): EntityId | undefined => {
@@ -249,27 +249,27 @@ export function registerSiegeGameplay(
   kernel.registerCommand<{ armyId: number; villageId: number }>('siege.begin', (ctx, p, command) => {
     const armyId = p.armyId | 0;
     if (!world.isAlive(armyId as EntityId) || !world.has(armyId as EntityId, ArmyMovement)) {
-      return reject(ctx, 'siege.begin', 'no such army');
+      return reject(ctx, 'siege.begin', 'no such army', command.issuer);
     }
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(armyId)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'siege.begin', 'not your army');
+      return reject(ctx, 'siege.begin', 'not your army', command.issuer);
     }
     const villageId = p.villageId | 0;
     if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
-      return reject(ctx, 'siege.begin', 'no such village');
+      return reject(ctx, 'siege.begin', 'no such village', command.issuer);
     }
     // M55 (A1): castle-ness IS the defence layer. A world-map wall enclosure confers
     // nothing — an unfortified village at contact range is combat.ts's and occupation's
     // business, not the siege system's.
     if (!(spatial?.applicable?.(index(villageId)) ?? false)) {
-      return reject(ctx, 'siege.begin', 'no defence layer — nothing to besiege');
+      return reject(ctx, 'siege.begin', 'no defence layer — nothing to besiege', command.issuer);
     }
     const owner = ownerOfVillage(villageId);
-    if (owner === undefined) return reject(ctx, 'siege.begin', 'sieges require a multi-kingdom campaign');
-    if (owner === (kingdomId as number)) return reject(ctx, 'siege.begin', 'cannot besiege your own castle');
-    if (state.siegeOfCastle(index(villageId)) !== undefined) return reject(ctx, 'siege.begin', 'already under siege');
-    if (state.siegeOfArmy(armyId) !== undefined) return reject(ctx, 'siege.begin', 'this army is already besieging somewhere');
+    if (owner === undefined) return reject(ctx, 'siege.begin', 'sieges require a multi-kingdom campaign', command.issuer);
+    if (owner === (kingdomId as number)) return reject(ctx, 'siege.begin', 'cannot besiege your own castle', command.issuer);
+    if (state.siegeOfCastle(index(villageId)) !== undefined) return reject(ctx, 'siege.begin', 'already under siege', command.issuer);
+    if (state.siegeOfArmy(armyId) !== undefined) return reject(ctx, 'siege.begin', 'this army is already besieging somewhere', command.issuer);
     const core = world.read(VillageCore);
     const ai = index(armyId);
     const m = world.read(ArmyMovement);
@@ -277,7 +277,7 @@ export function registerSiegeGameplay(
       Math.abs((m.x[ai] as number) - (core.centerX[index(villageId)] as number)),
       Math.abs((m.y[ai] as number) - (core.centerY[index(villageId)] as number)),
     );
-    if (dist > SIEGE_RANGE) return reject(ctx, 'siege.begin', 'the army must be at the castle to besiege it');
+    if (dist > SIEGE_RANGE) return reject(ctx, 'siege.begin', 'the army must be at the castle to besiege it', command.issuer);
 
     world.write(ArmyMovement).stance[ai] = SIEGE_STANCE_INDEX;
     world.writeObj(ArmyPath).set(ai, []);
@@ -291,8 +291,8 @@ export function registerSiegeGameplay(
     const armyId = p.armyId | 0;
     const kingdomId = kingdomForIssuer(command.issuer);
     const s = state.siegeOfArmy(armyId);
-    if (s === undefined) return reject(ctx, 'siege.lift', 'this army is not besieging anything');
-    if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.lift', 'not your siege');
+    if (s === undefined) return reject(ctx, 'siege.lift', 'this army is not besieging anything', command.issuer);
+    if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.lift', 'not your siege', command.issuer);
     endSiege(ctx, s, 'lifted');
   });
 
@@ -300,16 +300,16 @@ export function registerSiegeGameplay(
     const armyId = p.armyId | 0;
     const kingdomId = kingdomForIssuer(command.issuer);
     const s = state.siegeOfArmy(armyId);
-    if (s === undefined) return reject(ctx, 'siege.assault', 'this army is not besieging anything');
-    if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.assault', 'not your siege');
-    if (s.assaultEngagementArmy !== 0) return reject(ctx, 'siege.assault', 'an assault is already under way');
-    if (s.fallenDeadline !== 0) return reject(ctx, 'siege.assault', 'the capital has already fallen — its fate is being decided');
+    if (s === undefined) return reject(ctx, 'siege.assault', 'this army is not besieging anything', command.issuer);
+    if (kingdomId === undefined || s.attackerKingdom !== (kingdomId as number)) return reject(ctx, 'siege.assault', 'not your siege', command.issuer);
+    if (s.assaultEngagementArmy !== 0) return reject(ctx, 'siege.assault', 'an assault is already under way', command.issuer);
+    if (s.fallenDeadline !== 0) return reject(ctx, 'siege.assault', 'the capital has already fallen — its fate is being decided', command.issuer);
 
     // ---- M51 (ADR-4 §2) / M55 (A1): the ONE path. The walk handles walls itself, so
     // there is no breach precondition; casualties and breaches are the resolver's, and a
     // repulse leaves the siege standing. Origin: the player's pick, else derived from
     // where the besieger stands relative to the castle (deterministic).
-    if (spatial?.current === undefined) return reject(ctx, 'siege.assault', 'no defence layer to assault');
+    if (spatial?.current === undefined) return reject(ctx, 'siege.assault', 'no defence layer to assault', command.issuer);
     const origin = ((): 'left' | 'right' | 'top' | 'bottom' => {
       if (p.origin === 'left' || p.origin === 'right' || p.origin === 'top' || p.origin === 'bottom') return p.origin;
       const core = world.read(VillageCore);
@@ -322,18 +322,18 @@ export function registerSiegeGameplay(
     const outcome = spatial.current(ctx, { castle: s.castle, attackerArmy: s.attackerArmy, attackerKingdom: s.attackerKingdom }, origin);
     // null = the layer went away under a siege `applicable` had admitted; refuse rather
     // than silently no-op, so the condition is visible instead of looking like a repulse.
-    if (outcome === null) return reject(ctx, 'siege.assault', 'the defence layer is gone');
+    if (outcome === null) return reject(ctx, 'siege.assault', 'the defence layer is gone', command.issuer);
     if (outcome === 'captured') capture(ctx, s);
   });
 
   kernel.registerCommand<{ armyId: number }>('siege.sortie', (ctx, p, command) => {
     const armyId = p.armyId | 0; // the DEFENDING garrison army
     if (!world.isAlive(armyId as EntityId) || !world.has(armyId as EntityId, ArmyMovement)) {
-      return reject(ctx, 'siege.sortie', 'no such army');
+      return reject(ctx, 'siege.sortie', 'no such army', command.issuer);
     }
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(armyId)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'siege.sortie', 'not your army');
+      return reject(ctx, 'siege.sortie', 'not your army', command.issuer);
     }
     let target: Siege | undefined;
     for (const s of state.all()) {
@@ -349,7 +349,7 @@ export function registerSiegeGameplay(
       );
       if (dist <= SIEGE_RANGE) target = s;
     }
-    if (target === undefined) return reject(ctx, 'siege.sortie', 'no besieging army in range to sortie against');
+    if (target === undefined) return reject(ctx, 'siege.sortie', 'no besieging army in range to sortie against', command.issuer);
     combatGame.state.begin(target.attackerArmy, armyId, 1);
     target.assaultEngagementArmy = armyId;
     ctx.events.publish({ type: 'siege.sortieBegun', tick: ctx.tick, data: { castle: target.castle, defender: armyId } });

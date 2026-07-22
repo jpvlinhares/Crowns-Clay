@@ -205,6 +205,35 @@ test('costs: reserved in full at placement; insufficiency rejects atomically', (
   assert.equal(stock.get(stone), stoneBefore, 'other resources untouched');
 });
 
+// ---------------- M62: rejection events carry their issuer ----------------
+
+test('village.rejected carries the ISSUER, so a player order and an AI order are distinguishable', () => {
+  // the AI construction manager deliberately submits unaffordable orders and relies on this
+  // rejection to retry later (ai/manager.ts's module doc) — before M62 the rejection event
+  // carried no issuer, so the client could not tell an AI kingdom's routine "insufficient
+  // wood" from the player's own failed order, and surfaced both as toasts.
+  const g = makeGame();
+  const village = foundedVillage(g);
+
+  g.kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: village, def: 'base:building.house', x: 9, y: 20 } });
+  g.kernel.step();
+  const stock = g.world.readObj(g.game.comps.Stockpile).get(village & 0x3fffff);
+  stock.set(g.game.ops.resourceCode('base:resource.wood') as number, 0); // force the next order to fail
+
+  g.kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: village, def: 'base:building.house', x: 9, y: 22 } });
+  g.kernel.step();
+  const playerRejection = g.events.filter((e) => e.type === 'village.rejected').at(-1);
+  assert.equal((playerRejection?.data as { issuer: number }).issuer, 1, 'the player\'s own order carries issuer 1');
+
+  // issuer 2 stands in for an AI kingdom (the harness convention used throughout this repo,
+  // e.g. villages.test.ts's own castle-rejection test above) — same village, same shortage,
+  // a DIFFERENT issuer submitting the identical failing order.
+  g.kernel.submit({ type: 'village.build', issuer: 2, payload: { villageId: village, def: 'base:building.house', x: 9, y: 22 } });
+  g.kernel.step();
+  const aiRejection = g.events.filter((e) => e.type === 'village.rejected').at(-1);
+  assert.equal((aiRejection?.data as { issuer: number }).issuer, 2, 'a different issuer\'s order carries ITS issuer, not the player\'s');
+});
+
 // ---------------- construction math ----------------
 
 test('construction: completes in exactly buildTicks with a single completed event', () => {

@@ -218,24 +218,25 @@ export function registerResearchGameplay(
     const n = kingdomGame.kingdomEntities().length;
     return Math.max(0, Math.min(n - 1, issuer - 1));
   };
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   kernel.registerCommand<{ techId: string }>('kingdom.setActiveResearch', (ctx, p, command) => {
     const kingdomId = kingdomAt(indexForIssuer(command.issuer));
-    if (kingdomId === undefined) return reject(ctx, 'kingdom.setActiveResearch', 'no kingdom');
+    if (kingdomId === undefined) return reject(ctx, 'kingdom.setActiveResearch', 'no kingdom', command.issuer);
     const techId = String(p.techId);
     const code = techCode(techId);
-    if (code === undefined) return reject(ctx, 'kingdom.setActiveResearch', `unknown tech '${techId}'`);
+    if (code === undefined) return reject(ctx, 'kingdom.setActiveResearch', `unknown tech '${techId}'`, command.issuer);
     const ki = kingdomId as number;
-    if (state.isKnown(ki, code)) return reject(ctx, 'kingdom.setActiveResearch', 'already known');
+    if (state.isKnown(ki, code)) return reject(ctx, 'kingdom.setActiveResearch', 'already known', command.issuer);
     const def = techById(code);
     if (!eraBreadthSatisfied(ki, def.era)) {
       return reject(
         ctx,
         'kingdom.setActiveResearch',
         `era '${def.era}' not yet unlocked (need ${Math.round(ERA_BREADTH_FRACTION * 100)}% of the prior era known first)`,
+        command.issuer,
       );
     }
     if (!prerequisitesMet(ki, def)) {
@@ -243,7 +244,7 @@ export function registerResearchGameplay(
         const preCode = techCode(preId);
         return preCode === undefined || !state.isKnown(ki, preCode);
       });
-      return reject(ctx, 'kingdom.setActiveResearch', `missing prerequisites: ${missing.join(', ')}`);
+      return reject(ctx, 'kingdom.setActiveResearch', `missing prerequisites: ${missing.join(', ')}`, command.issuer);
     }
     state.setActive(ki, code);
     ctx.events.publish({ type: 'research.setActive', tick: ctx.tick, data: { kingdom: ki, techId } });
