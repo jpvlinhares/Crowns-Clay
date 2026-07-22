@@ -238,13 +238,20 @@ export function registerDefenceGameplay(
     }
     return out;
   };
+  // M60 (ADR-4 A1): unlike BuildingCore, DefenceStructure does NOT serialise a per-instance
+  // footprint (roadmap: the save format stays def-code + origin only), so a defence structure
+  // is ALWAYS rebuilt at the current def's footprint. A pre-M59 save whose keep footprint grew
+  // (2×2 → 7×7) can therefore overlap neighbours the old size left legal — an accepted one-time
+  // behaviour snap. First-writer-wins + owner-guarded vacate keep the derived occupancy cache
+  // single-valued and demolish-safe under that overlap; for a freshly-recorded layer (genesis
+  // never overlaps) every tile is written once, so this is a no-op there — no fixture moves.
   const occupy = (vi: number, entity: number, def: BuildingDef, x: number, y: number): void => {
     const m = occupancyFor(vi);
-    for (const t of footprintTiles(def, x, y)) m.set(t, entity);
+    for (const t of footprintTiles(def, x, y)) if (!m.has(t)) m.set(t, entity);
   };
-  const vacate = (vi: number, def: BuildingDef, x: number, y: number): void => {
+  const vacate = (vi: number, entity: number, def: BuildingDef, x: number, y: number): void => {
     const m = occupancyFor(vi);
-    for (const t of footprintTiles(def, x, y)) m.delete(t);
+    for (const t of footprintTiles(def, x, y)) if (m.get(t) === entity) m.delete(t);
   };
 
   const keepDef = db.buildings.get(KEEP_DEF);
@@ -372,7 +379,7 @@ export function registerDefenceGameplay(
       doomed.push({ entity: entity as number, def: game.ops.buildingDef(s.def[si] as number), x: s.x[si] as number, y: s.y[si] as number });
     });
     for (const d of doomed) {
-      vacate(vi, d.def, d.x, d.y);
+      vacate(vi, d.entity, d.def, d.x, d.y);
       world.despawn(d.entity as EntityId);
     }
     maps.delete(vi);
@@ -454,7 +461,7 @@ export function registerDefenceGameplay(
     if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.demolish', 'not your structure');
     const def = game.ops.buildingDef(s.def[si] as number);
     if (def.defense?.kind === 'keep') return reject(ctx, 'defence.demolish', 'the keep cannot be demolished');
-    vacate(vi, def, s.x[si] as number, s.y[si] as number);
+    vacate(vi, id, def, s.x[si] as number, s.y[si] as number);
     world.despawn(id as EntityId);
     ctx.events.publish({ type: 'defence.demolished', tick: ctx.tick, data: { village: vi, structure: id, def: def.id } });
   });
@@ -596,7 +603,7 @@ export function registerDefenceGameplay(
       if (!world.isAlive(entity as EntityId) || !world.has(entity as EntityId, DefenceStructure)) return;
       const s = world.read(DefenceStructure);
       const si = index(entity);
-      vacate(index(s.village[si] as number), game.ops.buildingDef(s.def[si] as number), s.x[si] as number, s.y[si] as number);
+      vacate(index(s.village[si] as number), entity, game.ops.buildingDef(s.def[si] as number), s.x[si] as number, s.y[si] as number);
       world.despawn(entity as EntityId);
     },
     save: () =>

@@ -73,6 +73,73 @@ export function recordCorpusEntry(): CorpusEntry {
   return recordEntry(`terra-tick${CORPUS_SAVE_TICK}-v1`, CORPUS_SEED, CORPUS_SAVE_TICK);
 }
 
+/** M60 (ADR-4 Amendment A1): a synthesised M28-ERA save — the on-map castle era, before the
+ * M51 defence layer. Current code cannot PRODUCE one (M56 deleted castle placement AND the
+ * `castle-defense-rebuild` system), so we craft one from a real terra economy save and add the
+ * three things that make it M28-era, each exercising a distinct load-time migration this
+ * milestone owns:
+ *   (1) grandfathered on-map castle buildings (wall/gate/tower) at their M28 footprint — all
+ *       1×1 back then. The def has since grown (tower→3×3, gate→3×2), so this is exactly the
+ *       state the footprint-reconciliation rule must honour: an already-placed instance keeps
+ *       its stored w/h and does NOT retroactively swell over its neighbours (wall stays 1×1
+ *       in both eras, the control). "Walls standing but inert" — occupancy-blocking,
+ *       demolishable, no graph, no siege meaning (the derivation that gave them meaning is gone).
+ *   (2) a village flagged isCastle=true — the deprecated M28 field, loaded but never re-derived.
+ *   (3) `castle-defense-rebuild` re-injected into the kernel's systemRngs — the deleted system
+ *       an M28 save still names. Its presence used to throw restoreState's composition-mismatch
+ *       invariant BEFORE any grandfathering ran (the newly-exposed gate M56 discovered); the
+ *       retired-name tolerance now discards it. */
+export const LEGACY_M28_SEED = 0x1d28; // an M28-era economy world
+export const LEGACY_M28_SAVE_TICK = 200;
+export function recordLegacyM28CastleEntry(): CorpusEntry {
+  const cc = composeTerra(LEGACY_M28_SEED);
+  for (let t = 0; t < LEGACY_M28_SAVE_TICK; t++) cc.kernel.step();
+
+  const VillageCore = cc.game.comps.VillageCore;
+  const BuildingCore = cc.game.comps.BuildingCore;
+  const vc = cc.world.read(VillageCore);
+  let villageEntity = -1;
+  let vi = -1;
+  let cx = 0;
+  let cy = 0;
+  cc.world.query([VillageCore]).forEach((i, entity) => {
+    if (villageEntity >= 0) return; // the founding village
+    villageEntity = entity as number;
+    vi = i;
+    cx = vc.centerX[i] as number;
+    cy = vc.centerY[i] as number;
+  });
+  cc.world.write(VillageCore).isCastle[vi] = 1; // the enclosure flag an M28 castle once set
+
+  // a short grandfathered wall run with a gate and a tower, east of the keep — all stamped
+  // at the M28 1×1 footprint they were placed with, regardless of the defs' current size
+  const stamp = (defId: string, x: number, y: number): void => {
+    const e = cc.world.spawn();
+    cc.world.attach(e, BuildingCore, {
+      def: cc.game.ops.defCode(defId), x, y, w: 1, h: 1,
+      village: villageEntity, progress: 1, complete: true, workers: 0,
+    });
+  };
+  stamp('base:building.wall', cx + 4, cy - 1);
+  stamp('base:building.wall', cx + 4, cy);
+  stamp('base:building.wall', cx + 4, cy + 1);
+  stamp('base:building.gatehouse', cx + 4, cy + 2);
+  stamp('base:building.tower', cx + 6, cy + 4);
+
+  const crafted = JSON.parse(JSON.stringify(cc.saves.snapshot())) as CampaignSave;
+  const kernelData = crafted.sections.kernel!.data as { systemRngs: { name: string; state: unknown }[] };
+  // any well-formed RNG state — a retired name's stream is discarded on load, so the value
+  // is inert; cloning an existing system's keeps it structurally valid.
+  kernelData.systemRngs.push({ name: 'castle-defense-rebuild', state: { ...(kernelData.systemRngs[0]!.state as object) } });
+
+  // pin the resume hash EXACTLY as verifyCorpusEntry recomputes it (fresh compose → hydrate →
+  // resume RESUME_TICKS), so recording and verifying agree by construction.
+  const session = sessionFor(crafted);
+  session.saves.hydrate(crafted);
+  for (let t = 0; t < RESUME_TICKS; t++) session.kernel.step();
+  return { name: 'legacy-castle-m28-v1', save: crafted, resumeHash: session.kernel.stateHash() };
+}
+
 export function recordSandboxCorpusEntry(): CorpusEntry {
   return recordEntry('terra-sandbox-v1', SANDBOX_CORPUS_SEED, SANDBOX_CORPUS_SAVE_TICK, { ironman: false });
 }
@@ -124,7 +191,7 @@ export function tortureCorpusEntry(entry: CorpusEntry, cycles: number): { ok: bo
 const mode = process.argv[2];
 if (mode === 'record') {
   mkdirSync(CORPUS_DIR, { recursive: true });
-  for (const entry of [recordCorpusEntry(), recordSandboxCorpusEntry(), recordCampaignCorpusEntry()]) {
+  for (const entry of [recordCorpusEntry(), recordSandboxCorpusEntry(), recordCampaignCorpusEntry(), recordLegacyM28CastleEntry()]) {
     const path = `${CORPUS_DIR}/${entry.name}.json`;
     writeFileSync(path, JSON.stringify(entry));
     console.log(`recorded ${path} · save tick ${entry.save.header.tick} · resume hash 0x${entry.resumeHash.toString(16)}`);

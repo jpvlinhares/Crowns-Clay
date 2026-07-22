@@ -98,6 +98,21 @@ interface RegisteredSystem {
   readonly rng: Rng;
 }
 
+/**
+ * M60 (ADR-4 Amendment A1): the registry of system names DELETED by a milestone, that
+ * older saves still name in `KernelSaveState.systemRngs`. `restoreState` TOLERATES a saved
+ * name in this set (discarding its stored RNG — the system is gone, so its stream can never
+ * draw again and cannot shift any surviving system's fork or the state hash), while any OTHER
+ * unregistered saved name stays the hard composition-mismatch rejection. This is the
+ * "system-name migration" the M55 siege.ts note deferred to M60: without it, an M28-era save's
+ * `castle-defense-rebuild` name (the system deleted at M56) throws BEFORE any building-level
+ * grandfathering runs, so "M28-era saves hydrate unchanged" (A1) was false. Add a name here
+ * only when a milestone genuinely deletes a system — never to paper over a real mismatch.
+ */
+export const RETIRED_SYSTEM_NAMES: ReadonlySet<string> = new Set([
+  'castle-defense-rebuild', // M56 (ADR-4 A1): castles.ts deleted with the on-map castle mechanic
+]);
+
 /** Kernel save payload (M17) — see saveState/restoreState. */
 export interface KernelSaveState {
   readonly version: number;
@@ -346,7 +361,15 @@ export class Kernel {
     this.commandRng.setState(state.commandRng);
     for (const saved of state.systemRngs) {
       const registered = this.systems.find((r) => r.system.name === saved.name);
-      invariant(registered !== undefined, `restoreState: system '${saved.name}' not registered (composition mismatch)`);
+      if (registered === undefined) {
+        // M60: a saved name this composition lacks. If the milestone that removed it recorded
+        // it as RETIRED, tolerate it — the system is gone, its stored RNG is inert and dropped
+        // (never re-saved, never folds into the hash). Any OTHER unknown name is still the hard
+        // composition-mismatch rejection: that guard is exactly what stops a wrong composition
+        // from loading and baking itself into a green re-recorded fixture.
+        invariant(RETIRED_SYSTEM_NAMES.has(saved.name), `restoreState: system '${saved.name}' not registered (composition mismatch)`);
+        continue;
+      }
       registered.rng.setState(saved.state);
     }
     // Registered systems ABSENT from the save are allowed: they were added after the save

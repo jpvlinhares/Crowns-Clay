@@ -87,6 +87,15 @@ export type PlacementVerdict =
 
 const no = (reason: string): PlacementVerdict => ({ ok: false, reason });
 
+/** M60 (ADR-4 A1): a standing building occupies the footprint it was PLACED with (its persisted
+ * BuildingCore.w/h), so a later def-footprint change never retroactively resizes it (the M59
+ * fallout). Falls back to the current def only for a pre-w/h save that recorded no per-instance
+ * footprint (stored 0) — no building legitimately has a zero dimension, so 0 unambiguously means
+ * "absent". Used by every occupancy read/write on load and demolish (one place, one rule). */
+function footprintOf(storedW: number, storedH: number, def: BuildingDef): { w: number; h: number } {
+  return storedW > 0 && storedH > 0 ? { w: storedW, h: storedH } : { w: def.footprint.w, h: def.footprint.h };
+}
+
 export class VillageOps {
   private readonly interner = new Interner();
   private readonly defByCode = new Map<number, BuildingDef>();
@@ -143,12 +152,20 @@ export class VillageOps {
     this.centers.length = 0;
     const b = this.world.read(this.comps.BuildingCore);
     this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
-      const def = this.buildingDef(b.def[i] as number);
       const x = b.x[i] as number;
       const y = b.y[i] as number;
-      for (let dy = 0; dy < def.footprint.h; dy++) {
-        for (let dx = 0; dx < def.footprint.w; dx++) {
-          this.occupancy.set(this.tileIndex(x + dx, y + dy), entity);
+      // M60 (ADR-4 A1) footprint reconciliation: occupy the footprint the building was PLACED
+      // with (its own persisted BuildingCore.w/h — hashed SoA fields), NOT the live def. A def
+      // whose footprint grew since this save was written (M59 raised tower 1×1→3×3, gatehouse
+      // 1×1→3×2) must not retroactively enlarge an already-standing instance and swallow a
+      // previously-legal neighbour's tiles. For every building placed by current code stored ==
+      // def, so this is a no-op there; it only bites a grandfathered M28-era structure. Fall
+      // back to the def only for a pre-w/h save (stored 0 — no footprint was ever recorded).
+      const { w, h } = footprintOf(b.w[i] as number, b.h[i] as number, this.buildingDef(b.def[i] as number));
+      for (let dy = 0; dy < h; dy++) {
+        for (let dx = 0; dx < w; dx++) {
+          const tile = this.tileIndex(x + dx, y + dy);
+          if (!this.occupancy.has(tile)) this.occupancy.set(tile, entity); // first-writer-wins keeps the cache single-valued under any residual overlap
         }
       }
     });
@@ -343,9 +360,14 @@ export class VillageOps {
     const x = core.x[index] as number;
     const y = core.y[index] as number;
     const villageId = core.village[index] as number;
-    for (let dy = 0; dy < def.footprint.h; dy++) {
-      for (let dx = 0; dx < def.footprint.w; dx++) {
-        this.occupancy.delete(this.tileIndex(x + dx, y + dy));
+    // M60: vacate the footprint this instance was PLACED with (stored w/h), matching what
+    // rebuildDerived claimed — freeing def.footprint could clear tiles a grandfathered
+    // neighbour still occupies, or miss tiles this building actually holds.
+    const { w, h } = footprintOf(core.w[index] as number, core.h[index] as number, def);
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const tile = this.tileIndex(x + dx, y + dy);
+        if (this.occupancy.get(tile) === building) this.occupancy.delete(tile); // only clear tiles THIS entity owns (overlap-safe)
       }
     }
     this.world.despawn(building);
@@ -368,14 +390,20 @@ export class VillageOps {
     const vi = villageId & 0x3fffff;
     const name = this.world.readObj(this.comps.VillageName).tryGet(vi) ?? `village ${vi}`;
     const b = this.world.read(this.comps.BuildingCore);
-    const doomed: { entity: number; def: BuildingDef; x: number; y: number }[] = [];
+    const doomed: { entity: number; x: number; y: number; w: number; h: number }[] = [];
     this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
       if (((b.village[i] as number) & 0x3fffff) !== vi) return;
-      doomed.push({ entity: entity as number, def: this.buildingDef(b.def[i] as number), x: b.x[i] as number, y: b.y[i] as number });
+      // M60: the whole village is being removed, so occupancy just needs coherent clearing —
+      // vacate the placed footprint (stored w/h) so nothing is left dangling for any instance.
+      const { w, h } = footprintOf(b.w[i] as number, b.h[i] as number, this.buildingDef(b.def[i] as number));
+      doomed.push({ entity: entity as number, x: b.x[i] as number, y: b.y[i] as number, w, h });
     });
     for (const d of doomed) {
-      for (let dy = 0; dy < d.def.footprint.h; dy++) {
-        for (let dx = 0; dx < d.def.footprint.w; dx++) this.occupancy.delete(this.tileIndex(d.x + dx, d.y + dy));
+      for (let dy = 0; dy < d.h; dy++) {
+        for (let dx = 0; dx < d.w; dx++) {
+          const tile = this.tileIndex(d.x + dx, d.y + dy);
+          if (this.occupancy.get(tile) === (d.entity as EntityId)) this.occupancy.delete(tile);
+        }
       }
       this.world.despawn(d.entity as EntityId);
     }

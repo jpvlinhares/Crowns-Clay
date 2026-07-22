@@ -144,6 +144,42 @@ test('placement: a castle-category def is rejected on the village map, for playe
   assert.ok(!g.events.some((e) => e.type === 'building.placed'), 'no castle structure was ever placed on the village map');
 });
 
+// ---------------- M60 (ADR-4 Amendment A1): footprint reconciliation ----------------
+
+test('rebuildDerived: a standing building occupies the footprint it was PLACED with, not the live def', () => {
+  // simulates a grandfathered M28-era tower: current code can no longer PLACE a castle
+  // structure on the village map (M56) and the def's footprint has since grown (M59: tower
+  // 1×1 → 3×3), but a save recorded before both changes still has to load without the
+  // instance retroactively swelling over whatever a player built next to it.
+  const g = makeGame();
+  const village = foundedVillage(g);
+  const towerDef = g.game.ops.buildingDef(g.game.ops.defCode('base:building.tower'));
+  assert.equal(towerDef.footprint.w, 3, 'precondition: the tower def is 3×3 today (M59)');
+
+  const grandfathered = g.world.spawn();
+  g.world.attach(grandfathered, g.game.comps.BuildingCore, {
+    def: g.game.ops.defCode('base:building.tower'), x: 9, y: 12, w: 1, h: 1, // its M28 footprint
+    village, progress: 1, complete: true, workers: 0,
+  });
+  g.game.ops.rebuildDerived();
+
+  assert.ok(g.game.ops.isOccupied(9, 12), 'the tower still occupies its own tile');
+  assert.ok(!g.game.ops.isOccupied(10, 13), 'a tile only inside the CURRENT 3×3 footprint stays free — the stored 1×1 governs');
+
+  // a neighbour can be placed on a tile the live 3×3 footprint would have claimed
+  g.submit('village.build', { villageId: village, def: 'base:building.house', x: 10, y: 12 });
+  assert.ok(
+    g.events.some((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.house'),
+    g.lastRejection(),
+  );
+
+  // demolishing the grandfathered tower frees exactly the tile it actually held (not the
+  // neighbour's, and not a phantom 3×3 block)
+  g.submit('village.demolish', { buildingId: grandfathered as number });
+  assert.ok(!g.game.ops.isOccupied(9, 12), 'demolish vacated the stored footprint');
+  assert.ok(g.game.ops.isOccupied(10, 12), 'the neighbour built on the reclaimed tile is untouched');
+});
+
 // ---------------- cost reservation ----------------
 
 test('costs: reserved in full at placement; insufficiency rejects atomically', () => {

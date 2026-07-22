@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { Command } from '@crowns/protocol';
-import { Kernel, type SimSystem, type TickContext } from './kernel.js';
+import { Kernel, RETIRED_SYSTEM_NAMES, type SimSystem, type TickContext } from './kernel.js';
 import { TickDriver } from './driver.js';
 import {
   CalendarSystem,
@@ -239,6 +239,40 @@ test('restoreState: a session with systems the save predates still restores (det
   // the reverse — a save carrying a system this composition lacks — still refuses
   const bare = new Kernel(7);
   assert.throws(() => bare.restoreState(saved), /system 'counter' not registered/);
+});
+
+// ---------------- restoreState: retired system names (M60) ----------------
+
+test('restoreState: a RETIRED system name is tolerated and makes zero difference to the restore', () => {
+  const { kernel: original } = makeKernel(7);
+  for (let t = 0; t < 20; t++) original.step();
+  const saved = original.saveState();
+  // simulate an M28-era save: it named a system that has since been deleted
+  const retiredName = [...RETIRED_SYSTEM_NAMES][0] as string;
+  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: retiredName, state: saved.systemRngs[0]!.state }] };
+
+  const { kernel: plain } = makeKernel(7);
+  const { kernel: withRetired } = makeKernel(7);
+  assert.doesNotThrow(() => withRetired.restoreState(tampered), 'a retired name must not trip the composition-mismatch invariant');
+  plain.restoreState(saved);
+  assert.equal(withRetired.currentTick, plain.currentTick);
+  for (let t = 0; t < 30; t++) {
+    plain.step();
+    withRetired.step();
+  }
+  // the tolerated entry's RNG was discarded, never restored into any registered system, so
+  // both sessions evolve byte-identically — the retired name is truly inert, not silently applied
+  assert.equal(withRetired.stateHash(), plain.stateHash(), 'the retired entry made zero difference to the restored session');
+});
+
+test('restoreState: an unregistered name NOT in RETIRED_SYSTEM_NAMES still refuses (the real mismatch guard)', () => {
+  const { kernel: original } = makeKernel(7);
+  for (let t = 0; t < 5; t++) original.step();
+  const saved = original.saveState();
+  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: 'some-other-deleted-system', state: saved.systemRngs[0]!.state }] };
+
+  const { kernel: fresh } = makeKernel(7);
+  assert.throws(() => fresh.restoreState(tampered), /system 'some-other-deleted-system' not registered/);
 });
 
 // ---------------- driver ----------------

@@ -550,3 +550,37 @@ by actually running the milestone rather than assumed from the plan:**
 Determinism is unaffected IN KIND — pure deletions plus command-time gating; named PRNG forks
 mean surviving systems' draws don't shift (ADR-3's property, and empirically confirmed at M56: all
 53 systems surviving the `castle-defense-rebuild` deletion showed zero PRNG-state drift).
+
+**Correction (recorded at M60 execution, 2026-07-22) — the missing mechanism M56 flagged is now
+resolved; one further gap surfaced only by actually building the fixture:**
+- `Kernel.restoreState`'s composition-mismatch invariant now tolerates a saved system name IF it
+  is in a new `RETIRED_SYSTEM_NAMES` set (`kernel.ts`) — currently just `castle-defense-rebuild`.
+  The chosen mechanism is name-scoped tolerance, not a no-op stub system: a stub would have to
+  stay registered in EVERY future composition (dead weight forever, and a growing surface for
+  the exact composition-mismatch bugs this guard exists to catch), where a retired-name entry is
+  inert by construction — its saved RNG is discarded, never restored into anything, and provably
+  makes zero difference to the restored session (kernel.test.ts checks two identically-seeded
+  restores, with and without the retired entry, converge to the same hash after 30 ticks). Any
+  OTHER unregistered name still throws — the hard mismatch guard this correction does not weaken.
+- The footprint-reconciliation rule the M59 note deferred ("needs a load-time reconciliation
+  rule") is: a standing structure occupies the footprint it was PLACED with, not the current def's.
+  `BuildingCore` (village map) already persists per-instance `w`/`h` as hashed SoA fields — nothing
+  new to serialise — so `rebuildDerived`/`demolish`/`raze` read stored w/h, falling back to the
+  live def only for a pre-w/h save (stored 0, meaning none was ever recorded). `DefenceStructure`
+  (the M51 layer) was NOT extended to match: it deliberately serialises only def code + origin
+  (doc 12's M59 note: "the save FORMAT is untouched — footprints are not serialised"), so a layer
+  structure is always rebuilt at whatever footprint the CURRENT def declares, and a pre-M59 save
+  whose keep grew (2×2 → 7×7) can legitimately overlap a neighbour the old size left clear — an
+  accepted one-time behaviour snap, same class as the buildings-load-as-inert snap two paragraphs
+  up. Made safe for demolish/rebuild under that overlap by first-writer-wins occupy + an
+  owner-guarded vacate (only clear a tile if the vacating entity is the one that claimed it).
+- Building the M28-era corpus fixture surfaced what "M28-era" actually requires beyond the two
+  items above: current code cannot PRODUCE such a save (M56 deleted castle placement outright), so
+  `packages/tools/src/save-corpus.ts`'s new `recordLegacyM28CastleEntry` crafts one from a real
+  terra economy save — stamping grandfathered wall/gate/tower buildings at their M28 1×1
+  footprint (regardless of the defs' current, larger size — exactly the case the reconciliation
+  rule above exists for), setting the deprecated `isCastle` flag, and re-injecting the retired
+  system name into the saved `kernel` section. Both changes above are behaviour-neutral for every
+  save CURRENT code can produce (a freshly-placed instance's stored footprint always equals its
+  def's at placement time; genesis never overlaps), confirmed by all four goldens and the three
+  pre-existing corpus entries re-verifying byte-identical with zero re-record.
