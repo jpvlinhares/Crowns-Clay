@@ -133,6 +133,36 @@ test('defence.build: pays atomically from the capital, spawns on open ground, re
   assert.match(d.lastRejection(), /keep stands where it was founded/);
 });
 
+test('placementReason (M62 preview probe): read-only, and tracks defence.build accept/reject exactly', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis
+  const capital = c.villageOf(0) as number;
+  const wallDef = c.db.buildings.get('base:building.wall');
+  assert.ok(wallDef !== undefined);
+  const site = openTileNear(c, capital);
+
+  // an open tile: the probe says placeable (null), and it does NOT mutate — asking twice, and
+  // reading occupancy after, leaves the layer exactly as it was (presentation-only).
+  const occBefore = c.defenceGame.occupancyOf(capital).size;
+  assert.equal(c.defenceGame.placementReason(capital, wallDef, site.x, site.y), null, 'open ground previews as placeable');
+  assert.equal(c.defenceGame.placementReason(capital, wallDef, site.x, site.y), null, 'probing is idempotent');
+  assert.equal(c.defenceGame.occupancyOf(capital).size, occBefore, 'the probe issued no command — occupancy is untouched');
+
+  // out of bounds and rock/water-or-occupied both preview as NON-placeable, with the same reason
+  // strings defence.build itself rejects with (they are the same function) — so the outline can
+  // never say "green" where the command would reject.
+  assert.match(c.defenceGame.placementReason(capital, wallDef, DEFENCE_MAP_SIZE, 0) ?? '', /out of bounds/);
+
+  // now actually build there; the SAME probe must flip to non-null (occupied), matching how the
+  // command now rejects a second wall — this is the red-outline-after-placement behaviour.
+  d.submit('defence.build', { villageId: capital, def: 'base:building.wall', x: site.x, y: site.y });
+  assert.equal(d.builtOf('base:building.wall').length, 1, d.lastRejection());
+  assert.match(c.defenceGame.placementReason(capital, wallDef, site.x, site.y) ?? '', /occupied/, 'the just-placed structure makes the probe report occupied');
+  d.submit('defence.build', { villageId: capital, def: 'base:building.wall', x: site.x, y: site.y });
+  assert.match(d.lastRejection(), /occupied/, 'and the real command rejects for the identical reason');
+});
+
 test('defence.demolish: owner-gated, keep-protected, frees the ground', () => {
   const c = compose();
   const d = driver(c);

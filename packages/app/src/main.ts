@@ -311,6 +311,8 @@ const castleView = {
     castleToolbarBtn.classList.remove('active');
     castleToolbarBtn.setAttribute('aria-pressed', 'false');
     castleAction = null; // leaving the view disarms any half-armed build/post order
+    castlePreviewOrigin = null; // M62: drop the stale preview so it doesn't flash on reopen
+    castlePreviewKey = null;
   },
   toggle(): void {
     if (this.isOpen()) this.close();
@@ -1118,6 +1120,16 @@ let castleGateRotated = false;
  * VIEWPORT_TILES-wide/tall window draws, at DEFENCE_TILE_PX pixels/tile. `-1` = not yet
  * centred on the keep (done once per castle, on first render / village change). */
 let castleViewport = { x: -1, y: -1, forVillage: -1 };
+/** M62: defence-layer footprint preview — an outline of the armed structure follows the cursor
+ * on the defence map, green/red per the sim's OWN `defence.build` rulebook (async probe, exactly
+ * like the village layer). Origin = the top-left the structure would occupy (centre-anchored +
+ * clamped, same as the click). `redraw` captures the live overlay canvas + viewport so both a
+ * cursor move AND a late validity reply repaint from one place; renderCastlePanel reassigns it. */
+let castlePreviewSeq = 0; // monotonic; replies older than this are stale cursor positions
+let castlePreviewValid = true; // last authoritative verdict, shown instantly while the next reply is in flight
+let castlePreviewKey: string | null = null; // `${def}:${ox}:${oy}` — dedupes per-pixel moves to per-tile probes
+let castlePreviewOrigin: { ox: number; oy: number } | null = null; // world-tile origin under the cursor, null = hidden
+let redrawCastlePreview: (() => void) | null = null;
 /** M51: the last assault fought on OUR walls — its trace overlays the map as the replay. */
 let lastAssaultReport: {
   outcome: string;
@@ -1315,6 +1327,12 @@ function renderCastlePanel(): void {
       const ox = Math.max(0, Math.min(st.size - castleAction.w, tx - Math.floor(castleAction.w / 2)));
       const oy = Math.max(0, Math.min(st.size - castleAction.h, ty - Math.floor(castleAction.h / 2)));
       command('defence.build', { villageId: st.villageId, def: castleAction.def, x: ox, y: oy });
+      // stay armed for continuous placement (M62); re-probe THIS origin so the outline flips
+      // red once the just-placed structure occupies it — the queued command mutates occupancy
+      // before this probe runs, so the reply reflects the post-placement state.
+      castlePreviewOrigin = { ox, oy };
+      castlePreviewKey = null;
+      send({ kind: 'previewDefenceBuild', seq: ++castlePreviewSeq, villageId: st.villageId, def: castleAction.def, x: ox, y: oy });
     } else if (castleAction.mode === 'demolish') {
       const target = structureAt(tx, ty);
       if (target === undefined) return;
@@ -1325,7 +1343,68 @@ function renderCastlePanel(): void {
     }
     send({ kind: 'requestPanels' });
   });
-  canvasWrap.append(canvas);
+  // -- M62: footprint preview overlay. A transparent canvas laid exactly over the map (same
+  // buffer + CSS border, so tile coords align 1:1) carries ONLY the armed structure's outline,
+  // so a cursor move repaints one thin rect instead of re-running the whole map draw. It's
+  // pointer-events:none, so clicks/moves fall through to the map canvas beneath. --
+  const overlay = document.createElement('canvas');
+  overlay.width = canvas.width;
+  overlay.height = canvas.height;
+  overlay.style.position = 'absolute';
+  overlay.style.left = '0';
+  overlay.style.top = '0';
+  overlay.style.background = 'transparent'; // override #castle-view-canvas-wrap canvas's opaque fill
+  overlay.style.pointerEvents = 'none';
+  const octx = overlay.getContext('2d');
+  redrawCastlePreview = (): void => {
+    if (octx === null) return;
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (castleAction === null || castleAction.mode !== 'build' || castlePreviewOrigin === null) return;
+    const { ox, oy } = castlePreviewOrigin;
+    const px = (ox - vx) * scale;
+    const py = (oy - vy) * scale;
+    const w = castleAction.w * scale;
+    const h = castleAction.h * scale;
+    const lw = Math.max(2, Math.floor(scale * 0.14));
+    octx.fillStyle = castlePreviewValid ? 'rgba(95,210,138,0.24)' : 'rgba(224,107,107,0.26)';
+    octx.strokeStyle = castlePreviewValid ? '#5fd28a' : '#e06b6b';
+    octx.lineWidth = lw;
+    octx.fillRect(px, py, w, h);
+    octx.strokeRect(px + lw / 2, py + lw / 2, w - lw, h - lw);
+  };
+
+  // track the hovered tile → the ORIGIN the structure would occupy (centre-anchored + clamped,
+  // IDENTICAL to the click handler), draw instantly with the last verdict, then probe the sim
+  // for the authoritative colour (async, seq-guarded — mirrors the village layer's previewBuild).
+  canvas.addEventListener('mousemove', (e) => {
+    if (castleAction === null || castleAction.mode !== 'build') return;
+    const rect = canvas.getBoundingClientRect();
+    const sX = canvas.width / rect.width;
+    const sY = canvas.height / rect.height;
+    const tx = vx + Math.floor(((e.clientX - rect.left) * sX) / scale);
+    const ty = vy + Math.floor(((e.clientY - rect.top) * sY) / scale);
+    const ox = Math.max(0, Math.min(st.size - castleAction.w, tx - Math.floor(castleAction.w / 2)));
+    const oy = Math.max(0, Math.min(st.size - castleAction.h, ty - Math.floor(castleAction.h / 2)));
+    castlePreviewOrigin = { ox, oy };
+    redrawCastlePreview?.(); // optimistic: instant outline at the last-known colour
+    const key = `${castleAction.def}:${ox}:${oy}`;
+    if (key === castlePreviewKey) return; // same def + origin → the outstanding probe still stands
+    castlePreviewKey = key;
+    send({ kind: 'previewDefenceBuild', seq: ++castlePreviewSeq, villageId: st.villageId, def: castleAction.def, x: ox, y: oy });
+  });
+  canvas.addEventListener('mouseleave', () => {
+    castlePreviewOrigin = null;
+    castlePreviewKey = null;
+    redrawCastlePreview?.();
+  });
+
+  const mapStack = document.createElement('div');
+  mapStack.style.position = 'relative';
+  mapStack.style.display = 'inline-block';
+  mapStack.style.lineHeight = '0';
+  mapStack.append(canvas, overlay);
+  canvasWrap.append(mapStack);
+  redrawCastlePreview(); // re-show the outline immediately after a panel refresh (continuous placement)
 
   // -- pan (M59): the viewport no longer shows the whole map at zoom — step by roughly a
   // third of the visible window so a click clearly moves the view without overshooting. --
@@ -1901,6 +1980,13 @@ worker.onmessage = (event: MessageEvent) => {
       if (message.seq === previewSeq && store.state.armedBuild !== null && renderer !== null) {
         previewValid = message.ok;
         renderer.showFootprintPreview(message.x, message.y, message.w, message.h, message.ok);
+      }
+      return;
+    case 'defenceBuildPreview':
+      // authoritative defence-layer verdict — apply only if newest and still arming a build
+      if (message.seq === castlePreviewSeq && castleAction?.mode === 'build') {
+        castlePreviewValid = message.ok;
+        redrawCastlePreview?.();
       }
       return;
     case 'hash':

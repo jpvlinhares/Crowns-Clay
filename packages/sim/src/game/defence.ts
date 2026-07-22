@@ -129,6 +129,11 @@ export interface DefenceGameplay {
   mapOf(villageIndex: number): DefenceMapState | undefined;
   /** Occupied layer tiles (footprint-expanded) for one village: tile → structure entity. */
   occupancyOf(villageIndex: number): ReadonlyMap<number, number>;
+  /** Read-only placement probe for the footprint preview (M62): the EXACT bounds/terrain/
+   * occupancy verdict `defence.build` gates on, WITHOUT issuing the command or touching any
+   * state — `null` = placeable at this origin, else the rejection reason. Presentation-only;
+   * the UI colours its preview outline from this so it can never drift from the real rule. */
+  placementReason(villageIndex: number, def: BuildingDef, x: number, y: number): string | null;
   /** M51: a BREACH — the assault resolver levels a structure (occupancy maintained). */
   removeStructure(entity: number): void;
   save(): { k: number; seed: number; version: number; tiles: number[] }[];
@@ -599,6 +604,7 @@ export function registerDefenceGameplay(
     Fortification,
     mapOf: (vi) => maps.get(vi),
     occupancyOf: (vi) => occupancyFor(vi),
+    placementReason: (vi, def, x, y) => buildable(vi, def, x, y),
     removeStructure(entity: number): void {
       if (!world.isAlive(entity as EntityId) || !world.has(entity as EntityId, DefenceStructure)) return;
       const s = world.read(DefenceStructure);

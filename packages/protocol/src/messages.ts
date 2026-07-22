@@ -350,7 +350,13 @@ export type ToSimMessage =
   // A read-only validity probe answered by the sim's one placement rulebook, so the
   // outline preview honours every current and future placement rule automatically.
   // `seq` lets the client discard responses older than the cursor's current tile. ----
-  | { kind: 'previewBuild'; seq: number; villageId: number; def: string; x: number; y: number };
+  | { kind: 'previewBuild'; seq: number; villageId: number; def: string; x: number; y: number }
+  // ---- defence-layer footprint preview: the same read-only probe as `previewBuild`, but
+  // answered by the defence layer's OWN placement rulebook (`defence.build`'s bounds/terrain/
+  // occupancy check) rather than the village-map validator. `x`/`y` are the structure ORIGIN
+  // (top-left), already centre-anchored + clamped by the client — the exact tile `defence.build`
+  // would receive — so preview validity equals placement validity by construction. ----
+  | { kind: 'previewDefenceBuild'; seq: number; villageId: number; def: string; x: number; y: number };
 
 // ---- from sim ----
 export type FromSimMessage =
@@ -478,6 +484,10 @@ export type FromSimMessage =
   // footprint (w, h) so the renderer can draw purely from the reply, and `seq`+(x,y)
   // so the client ignores any reply the cursor has already moved past. ----
   | { kind: 'buildPreview'; seq: number; x: number; y: number; w: number; h: number; ok: boolean }
+  // ---- defence-layer footprint preview verdict. The client already knows the footprint
+  // (it armed the structure from the buildable palette), so this carries only the validity
+  // and `seq` to discard replies the cursor has moved past. ----
+  | { kind: 'defenceBuildPreview'; seq: number; ok: boolean }
   | { kind: 'fatal'; message: string }
   // ---- storage quota (roadmap M44; doc 11 §3/§4; Risk R6) ----
   // Sent when the tripwire fires (quota estimate < 2× current usage) — a real advisory, not a

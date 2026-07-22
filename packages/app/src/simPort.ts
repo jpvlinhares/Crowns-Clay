@@ -66,6 +66,11 @@ export interface SimSession {
    * def's footprint so the client can draw the outline straight from the reply. Unknown
    * def → not placeable, 1×1 (a harmless default the renderer can still outline). */
   previewPlacement(villageId: number, defId: string, x: number, y: number): { ok: boolean; w: number; h: number };
+  /** M62: the defence-layer counterpart — runs the sim's OWN `defence.build` bounds/terrain/
+   * occupancy rulebook read-only (no command, no mutation) so the Castle panel's footprint
+   * preview honours the identical rule the command will. `x`/`y` are the structure origin.
+   * `{ ok: false }` on the terra composition (no defence layer) or an unknown def. */
+  previewDefenceBuild(villageId: number, defId: string, x: number, y: number): { ok: boolean };
 }
 
 /**
@@ -449,6 +454,14 @@ export function createSession(
       const verdict = c.game.ops.validatePlacement(def, x | 0, y | 0, villageId as EntityId);
       return { ok: verdict.ok, w: def.footprint.w, h: def.footprint.h };
     },
+    previewDefenceBuild(villageId, defId, x, y) {
+      if (!('defenceGame' in c)) return { ok: false }; // terra composition has no layer
+      const def = c.db.buildings.get(defId);
+      if (def === undefined) return { ok: false };
+      // `villageId` is the player-village index the panel projection carries; the real command
+      // masks it the same way, so masking here keeps the probe and the command in lock-step.
+      return { ok: c.defenceGame.placementReason(villageId & 0x3fffff, def, x | 0, y | 0) === null };
+    },
     kernel: c.kernel,
     driver: new TickDriver(c.kernel, { maxTicksPerAdvance: 32 }),
     emitter: new SnapshotEmitter(c.world, c.Position),
@@ -755,6 +768,12 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
           if (session === null) return;
           const { ok, w, h } = session.previewPlacement(message.villageId, message.def, message.x, message.y);
           send({ kind: 'buildPreview', seq: message.seq, x: message.x, y: message.y, w, h, ok });
+          return;
+        }
+        case 'previewDefenceBuild': {
+          if (session === null) return;
+          const { ok } = session.previewDefenceBuild(message.villageId, message.def, message.x, message.y);
+          send({ kind: 'defenceBuildPreview', seq: message.seq, ok });
           return;
         }
         case 'requestHash':
