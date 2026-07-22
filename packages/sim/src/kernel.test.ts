@@ -249,7 +249,9 @@ test('restoreState: a RETIRED system name is tolerated and makes zero difference
   const saved = original.saveState();
   // simulate an M28-era save: it named a system that has since been deleted
   const retiredName = [...RETIRED_SYSTEM_NAMES][0] as string;
-  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: retiredName, state: saved.systemRngs[0]!.state }] };
+  const firstEntry = saved.systemRngs[0];
+  assert.ok(firstEntry !== undefined);
+  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: retiredName, state: firstEntry.state }] };
 
   const { kernel: plain } = makeKernel(7);
   const { kernel: withRetired } = makeKernel(7);
@@ -269,7 +271,9 @@ test('restoreState: an unregistered name NOT in RETIRED_SYSTEM_NAMES still refus
   const { kernel: original } = makeKernel(7);
   for (let t = 0; t < 5; t++) original.step();
   const saved = original.saveState();
-  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: 'some-other-deleted-system', state: saved.systemRngs[0]!.state }] };
+  const firstEntry = saved.systemRngs[0];
+  assert.ok(firstEntry !== undefined);
+  const tampered = { ...saved, systemRngs: [...saved.systemRngs, { name: 'some-other-deleted-system', state: firstEntry.state }] };
 
   const { kernel: fresh } = makeKernel(7);
   assert.throws(() => fresh.restoreState(tampered), /system 'some-other-deleted-system' not registered/);

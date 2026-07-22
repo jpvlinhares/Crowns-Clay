@@ -584,3 +584,31 @@ resolved; one further gap surfaced only by actually building the fixture:**
   save CURRENT code can produce (a freshly-placed instance's stored footprint always equals its
   def's at placement time; genesis never overlaps), confirmed by all four goldens and the three
   pre-existing corpus entries re-verifying byte-identical with zero re-record.
+
+**Closure (recorded at M61 execution, 2026-07-23) — the "shipped delta" wording lands, and the
+retirement is balance-recertified: Phase 8.1 is CLOSED.** GDD §7 is rewritten in place — no longer
+a primary M28 description with a Phase 8 delta bolted on, but a single-system description (the
+Keep-gated layer, real footprints, the gatehouse's role, siege as a spatial flow-field walk) with
+the M28/Phase-8/Phase-8.1 history compressed into one closing paragraph, matching how doc 15
+already narrates it; §8's two now-orphaned "defence graph" references were corrected alongside it
+for internal consistency. Doc 06 §4's `isCastle`/`DefenseGraph` block is similarly rewritten:
+`isCastle` marked deprecated in place (never removed — a format bump isn't worth it for a field
+nothing reads), the M28/A1 history kept as delta notes rather than deleted, and `BuildingDef`'s
+`category: castle` note (§2) corrected to say placement is REJECTED, not "implemented," now that
+ADR-4 A1 bars it from the village map entirely. Doc 07 §5 gained the M55–M61 delta the M52 note
+promised: `planCastleRing` is DELETED (not merely superseded) and the template AI is no longer
+capital-only, following the layer's M57 re-key to village. Balance re-run at M61 on the SAME
+methodology the war-cadence-part-7 baseline used (the flat `bench:balance` harness — the only
+place war cadence is actually observable; the unified `--real` composition never once declares a
+war in this matrix, a pre-existing prosperity-outpaces-war pacing gap unrelated to Phase 8.1 and
+explicitly not this milestone's to fix): 24 sieges begun / 23 captured across the 12-campaign
+matrix, comfortably above part-7's 8/6 floor, all campaigns still reach a victory before the year
+cap (SC-2 holds), zero peacetime starvation. `bench:assault`'s M54 bands — the ones actually
+sensitive to M59's footprint/hp-per-frontage rescale — hold unchanged: garrisoned templates repel
+raids, a keep-only village falls to a host, 0% max origin deviation over the reachable-origin
+configs. Perf budgets stay far under headroom (war-max 0.080 ms/tick, ai-8k 0.209, late-campaign
+0.448 — up modestly from Gate P8's 0.357 from the larger footprints' extra occupancy tiles, still
+≪ the 10 ms budget). **Gate P8.1 verified 2026-07-23** (doc 12 carries the formal record, matching
+Gate P8's format). Phase 8.1 — One Castle is closed; ADR-4 §6's "two parallel fortification
+systems must not ship" now holds structurally, not by convention — there is exactly one code path,
+`game/castles.ts` and the legacy assault branch are deleted, not merely unreachable.

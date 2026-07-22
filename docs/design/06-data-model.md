@@ -64,9 +64,15 @@ BuildingDef { id, name, desc, category: housing|production|service|military|cast
               // `drillRate` (training-quality) stays deferred.
               defense?: { hp: number, armor: number, kind: wall|gate|tower|keep,
                           rangedArc?: {range, damage} },
-              // M28 delta: implemented — `kind` feeds the defence graph/enclosure
-              // algorithm (game/castles.ts); `rangedArc` stays inert until Sieges (M29).
-              // `category: castle` implemented; `monument` is unclaimed content past this.
+              // M28 delta (game/castles.ts, DELETED at M56): `kind` originally fed a
+              // village-map defence graph/enclosure algorithm. ADR-4 Amendment A1 (M55–M61)
+              // retired that entirely: `category: castle` content (wall/gatehouse/tower)
+              // is now REJECTED by `village.build`'s placement rulebook outright — it only
+              // ever spawns onto the M51 defence layer, a separate command surface keyed
+              // to the Keep (recategorised OUT of `castle` into `military` at M57, so it
+              // alone gates the layer without being barred by its own category). `rangedArc`
+              // is live (towers fire on the layer, Sieges/M29 + M51). `monument` is still
+              // unclaimed content past this.
               upgradesTo?: Id<BuildingDef>, modifiers?: Modifier[], spriteId, tags, props }
 
 Building(state) { id, defId, villageId, pos, rotation, condition: 0..1,
@@ -157,39 +163,42 @@ Village { id, kingdomId, name, center: Point, radius: number,
           cohorts: Cohort[], notables: Id<Character>[],
           happiness: 0..100, needSatisfaction: Map<NeedType, 0..100>,
           taxRate: enum, rationPolicy: enum, prosperity: number,
-          isCastle: bool, defenseGraph?: DefenseGraph, siegeState?: SiegeState, version }
+          isCastle: bool /* deprecated, ADR-4 A1 — see below */, version }
 
 Cohort  { ageBand: child|adult|elder, occupation: Id<JobDef>|idle,
           count: number, skill: 0..100 }
-DefenseGraph { nodes: [{buildingId, kind, hp, armor}], edges: [...],
-               enclosedArea: Footprint, autonomyDays: number }
+```
 
-// M28 delta (game/castles.ts): a castle is NOT a separate entity kind — any Village
-// becomes one the moment its wall/gate/tower/keep buildings (ordinary BuildingDefs
-// with the new `defense` block, doc 06 §2) close a loop. `isCastle` and `DefenseGraph`
-// are DERIVED (recomputed on building.completed/demolished, never per-tick), not
-// authored state — no `edges` list; the enclosure algorithm is a bounded flood-fill
-// (village radius + a fixed padding) rather than a persisted graph traversal.
-// `enclosedArea` is a tile-index Set, not a Footprint rect (real castles aren't
-// rectangles). `autonomyDays` (siege endurance) is `SiegeState`'s concern — both stay
-// undefined until Sieges (M29). `military.garrisonCap` (BuildingDef, doc 06 §2) is
-// authored on keep/tower content now but not yet enforced against actual garrisons —
-// same "data now, active later" pattern as M25's unit `stats`.
-//
+// M28 delta (game/castles.ts, DELETED at M56 — ADR-4 Amendment A1): a castle was NOT a
+// separate entity kind — any Village became one the moment its wall/gate/tower/keep
+// buildings (ordinary BuildingDefs with a `defense` block, doc 06 §2) closed a loop,
+// via a bounded flood-fill enclosure algorithm. `isCastle` and a derived `DefenseGraph`
+// were recomputed on building.completed/demolished, never authored or per-tick.
+
+// ADR-4 Amendment A1 delta (M55–M61, Phase 8.1, retired the above 2026-07-23): there is
+// ONE castle/defence system now — a village-keyed layer gated by the Keep (an ordinary
+// `military`-category BuildingDef), NOT village-map state at all. The layer's own state
+// (`DefenceStructure { village, def, x, y }`, `DefenceMapState { village, seed, version,
+// tiles }`, `Fortification { hp, maxHp }` — `game/defence.ts`) has no §-section of its own
+// in this doc yet; GDD §7 has the design-level description. `isCastle` stays in THIS
+// schema, deprecated, never set true again — grandfathering an M28-era save's standing
+// wall/gate/tower/keep buildings as INERT ordinary buildings (occupancy-blocking,
+// demolishable, no graph, no siege meaning) costs less than a format bump for a field
+// nothing writes or reads post-migration (M60).
+
+```
 // M29 delta (game/siege.ts): `SiegeState` lands as a plain relational class keyed by
-// castle (mirrors DiplomacyState/CombatState), not a Village field — one attacker per
-// castle at a time (v1). Phases: ENCIRCLE (`siege.begin`, army stance → `siege`,
-// GDD §7's fifth stance, inert since M26) → BOMBARD (daily; besieger attack, siege-class
-// units at `SIEGE_BOMBARD_BONUS`×, vs. the targeted segment's armor; at 0 HP the
-// segment is demolished via the same `VillageOps.demolish` a player uses, so castles.ts's
-// existing enclosure rebuild fires with no new plumbing) → ASSAULT/SORTIE (both reuse
-// combat.ts's resolver exactly; `Engagement.casualtyMultiplier` makes assaults bloody,
-// GDD §8) or STARVE (a season-scale granary countdown once the stockpile sits near
-// empty). `autonomyDays` isn't a stored countdown — it's however long
-// `STARVATION_SURRENDER_DAYS` takes to elapse while the food stockpile stays at/near
-// zero. Capture transfers `VillageOwner` (M22) if multi-kingdom; single-kingdom
-// compositions can't besiege at all (nothing to capture from). Multiple simultaneous
-// besiegers, mining, and ransom (Characters, M34) stay out of scope.
+// the besieged village (mirrors DiplomacyState/CombatState), not a Village field — one
+// attacker at a time (v1). Phases: ENCIRCLE (`siege.begin`, army stance → `siege`,
+// GDD §7's fifth stance, inert since M26) → ASSAULT/SORTIE (a deterministic flow-field
+// walk across the defender's layer, replayable as a trace — ADR-4 §2/M51, superseding
+// this delta's original bombard-vs-graph description at M55) or STARVE (a season-scale
+// granary countdown once the stockpile sits near empty). `autonomyDays` isn't a stored
+// countdown — it's however long `STARVATION_SURRENDER_DAYS` takes to elapse while the
+// food stockpile stays at/near zero. Capture transfers `VillageOwner` (M22) if
+// multi-kingdom; single-kingdom compositions can't besiege at all (nothing to capture
+// from). Multiple simultaneous besiegers, mining, and ransom (Characters, M34) stay out
+// of scope.
 ```
 
 ## §5. Kingdom (state) & PlayerProfile

@@ -23,6 +23,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { composeTerra, composeCampaignForApp, DEFAULT_CAMPAIGN_SETTINGS } from '@crowns/app';
+import { invariant } from '@crowns/core';
 import type { CampaignSave } from '@crowns/sim';
 
 export const CORPUS_DIR = 'fixtures/saves';
@@ -127,10 +128,14 @@ export function recordLegacyM28CastleEntry(): CorpusEntry {
   stamp('base:building.tower', cx + 6, cy + 4);
 
   const crafted = JSON.parse(JSON.stringify(cc.saves.snapshot())) as CampaignSave;
-  const kernelData = crafted.sections.kernel!.data as { systemRngs: { name: string; state: unknown }[] };
+  const kernelSection = crafted.sections.kernel;
+  invariant(kernelSection !== undefined, 'a freshly-composed session must save a kernel section');
+  const kernelData = kernelSection.data as { systemRngs: { name: string; state: unknown }[] };
+  const firstSystemRng = kernelData.systemRngs[0];
+  invariant(firstSystemRng !== undefined, 'a freshly-composed kernel must register at least one system');
   // any well-formed RNG state — a retired name's stream is discarded on load, so the value
   // is inert; cloning an existing system's keeps it structurally valid.
-  kernelData.systemRngs.push({ name: 'castle-defense-rebuild', state: { ...(kernelData.systemRngs[0]!.state as object) } });
+  kernelData.systemRngs.push({ name: 'castle-defense-rebuild', state: { ...(firstSystemRng.state as object) } });
 
   // pin the resume hash EXACTLY as verifyCorpusEntry recomputes it (fresh compose → hydrate →
   // resume RESUME_TICKS), so recording and verifying agree by construction.
