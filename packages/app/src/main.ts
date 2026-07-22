@@ -1111,6 +1111,13 @@ type CastleAction =
   | { mode: 'demolish' }
   | { mode: 'post'; unitId: number };
 let castleAction: CastleAction | null = null;
+/** M59: the gatehouse is ONE palette button with a rotate toggle — the two orientation
+ * defs (base:building.gatehouse / -v) stay an implementation detail, per the roadmap. */
+let castleGateRotated = false;
+/** M59: zoom + pan — the map no longer draws at "whole map fits the wrap" scale; only a
+ * VIEWPORT_TILES-wide/tall window draws, at DEFENCE_TILE_PX pixels/tile. `-1` = not yet
+ * centred on the keep (done once per castle, on first render / village change). */
+let castleViewport = { x: -1, y: -1, forVillage: -1 };
 /** M51: the last assault fought on OUR walls — its trace overlays the map as the replay. */
 let lastAssaultReport: {
   outcome: string;
@@ -1136,16 +1143,34 @@ function decodeRle(pairs: readonly number[], total: number): Uint8Array {
   return out;
 }
 
-/** Pixels-per-tile so the defence map fills the large majority of its full-screen wrap.
- * Measures the live wrap; falls back to a viewport estimate before the view is laid out
- * (rendered-while-hidden). Non-integer scale is fine — the draw already overdraws by +0.5. */
-function castleMapScale(size: number): number {
+/** M59: tile scale as config — one named constant, not a magic number buried in draw
+ * logic. ~3× the old "whole map crammed into the wrap" scale (that was ~5-8px/tile);
+ * changing this alone re-scales the view with no other code touched. */
+const DEFENCE_TILE_PX = 18;
+
+/** How many tiles fit the live wrap at DEFENCE_TILE_PX — the VIEWPORT window, not the
+ * whole map (M59: zoom means only a window draws, panned around). Falls back to a
+ * viewport estimate before the view is laid out (rendered-while-hidden). */
+function castleViewportTiles(mapSize: number): number {
   const wrap = document.getElementById('castle-view-canvas-wrap');
   const avail =
     wrap !== null && wrap.clientWidth > 0 && wrap.clientHeight > 0
       ? Math.min(wrap.clientWidth, wrap.clientHeight) - 20 // leave the wrap's padding breathing room
       : Math.min(window.innerWidth * 0.62, window.innerHeight * 0.82); // pre-layout fallback
-  return Math.max(200, avail) / size;
+  const tiles = Math.floor(Math.max(200, avail) / DEFENCE_TILE_PX);
+  return Math.max(10, Math.min(mapSize, tiles));
+}
+
+/** Clamp the viewport so it never scrolls past the map edge; centres on the keep the
+ * first time a given village's castle is shown (or after switching villages). */
+function clampCastleViewport(mapSize: number, viewTiles: number, villageId: number): void {
+  if (castleViewport.forVillage !== villageId) {
+    const centre = Math.floor(mapSize / 2);
+    castleViewport = { x: centre - Math.floor(viewTiles / 2), y: centre - Math.floor(viewTiles / 2), forVillage: villageId };
+  }
+  const maxOffset = Math.max(0, mapSize - viewTiles);
+  castleViewport.x = Math.max(0, Math.min(maxOffset, castleViewport.x));
+  castleViewport.y = Math.max(0, Math.min(maxOffset, castleViewport.y));
 }
 
 function renderCastlePanel(): void {
@@ -1170,33 +1195,62 @@ function renderCastlePanel(): void {
     : 'Posting garrison — click the tile to hold';
   tools.append(status);
 
-  // -- the map: sized to fill the large majority of the view (big tiles for precise placement) --
+  // -- the map: a ZOOMED VIEWPORT window, not the whole grid (M59) — DEFENCE_TILE_PX
+  // pixels/tile, panned via the controls below. Readability: walls draw full-bleed so
+  // adjacent segments JOIN into a continuous line; every other structure draws INSET so
+  // ground stays visible around it; the keep additionally gets a distinct outline —
+  // "a structure, not a flat block."
+  const viewTiles = castleViewportTiles(st.size);
+  clampCastleViewport(st.size, viewTiles, st.villageId);
+  const vx = castleViewport.x;
+  const vy = castleViewport.y;
+  const scale = DEFENCE_TILE_PX;
+  const inView = (x: number, y: number, w: number, h: number): boolean =>
+    x + w > vx && x < vx + viewTiles && y + h > vy && y < vy + viewTiles;
+
   const canvas = document.createElement('canvas');
-  const scale = castleMapScale(st.size);
-  canvas.width = Math.floor(st.size * scale);
-  canvas.height = Math.floor(st.size * scale);
+  canvas.width = viewTiles * scale;
+  canvas.height = viewTiles * scale;
   canvas.style.cursor = castleAction === null ? 'default' : 'crosshair';
   canvas.setAttribute('aria-label', 'Castle defence map');
   const g = canvas.getContext('2d');
   if (g !== null) {
-    for (let y = 0; y < st.size; y++) {
-      for (let x = 0; x < st.size; x++) {
-        g.fillStyle = DEFENCE_TILE_COLORS[tiles[y * st.size + x] as number] ?? DEFENCE_TILE_COLORS[0];
-        g.fillRect(x * scale, y * scale, scale + 0.5, scale + 0.5);
+    for (let ty = 0; ty < viewTiles; ty++) {
+      const wy = vy + ty;
+      if (wy < 0 || wy >= st.size) continue;
+      for (let tx = 0; tx < viewTiles; tx++) {
+        const wx = vx + tx;
+        if (wx < 0 || wx >= st.size) continue;
+        g.fillStyle = DEFENCE_TILE_COLORS[tiles[wy * st.size + wx] as number] ?? DEFENCE_TILE_COLORS[0];
+        g.fillRect(tx * scale, ty * scale, scale + 0.5, scale + 0.5);
       }
     }
     for (const r of st.structures) {
+      if (!inView(r.x, r.y, r.w, r.h)) continue;
+      const sx = (r.x - vx) * scale;
+      const sy = (r.y - vy) * scale;
+      const inset = r.kind === 'wall' ? 0 : scale * 0.14; // ground breathing room around non-wall structures
+      const overdraw = r.kind === 'wall' ? 0.5 : 0; // full-bleed join for walls only
+      const w = r.w * scale - inset * 2 + overdraw;
+      const h = r.h * scale - inset * 2 + overdraw;
       g.fillStyle = DEFENCE_KIND_COLORS[r.kind] ?? DEFENCE_KIND_COLORS['wall'] as string;
-      g.fillRect(r.x * scale, r.y * scale, r.w * scale, r.h * scale);
+      g.fillRect(sx + inset, sy + inset, w, h);
+      if (r.kind === 'keep') {
+        // distinct from every other structure, not just a bigger flat block
+        g.strokeStyle = '#fff3c4';
+        g.lineWidth = Math.max(1, scale * 0.08);
+        g.strokeRect(sx + inset, sy + inset, w, h);
+      }
       if (r.hp < r.maxHp) {
         g.fillStyle = '#c05050';
-        g.fillRect(r.x * scale, r.y * scale, r.w * scale * (1 - r.hp / r.maxHp), 1.5);
+        g.fillRect(sx + inset, sy + inset, w * (1 - r.hp / r.maxHp), Math.max(1.5, scale * 0.08));
       }
     }
     g.fillStyle = '#7ac07a';
     for (const p of st.posts) {
+      if (p.x < vx || p.x >= vx + viewTiles || p.y < vy || p.y >= vy + viewTiles) continue;
       g.beginPath();
-      g.arc((p.x + 0.5) * scale, (p.y + 0.5) * scale, scale * 0.6, 0, Math.PI * 2);
+      g.arc((p.x - vx + 0.5) * scale, (p.y - vy + 0.5) * scale, scale * 0.32, 0, Math.PI * 2);
       g.fill();
     }
     // M51: the last assault's replay — the column's walk in red, breaches crossed
@@ -1206,17 +1260,17 @@ function renderCastlePanel(): void {
         g.strokeStyle = '#d06060';
         g.lineWidth = 1.5;
         g.beginPath();
-        g.moveTo(((walk[0] as { x: number }).x + 0.5) * scale, ((walk[0] as { y: number }).y + 0.5) * scale);
-        for (const t of walk.slice(1)) g.lineTo((t.x + 0.5) * scale, (t.y + 0.5) * scale);
+        g.moveTo(((walk[0] as { x: number }).x - vx + 0.5) * scale, ((walk[0] as { y: number }).y - vy + 0.5) * scale);
+        for (const t of walk.slice(1)) g.lineTo((t.x - vx + 0.5) * scale, (t.y - vy + 0.5) * scale);
         g.stroke();
       }
       g.strokeStyle = '#f0e2b0';
       for (const t of lastAssaultReport.trace.filter((x) => x.kind === 'breach')) {
         g.beginPath();
-        g.moveTo(t.x * scale, t.y * scale);
-        g.lineTo((t.x + 1) * scale, (t.y + 1) * scale);
-        g.moveTo((t.x + 1) * scale, t.y * scale);
-        g.lineTo(t.x * scale, (t.y + 1) * scale);
+        g.moveTo((t.x - vx) * scale, (t.y - vy) * scale);
+        g.lineTo((t.x - vx + 1) * scale, (t.y - vy + 1) * scale);
+        g.moveTo((t.x - vx + 1) * scale, (t.y - vy) * scale);
+        g.lineTo((t.x - vx) * scale, (t.y - vy + 1) * scale);
         g.stroke();
       }
     }
@@ -1245,13 +1299,22 @@ function renderCastlePanel(): void {
     tools.append(summary);
   }
 
+  // M59: tile-pixel arithmetic PLUS the viewport offset — the old proportional-over-the-
+  // whole-canvas math was only ever correct while the entire map was visible at once.
+  // scaleX/scaleY guard the (rare) case the canvas is CSS-resized off its pixel buffer.
   canvas.addEventListener('click', (e) => {
     if (castleAction === null) return;
     const rect = canvas.getBoundingClientRect();
-    const tx = Math.floor(((e.clientX - rect.left) / rect.width) * st.size);
-    const ty = Math.floor(((e.clientY - rect.top) / rect.height) * st.size);
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const tx = vx + Math.floor(((e.clientX - rect.left) * scaleX) / scale);
+    const ty = vy + Math.floor(((e.clientY - rect.top) * scaleY) / scale);
     if (castleAction.mode === 'build') {
-      command('defence.build', { villageId: st.villageId, def: castleAction.def, x: Math.min(tx, st.size - castleAction.w), y: Math.min(ty, st.size - castleAction.h) });
+      // centre-anchored: the click is where the MIDDLE of the structure goes, not its
+      // origin — invisible at 1×1, wrong-feeling for anything bigger (the diagnosed gap).
+      const ox = Math.max(0, Math.min(st.size - castleAction.w, tx - Math.floor(castleAction.w / 2)));
+      const oy = Math.max(0, Math.min(st.size - castleAction.h, ty - Math.floor(castleAction.h / 2)));
+      command('defence.build', { villageId: st.villageId, def: castleAction.def, x: ox, y: oy });
     } else if (castleAction.mode === 'demolish') {
       const target = structureAt(tx, ty);
       if (target === undefined) return;
@@ -1264,19 +1327,76 @@ function renderCastlePanel(): void {
   });
   canvasWrap.append(canvas);
 
+  // -- pan (M59): the viewport no longer shows the whole map at zoom — step by roughly a
+  // third of the visible window so a click clearly moves the view without overshooting. --
+  const panStep = Math.max(1, Math.floor(viewTiles / 3));
+  const pan = el('div', undefined, 'row');
+  const panBtn = (label: string, dx: number, dy: number, title: string): void => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    tip(b, title);
+    b.addEventListener('click', () => {
+      castleViewport.x += dx * panStep;
+      castleViewport.y += dy * panStep;
+      renderCastlePanel();
+    });
+    pan.append(b);
+  };
+  panBtn('◀', -1, 0, 'Pan west');
+  panBtn('▲', 0, -1, 'Pan north');
+  panBtn('▼', 0, 1, 'Pan south');
+  panBtn('▶', 1, 0, 'Pan east');
+  const centreBtn = document.createElement('button');
+  centreBtn.textContent = '⌂ Keep';
+  tip(centreBtn, 'Centre the view on the keep');
+  centreBtn.addEventListener('click', () => {
+    castleViewport.forVillage = -1; // forces re-centring in clampCastleViewport
+    renderCastlePanel();
+  });
+  pan.append(centreBtn);
+  canvasWrap.append(pan);
+
   // -- build palette --
   tools.append(el('h3', 'Build', 'ledger-heading'));
   const palette = el('div', undefined, 'row');
-  for (const b of st.buildable) {
+  // M59: the gatehouse is TWO defs (orientation twins) surfaced as ONE button + rotate.
+  const gateDefs = st.buildable.filter((b) => b.kind === 'gate');
+  const wideGate = gateDefs.find((b) => b.w >= b.h) ?? gateDefs[0];
+  const tallGate = gateDefs.find((b) => b.h > b.w) ?? gateDefs[0];
+  for (const b of st.buildable.filter((x) => x.kind !== 'gate')) {
     const btn = document.createElement('button');
     const armed = castleAction?.mode === 'build' && castleAction.def === b.defId;
     btn.textContent = `${armed ? '▶ ' : ''}${b.name}`;
-    tip(btn, `${b.name} (${b.w}×${b.h}) — costs ${b.cost.map(([n, a]) => `${a} ${n}`).join(', ')} from the capital's stores`);
+    tip(btn, `${b.name} (${b.w}×${b.h}) — costs ${b.cost.map(([n, a]) => `${a} ${n}`).join(', ')} from this village's own stores`);
     btn.addEventListener('click', () => {
       castleAction = armed ? null : { mode: 'build', def: b.defId, w: b.w, h: b.h };
       renderCastlePanel();
     });
     palette.append(btn);
+  }
+  if (wideGate !== undefined && tallGate !== undefined) {
+    const chosen = castleGateRotated ? tallGate : wideGate;
+    const gateBtn = document.createElement('button');
+    const gateArmed = castleAction?.mode === 'build' && (castleAction.def === wideGate.defId || castleAction.def === tallGate.defId);
+    gateBtn.textContent = `${gateArmed ? '▶ ' : ''}${chosen.name}`;
+    tip(gateBtn, `${chosen.name} (${chosen.w}×${chosen.h}) — costs ${chosen.cost.map(([n, a]) => `${a} ${n}`).join(', ')} from this village's own stores`);
+    gateBtn.addEventListener('click', () => {
+      castleAction = gateArmed ? null : { mode: 'build', def: chosen.defId, w: chosen.w, h: chosen.h };
+      renderCastlePanel();
+    });
+    palette.append(gateBtn);
+    if (gateArmed) {
+      const rotateBtn = document.createElement('button');
+      rotateBtn.textContent = '⟳';
+      tip(rotateBtn, 'Rotate the gatehouse orientation');
+      rotateBtn.addEventListener('click', () => {
+        castleGateRotated = !castleGateRotated;
+        const next = castleGateRotated ? tallGate : wideGate;
+        castleAction = { mode: 'build', def: next.defId, w: next.w, h: next.h };
+        renderCastlePanel();
+      });
+      palette.append(rotateBtn);
+    }
   }
   const demolishBtn = document.createElement('button');
   demolishBtn.textContent = castleAction?.mode === 'demolish' ? '▶ Demolish' : '⛏ Demolish';

@@ -40,7 +40,7 @@ import type { World } from '../ecs.js';
 import type { Kernel, SimSystem } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
-import { DEFENCE_KEEP_CENTRE, type DefenceGameplay } from '../game/defence.js';
+import { DEFENCE_KEEP_CENTRE, defenceFootprintOf, originFromCentre, type DefenceGameplay } from '../game/defence.js';
 import type { VillageGameplay } from '../game/villages.js';
 import type { MilitaryGameplay } from '../game/military.js';
 
@@ -66,17 +66,20 @@ interface PlanTarget {
   readonly h: number;
 }
 
-/** Expand a template to concrete, in-bounds layer targets (deterministic order). */
+/** Expand a template to concrete, in-bounds layer targets (deterministic order).
+ * M59: `[dx,dy]` is the structure's CENTRE offset from the keep centre — centre-anchored,
+ * not origin-anchored (origin-anchoring silently deletes multi-tile structures whose
+ * footprint then collides with its own ring; the trap the M59 sizing note diagnosed). */
 export function expandTemplate(db: DefinitionDatabase, template: CastleTemplateDef): PlanTarget[] {
   const out: PlanTarget[] = [];
   for (const entry of template.plan) {
     const def = db.buildings.get(entry.def);
     if (def === undefined) continue; // load-time integrity already forbids this
+    const fp = defenceFootprintOf(def);
     for (const [dx, dy] of expandPlanEntry(entry)) {
-      const x = DEFENCE_KEEP_CENTRE + dx;
-      const y = DEFENCE_KEEP_CENTRE + dy;
-      if (x < 0 || y < 0 || x + def.footprint.w > DEFENCE_MAP_SIZE || y + def.footprint.h > DEFENCE_MAP_SIZE) continue;
-      out.push({ def: entry.def, x, y, w: def.footprint.w, h: def.footprint.h });
+      const { x, y } = originFromCentre(DEFENCE_KEEP_CENTRE + dx, DEFENCE_KEEP_CENTRE + dy, fp.w, fp.h);
+      if (x < 0 || y < 0 || x + fp.w > DEFENCE_MAP_SIZE || y + fp.h > DEFENCE_MAP_SIZE) continue;
+      out.push({ def: entry.def, x, y, w: fp.w, h: fp.h });
     }
   }
   return out;

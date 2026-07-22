@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 
 import { composeCampaign } from '../campaign.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
-import { DEFENCE_KEEP_CENTRE } from './defence.js';
+import { DEFENCE_KEEP_CENTRE, KEEP_DEF, defenceFootprintOf, originFromCentre } from './defence.js';
 
 const SEED = 0xa55a17;
 
@@ -188,14 +188,21 @@ test('assault: a garrison bleeds the column — and a big one repels it outright
   const sb = besiegeCapital(b, 3);
   // ring EVERY side-adjacent keep tile: whatever face the flow field approaches, the
   // column meets a post (the resolver legitimately picks the nearest keep face, which
-  // depends on this seed's terrain — the fixture must not guess it)
-  const keepLo = DEFENCE_KEEP_CENTRE - 1; // keep footprint x/y ∈ {keepLo, keepLo+1}
+  // depends on this seed's terrain — the fixture must not guess it). M59: the keep is
+  // now 7×7 (defenceFootprint, not the village-map footprint) — derive the ring from
+  // its ACTUAL current size rather than a hardcoded 2×2 assumption.
+  const keepDef = b.c.db.buildings.get(KEEP_DEF);
+  assert.ok(keepDef !== undefined);
+  const keepFp = defenceFootprintOf(keepDef);
+  const keepOrigin = originFromCentre(DEFENCE_KEEP_CENTRE, DEFENCE_KEEP_CENTRE, keepFp.w, keepFp.h);
   const ringSpots: { x: number; y: number }[] = [];
-  for (const o of [0, 1]) {
-    ringSpots.push({ x: keepLo - 1, y: keepLo + o });
-    ringSpots.push({ x: keepLo + 2, y: keepLo + o });
-    ringSpots.push({ x: keepLo + o, y: keepLo - 1 });
-    ringSpots.push({ x: keepLo + o, y: keepLo + 2 });
+  for (let o = 0; o < keepFp.h; o++) {
+    ringSpots.push({ x: keepOrigin.x - 1, y: keepOrigin.y + o });
+    ringSpots.push({ x: keepOrigin.x + keepFp.w, y: keepOrigin.y + o });
+  }
+  for (let o = 0; o < keepFp.w; o++) {
+    ringSpots.push({ x: keepOrigin.x + o, y: keepOrigin.y - 1 });
+    ringSpots.push({ x: keepOrigin.x + o, y: keepOrigin.y + keepFp.h });
   }
   const garrison = b.spawnGarrison(1, sb.v1, ringSpots.length);
   for (const [i, unit] of garrison.entries()) {

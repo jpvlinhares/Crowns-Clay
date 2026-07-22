@@ -11,10 +11,56 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { DefinitionDatabase, BASE_CONTENT_FILES } from '@crowns/data';
 import { composeCampaign } from '../campaign.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { DEFAULT_PERSONALITY_WEIGHTS } from './planner.js';
-import { KEEP_DEF, REPAIR_DURATION_DAYS } from '../game/defence.js';
+import { KEEP_DEF, REPAIR_DURATION_DAYS, defenceFootprintOf, DEFENCE_KEEP_CENTRE, originFromCentre } from '../game/defence.js';
+import { expandTemplate } from './defence.js';
+import { DEFENCE_MAP_SIZE } from '../worldgen/defenceMap.js';
+
+test('T objective: every shipped template places every tower, gatehouse and keep with no silent vanish', () => {
+  // M59: hand-derived template geometry, machine-checked. `expandTemplate`'s output CAN
+  // legitimately overlap — a gatehouse deliberately claims part of its wall ring (listed
+  // FIRST in the plan, so the ring's later per-tile fill sees those tiles occupied and
+  // skips them, same "terrain adaptation" mechanism the ring already uses for rock/water).
+  // That's a designed carve-out, not a bug. What must NEVER happen is the diagnosed trap:
+  // a whole multi-tile structure (tower/gatehouse/keep) silently failing to place because
+  // its footprint collided with something else — genesis and the AI walk both check
+  // `tiles.some(occupied)` and skip the ENTIRE structure on any overlap, exactly like a
+  // blocked tile. This replays that same all-or-nothing rule, in plan order, and asserts
+  // every non-wall structure actually landed.
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const keepDef = db.buildings.get(KEEP_DEF);
+  assert.ok(keepDef !== undefined);
+  const keepFp = defenceFootprintOf(keepDef);
+  const keepOrigin = originFromCentre(DEFENCE_KEEP_CENTRE, DEFENCE_KEEP_CENTRE, keepFp.w, keepFp.h);
+  for (const template of db.castleTemplates.values()) {
+    const targets = expandTemplate(db, template);
+    const claimed = new Set<number>();
+    const claim = (x: number, y: number, w: number, h: number): boolean => {
+      const tiles: number[] = [];
+      for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) tiles.push((y + dy) * DEFENCE_MAP_SIZE + (x + dx));
+      if (tiles.some((t) => claimed.has(t))) return false; // whole structure skipped, matching genesis/the AI walk
+      for (const t of tiles) claimed.add(t);
+      return true;
+    };
+    assert.ok(claim(keepOrigin.x, keepOrigin.y, keepFp.w, keepFp.h), `${template.id}: the keep itself failed to claim its footprint`);
+    for (const t of targets) {
+      const def = db.buildings.get(t.def);
+      const kind = def?.defense?.kind;
+      const placed = claim(t.x, t.y, t.w, t.h);
+      if (kind === 'tower' || kind === 'gate') {
+        assert.ok(placed, `${template.id}: ${t.def}@(${t.x},${t.y}) silently vanished — collided with an earlier claim`);
+      }
+    }
+    // every entry the template's own plan lists must have produced at least one target —
+    // no offset was silently dropped by the in-bounds check either
+    for (const entry of template.plan) {
+      assert.ok(targets.some((t) => t.def === entry.def), `${template.id}: '${entry.def}' produced zero placeable tiles`);
+    }
+  }
+});
 
 /** Kingdom 1 is AI (the defender under test), pinned PACIFIST: aggression 0 keeps the
  * planner off war archetypes, so its garrison stays posted instead of being drafted into
@@ -31,8 +77,12 @@ function compose(seed: number): ReturnType<typeof composeCampaign> {
     // This suite tests the castle-BUILDING mechanism (template rises, layouts differ), which
     // needs a full stone reserve to raise a whole castle in the test window. Pin a generous stock
     // so the mechanism test is independent of the 1.x campaign pacing default (leaner stone) —
-    // that pacing is exercised by the balance harness, not here.
-    startingStock: { 'base:resource.wood': 2000, 'base:resource.stone': 500, 'base:resource.food': 300, 'base:resource.tools': 25 },
+    // that pacing is exercised by the balance harness, not here. M59: towers/gatehouses got
+    // materially more expensive (hp/frontage rescale — 70 stone/tower, was 25); 500 could stall
+    // affordability just above the DEFENCE_STONE_RESERVE floor for the concentric template's
+    // full build. Bumped, not retuned — the def costs themselves are M59's specified table,
+    // balance recert is M61's job, not this test's.
+    startingStock: { 'base:resource.wood': 2000, 'base:resource.stone': 3000, 'base:resource.food': 300, 'base:resource.tools': 25 },
   });
 }
 
@@ -107,8 +157,13 @@ test('AI defence: layouts visibly differ across seeds (archetype pick + terrain 
   const b = compose(0xd0c53);
   a.kernel.step();
   b.kernel.step();
-  days(a, 30);
-  days(b, 30);
+  // M59: motte and concentric now share the SAME inner-ring shape (gatehouses + a radius-5
+  // wall ring + corner towers) — concentric's outer ring is what actually distinguishes it,
+  // and heavier per-structure costs (the hp/frontage rescale) slow how fast the AI grinds
+  // through the shared free-tier core before village tier 2 is even reached. 30 days no
+  // longer reaches the divergent tail; 90 does (still well inside this suite's budget).
+  days(a, 90);
+  days(b, 90);
   const layoutA = [...census(a).values()].sort().join('|');
   const layoutB = [...census(b).values()].sort().join('|');
   assert.ok(census(a).size > 5 && census(b).size > 5, 'both kingdoms actually built');

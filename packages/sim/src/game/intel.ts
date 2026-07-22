@@ -28,7 +28,7 @@ import { World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from './villages.js';
-import type { DefenceGameplay } from './defence.js';
+import { defenceFootprintOf, type DefenceGameplay } from './defence.js';
 import type { SiegeGameplay } from './siege.js';
 
 const index = (id: number): number => id & 0x3fffff;
@@ -170,7 +170,8 @@ export function registerDefenceIntel(
     world.query([DefenceStructure]).forEach((si) => {
       if (index(s.village[si] as number) !== capitalVi) return;
       const def = game.ops.buildingDef(s.def[si] as number);
-      out.push({ def: def.id, x: s.x[si] as number, y: s.y[si] as number, w: def.footprint.w, h: def.footprint.h });
+      const fp = defenceFootprintOf(def);
+      out.push({ def: def.id, x: s.x[si] as number, y: s.y[si] as number, w: fp.w, h: fp.h });
     });
     return out.sort((a, b) => a.y - b.y || a.x - b.x || (a.def < b.def ? -1 : 1));
   };

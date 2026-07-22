@@ -10,7 +10,7 @@
 import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelEnemyIntelRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
-  DEFENCE_MAP_SIZE, KEEP_DEF, STANCES, TickDriver, composeCampaign, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  DEFENCE_MAP_SIZE, STANCES, TickDriver, composeCampaign, defenceFootprintOf, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
@@ -215,6 +215,7 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
       world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
         if (((s.village[si] as number) & 0x3fffff) !== playerVillage) return;
         const def = game.ops.buildingDef(s.def[si] as number);
+        const fp = defenceFootprintOf(def);
         structures.push({
           id: entity as number,
           defId: def.id,
@@ -222,8 +223,8 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
           kind: def.defense?.kind ?? 'wall',
           x: s.x[si] as number,
           y: s.y[si] as number,
-          w: def.footprint.w,
-          h: def.footprint.h,
+          w: fp.w,
+          h: fp.h,
           hp: fort.hp[idx(entity as number)] as number,
           maxHp: fort.maxHp[idx(entity as number)] as number,
         });
@@ -235,7 +236,8 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
         posts.push({ unitId: entity as number, x: post.x[pi] as number, y: post.y[pi] as number });
       });
       const buildable = [...db.buildings.values()]
-        .filter((def) => def.defense !== undefined && def.id !== KEEP_DEF)
+        // M59: kind-based, not id-based — the keep-core scale is genesis-only.
+        .filter((def) => def.defense !== undefined && def.defense.kind !== 'keep')
         .map((def) => ({
           defId: def.id,
           name: def.name,

@@ -65,6 +65,24 @@ const index = (id: number): number => id & 0x3fffff;
 
 export const KEEP_DEF = 'base:building.keep';
 export const DEFENCE_KEEP_CENTRE = Math.floor(DEFENCE_MAP_SIZE / 2);
+
+/** M59 (ADR-4 A1 open item, resolved): the Keep exists at TWO scales — `def.footprint`
+ * prices the village-map investment, `def.defenceFootprint` (optional; falls back to
+ * `footprint` for every other def) is what the assault flow field actually occupies.
+ * Every defence-LAYER footprint read goes through this — never `.footprint` directly. */
+export function defenceFootprintOf(def: BuildingDef): { readonly w: number; readonly h: number } {
+  return def.defenceFootprint ?? def.footprint;
+}
+
+/** M59: placement is CENTRE-anchored, not origin-anchored — the trap already diagnosed
+ * (roadmap M59 detail "sizes"): origin-anchoring silently deletes towers from AI castles,
+ * because a tower placed at a template offset grows toward +x/+y and collides with its
+ * OWN wall ring. Every placement decision (genesis's tiered core, the AI's ambition walk,
+ * the player's click) picks a CENTRE tile; this converts it to the origin `DefenceStructure`
+ * actually stores (unchanged representation — only where the conversion happens moved). */
+export function originFromCentre(cx: number, cy: number, w: number, h: number): { readonly x: number; readonly y: number } {
+  return { x: cx - Math.floor(w / 2), y: cy - Math.floor(h / 2) };
+}
 /** M58 (ADR-4 A1): the strike-again-before-they-recover window a Repair order buys —
  * cost is paid immediately, but hp only returns at the end of this window (a defender
  * who just paid for repairs is still weak for this long). Balance material, alongside
@@ -214,8 +232,9 @@ export function registerDefenceGameplay(
   };
   const footprintTiles = (def: BuildingDef, x: number, y: number): number[] => {
     const out: number[] = [];
-    for (let dy = 0; dy < def.footprint.h; dy++) {
-      for (let dx = 0; dx < def.footprint.w; dx++) out.push((y + dy) * size + (x + dx));
+    const fp = defenceFootprintOf(def);
+    for (let dy = 0; dy < fp.h; dy++) {
+      for (let dx = 0; dx < fp.w; dx++) out.push((y + dy) * size + (x + dx));
     }
     return out;
   };
@@ -230,7 +249,8 @@ export function registerDefenceGameplay(
 
   const keepDef = db.buildings.get(KEEP_DEF);
   if (keepDef === undefined) throw new Error(`defence layer: missing '${KEEP_DEF}' def`);
-  const keepOrigin = DEFENCE_KEEP_CENTRE - Math.floor(keepDef.footprint.w / 2);
+  const keepFp = defenceFootprintOf(keepDef);
+  const keepOriginPt = originFromCentre(DEFENCE_KEEP_CENTRE, DEFENCE_KEEP_CENTRE, keepFp.w, keepFp.h);
   const keepCode = game.ops.defCode(KEEP_DEF);
   const spawnStructure = (vi: number, def: BuildingDef, x: number, y: number): number => {
     const entity = world.spawn();
@@ -307,10 +327,10 @@ export function registerDefenceGameplay(
           if (index(s.village[si] as number) === vi) present.add((s.y[si] as number) * size + (s.x[si] as number));
         });
         // 1. the keep, unconditional
-        const keepTile = keepOrigin * size + keepOrigin;
+        const keepTile = keepOriginPt.y * size + keepOriginPt.x;
         if (!present.has(keepTile)) {
-          const keep = spawnStructure(vi, keepDef, keepOrigin, keepOrigin);
-          ctx.events.publish({ type: 'defence.built', tick: ctx.tick, data: { village: vi, structure: keep, def: KEEP_DEF, x: keepOrigin, y: keepOrigin } });
+          const keep = spawnStructure(vi, keepDef, keepOriginPt.x, keepOriginPt.y);
+          ctx.events.publish({ type: 'defence.built', tick: ctx.tick, data: { village: vi, structure: keep, def: KEEP_DEF, x: keepOriginPt.x, y: keepOriginPt.y } });
         }
         // 2. the free tiered core — additive by tier, presence-checked per tile
         const template = options.templateOf(vi);
@@ -322,12 +342,15 @@ export function registerDefenceGameplay(
           if (entryDef === undefined) continue;
           const map = maps.get(vi) as DefenceMapState;
           const occ = occupancyFor(vi);
+          const entryFp = defenceFootprintOf(entryDef);
           for (const [dx, dy] of expandPlanEntry(entry)) {
-            const x = DEFENCE_KEEP_CENTRE + dx;
-            const y = DEFENCE_KEEP_CENTRE + dy;
-            if (x < 0 || y < 0 || x + entryDef.footprint.w > size || y + entryDef.footprint.h > size) continue;
-            const tile = y * size + x;
-            if (map.tiles[tile] !== DEFENCE_TILE.open || occ.has(tile)) continue; // terrain/occupancy skip — same adaptation ai/defence.ts uses
+            // M59: [dx,dy] is the structure's CENTRE offset from the keep centre (centre-
+            // anchored placement — origin-anchoring silently deletes multi-tile structures
+            // whose footprint then collides with its own ring, the diagnosed trap).
+            const { x, y } = originFromCentre(DEFENCE_KEEP_CENTRE + dx, DEFENCE_KEEP_CENTRE + dy, entryFp.w, entryFp.h);
+            if (x < 0 || y < 0 || x + entryFp.w > size || y + entryFp.h > size) continue;
+            const tiles = footprintTiles(entryDef, x, y);
+            if (tiles.some((t) => map.tiles[t] !== DEFENCE_TILE.open || occ.has(t))) continue; // terrain/occupancy skip — same adaptation ai/defence.ts uses
             const built = spawnStructure(vi, entryDef, x, y);
             ctx.events.publish({ type: 'defence.built', tick: ctx.tick, data: { village: vi, structure: built, def: entry.def, x, y } });
           }
@@ -370,7 +393,8 @@ export function registerDefenceGameplay(
   const buildable = (vi: number, def: BuildingDef, x: number, y: number): string | null => {
     const map = maps.get(vi);
     if (map === undefined) return 'no defence layer for this village';
-    if (x < 0 || y < 0 || x + def.footprint.w > size || y + def.footprint.h > size) return 'out of bounds';
+    const fp = defenceFootprintOf(def);
+    if (x < 0 || y < 0 || x + fp.w > size || y + fp.h > size) return 'out of bounds';
     const occ = occupancyFor(vi);
     for (const t of footprintTiles(def, x, y)) {
       if (map.tiles[t] !== DEFENCE_TILE.open) return 'not open ground (rock or water)';
@@ -391,7 +415,10 @@ export function registerDefenceGameplay(
     const def = db.buildings.get(String(p.def));
     if (def === undefined) return reject(ctx, 'defence.build', `unknown building '${String(p.def)}'`);
     if (def.defense === undefined) return reject(ctx, 'defence.build', 'only defensive structures (wall/gate/tower/keep) belong on the defence layer');
-    if (def.id === KEEP_DEF) return reject(ctx, 'defence.build', 'the keep stands where it was founded');
+    // M59: kind-based, not id-based — the keep-core (defence-map) scale is genesis-only
+    // regardless of which def carries it, matching how `defenceFootprintOf` already
+    // separates the two scales rather than special-casing KEEP_DEF.
+    if (def.defense.kind === 'keep') return reject(ctx, 'defence.build', 'the keep stands where it was founded');
     const x = p.x | 0;
     const y = p.y | 0;
     const why = buildable(vi, def, x, y);
@@ -426,7 +453,7 @@ export function registerDefenceGameplay(
     const vi = index(s.village[si] as number);
     if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.demolish', 'not your structure');
     const def = game.ops.buildingDef(s.def[si] as number);
-    if (def.id === KEEP_DEF) return reject(ctx, 'defence.demolish', 'the keep cannot be demolished');
+    if (def.defense?.kind === 'keep') return reject(ctx, 'defence.demolish', 'the keep cannot be demolished');
     vacate(vi, def, s.x[si] as number, s.y[si] as number);
     world.despawn(id as EntityId);
     ctx.events.publish({ type: 'defence.demolished', tick: ctx.tick, data: { village: vi, structure: id, def: def.id } });
