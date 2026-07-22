@@ -202,14 +202,18 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
     };
 
     // ---- defence layer (M50): the PLAYER's own castle map, structures, and garrison posts ----
+    // M57: village-keyed — the player's OPERATED village (capital, or its rebind target),
+    // not kingdom 0 directly.
+    const playerVillage = cc.villageOf(0);
     const defence = ((): PanelDefenceState | null => {
-      const map = cc.defenceGame.mapOf(0);
+      if (playerVillage === null) return null;
+      const map = cc.defenceGame.mapOf(playerVillage);
       if (map === undefined) return null;
       const s = world.read(cc.defenceGame.DefenceStructure);
       const fort = world.read(cc.defenceGame.Fortification);
       const structures: PanelDefenceStructureRec[] = [];
       world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
-        if ((s.kingdom[si] as number) !== 0) return;
+        if (((s.village[si] as number) & 0x3fffff) !== playerVillage) return;
         const def = game.ops.buildingDef(s.def[si] as number);
         structures.push({
           id: entity as number,
@@ -240,7 +244,7 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
           h: def.footprint.h,
           cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount]),
         }));
-      return { size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
+      return { villageId: playerVillage, size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
     })();
 
     // ---- enemy intel (M54, ADR-4 §4): the player's STALE snapshot of each rival capital —
@@ -250,9 +254,10 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
     if (cc.intelGame !== null) {
       for (let k = 1; k < kingdomIds.length; k++) {
         const snap = cc.intelGame.state.get(0, k);
-        const map = cc.defenceGame.mapOf(k);
-        if (snap === undefined || map === undefined) continue;
         const vi = cc.villageOf(k);
+        // M57: intel stays capital-scoped (doc 07 §4) — the rival's CAPITAL village's layer.
+        const map = vi === null ? undefined : cc.defenceGame.mapOf(vi);
+        if (snap === undefined || map === undefined) continue;
         const believed = cc.believedGarrisonOf(0, k);
         enemyIntel.push({
           kingdom: k,

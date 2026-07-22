@@ -38,9 +38,11 @@ function compose(seed: number): ReturnType<typeof composeCampaign> {
 /** Kingdom 1's defence-layer structure census: id → {def, x, y}. */
 function census(c: ReturnType<typeof composeCampaign>): Map<number, string> {
   const out = new Map<number, string>();
+  const vi = c.villageOf(1);
+  if (vi === null) return out;
   const s = c.world.read(c.defenceGame.DefenceStructure);
   c.world.query([c.defenceGame.DefenceStructure]).forEach((si, entity) => {
-    if ((s.kingdom[si] as number) !== 1) return;
+    if (((s.village[si] as number) & 0x3fffff) !== vi) return;
     out.set(entity as number, `${s.def[si]}@${s.x[si]},${s.y[si]}`);
   });
   return out;

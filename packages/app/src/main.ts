@@ -1251,7 +1251,7 @@ function renderCastlePanel(): void {
     const tx = Math.floor(((e.clientX - rect.left) / rect.width) * st.size);
     const ty = Math.floor(((e.clientY - rect.top) / rect.height) * st.size);
     if (castleAction.mode === 'build') {
-      command('defence.build', { def: castleAction.def, x: Math.min(tx, st.size - castleAction.w), y: Math.min(ty, st.size - castleAction.h) });
+      command('defence.build', { villageId: st.villageId, def: castleAction.def, x: Math.min(tx, st.size - castleAction.w), y: Math.min(ty, st.size - castleAction.h) });
     } else if (castleAction.mode === 'demolish') {
       const target = structureAt(tx, ty);
       if (target === undefined) return;

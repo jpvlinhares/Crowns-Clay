@@ -317,10 +317,10 @@ export function registerSuccessionGameplay(
       world.despawn(army as EntityId);
     }
 
-    // 7. the castle burned with the realm — keep-only ground for whoever rises here
-    defenceGame.resetKingdom(defenderK);
-
-    // 8. the record: sack report, death mark, composition bookkeeping
+    // 7. the record: sack report, death mark, composition bookkeeping — the castle's
+    // defence layer burned with it too: M57 re-keyed the layer to the VILLAGE, so
+    // `game.ops.raze(ctx, castle)` at step 5 already cleared it (defence.ts subscribes to
+    // `village.razed` itself; no explicit reset call needed here any more).
     state.deaths.set(defenderK, state.deaths.get(defenderK) ?? ctx.tick);
     state.offered.delete(castle);
     options.onKingdomDeath(defenderK);

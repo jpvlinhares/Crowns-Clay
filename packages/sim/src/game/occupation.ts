@@ -18,7 +18,7 @@
  * without it — same pinning reasoning as its inert victory tracker).
  */
 import type { EntityId } from '@crowns/core';
-import { World } from '../ecs.js';
+import { World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from './villages.js';
@@ -33,10 +33,14 @@ export const DEFENDER_RADIUS = 6; // an owner army this close contests the occup
 export interface OccupationOptions {
   /** War gate (game/diplomacy.ts): occupation requires a declared war, not mere hostility. */
   isAtWar(a: EntityId, b: EntityId): boolean;
-  /** M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown — the layer
-   * IS its fortification surface, so only a siege (and the capital-death chain) takes it.
-   * Late-bound closure (the layer registers after occupation); default: nothing exempt. */
+  /** M53 (OQ-9 item 2); M57 (ADR-4 A1): a defence-layer village is exempt from occupation
+   * only while it's actively garrisoned or under siege — the split is garrison-based, not
+   * walls-based. Late-bound closure (the layer registers after occupation); default:
+   * nothing exempt. */
   exempt?(villageIndex: number): boolean;
+  /** Extra components `exempt` reads that this module cannot import (the M34 extension-point
+   * pattern) — M57's garrison check reads `DefencePost`, owned by game/defence.ts. */
+  readonly extraReads?: readonly Component[];
 }
 
 interface Occupation {
@@ -118,7 +122,7 @@ export function registerOccupationGameplay(
     period: TICKS_PER_DAY,
     phase: 9, // after movement/combat have settled the day's positions
     access: {
-      reads: [VillageCore, Army, ArmyMovement, Unit],
+      reads: [VillageCore, Army, ArmyMovement, Unit, ...(options.extraReads ?? [])],
       writes: [...(VillageOwner !== undefined ? [VillageOwner] : [])],
     },
     update(ctx: TickContext): void {

@@ -82,7 +82,9 @@ export interface AssaultInput {
   readonly game: VillageGameplay;
   readonly militaryGame: MilitaryGameplay;
   readonly defenceGame: DefenceGameplay;
-  readonly defenderKingdomIndex: number;
+  /** M57: the defence layer is village-keyed — dense index of the besieged village. */
+  readonly defenderVillageIndex: number;
+  /** Still kingdom-scoped: garrison units belong to a KINGDOM's soldier pool, not a village. */
   readonly defenderKingdomId: number;
   readonly attackerArmy: number;
   readonly origin: AssaultOrigin;
@@ -93,7 +95,7 @@ export interface AssaultInput {
 export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
   const { world, rng, militaryGame, defenceGame, game } = input;
   const size = DEFENCE_MAP_SIZE;
-  const map = defenceGame.mapOf(input.defenderKingdomIndex);
+  const map = defenceGame.mapOf(input.defenderVillageIndex);
   if (map === undefined) throw new Error('resolveSpatialAssault: no defence map');
   const { Unit, ops } = militaryGame;
   const Fortification = defenceGame.Fortification;
@@ -173,7 +175,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
   const keepTiles = new Set<number>();
   const towers: Blocker[] = [];
   world.query([DefenceStructure]).forEach((si, entity) => {
-    if ((s.kingdom[si] as number) !== input.defenderKingdomIndex) return;
+    if (index(s.village[si] as number) !== input.defenderVillageIndex) return;
     const def = game.ops.buildingDef(s.def[si] as number);
     const kind = def.defense?.kind ?? 'wall';
     const tiles: number[] = [];

@@ -172,6 +172,9 @@ export interface PanelDefencePostRec {
   readonly y: number;
 }
 export interface PanelDefenceState {
+  /** M57: the defence layer is village-keyed — dense index of the village this panel is
+   * showing (the player's own operated village), needed by `defence.build`'s payload. */
+  readonly villageId: number;
   /** Map edge length in tiles. */
   readonly size: number;
   /** Run-length pairs [code, count, ...]: 0 open · 1 rock · 2 water. */

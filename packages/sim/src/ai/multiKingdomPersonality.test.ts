@@ -126,17 +126,23 @@ test('all 7 archetypes drive a real AI-vs-AI campaign without crashing, and dive
   });
 
   composed.kernel.step(); // tick 1: genesis
+  // founding is a genesis-time correctness check, independent of the 5-year war below —
+  // assert it right here, before any war can possibly claim a capital.
+  for (let k = 0; k < ARCHETYPES.length; k++) {
+    assert.ok(composed.villageOf(k) !== null, `kingdom ${k} (${ARCHETYPES[k]?.name}) never founded a village`);
+  }
   const chosenPlans = new Set<string>();
   composed.kernel.subscribe<{ chosenPlan: string }>('ai.planChosen', (e) => chosenPlans.add(e.data.chosenPlan));
 
   // short horizon: this is a no-crash + "some real divergence exists" smoke test, not the
   // strict classification the fingerprint test above already proves at the scoring-function
   // level — reaching a full emergent economy/military equilibrium is a much longer, noisier
-  // run (and a balance-tuning concern, M46), not what this test is for.
+  // run (and a balance-tuning concern, M46), not what this test is for. M57 (ADR-4 A1):
+  // genuine capital loss via siege is now a possible 5-year outcome for an ungarrisoned or
+  // out-fought AI capital — the harness runs with occupation/succession OFF, so a captured
+  // capital just changes hands (no realm-annexation chain here); this is real war, not a
+  // crash, so it must not gate the smoke test.
   for (let i = 0; i < 5 * TICKS_PER_YEAR; i++) composed.kernel.step();
 
-  for (let k = 0; k < ARCHETYPES.length; k++) {
-    assert.ok(composed.villageOf(k) !== null, `kingdom ${k} (${ARCHETYPES[k]?.name}) never founded a village`);
-  }
   assert.ok(chosenPlans.size >= 2, `expected real behavioural variety across 7 distinct archetypes, got only: ${[...chosenPlans].join(', ')}`);
 });

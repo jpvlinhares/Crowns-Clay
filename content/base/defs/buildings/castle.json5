@@ -37,9 +37,14 @@
     "tags": [],
   },
   {
+    // M57 (ADR-4 A1 option (C)): recategorised out of 'castle' into 'military' — the
+    // Keep is an ordinary village-map building again (its `requires.villageTier`, cost,
+    // storage and garrisonCap are unchanged), so `village.build`'s "no castle-category
+    // structures, ever" guard (M56) needs no allowlist carve-out. It gates the M51
+    // defence layer by its own presence, not by any village-map fortification role.
     "id": "base:building.keep",
     "name": "Keep",
-    "category": "castle",
+    "category": "military",
     "footprint": { "w": 2, "h": 2 },
     "cost": { "base:resource.wood": 20, "base:resource.stone": 60 },
     "buildTicks": 144,

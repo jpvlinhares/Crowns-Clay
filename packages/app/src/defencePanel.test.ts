@@ -95,7 +95,7 @@ test('castle panel walkthrough: place → demolish → recruit → post → unpo
 
   // ---- place a wall on open ground, exactly like a palette click ----
   const site = openTile(st);
-  h.send({ kind: 'submit', drafts: [{ type: 'defence.build', issuer: 1, payload: { def: 'base:building.wall', x: site.x, y: site.y } }] });
+  h.send({ kind: 'submit', drafts: [{ type: 'defence.build', issuer: 1, payload: { villageId: st.villageId, def: 'base:building.wall', x: site.x, y: site.y } }] });
   h.step(1);
   h.send({ kind: 'requestPanels' });
   st = h.latestPanels().defence;

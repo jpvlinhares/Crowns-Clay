@@ -136,10 +136,10 @@ function besiegeCapital(d: Driver, spearmen: number): { v1: number; armyId: numb
   return { v1, armyId };
 }
 
-const openTileNearKeep = (c: ReturnType<typeof composeCampaign>, k: number, r: number): { x: number; y: number } => {
-  const map = c.defenceGame.mapOf(k);
+const openTileNearKeep = (c: ReturnType<typeof composeCampaign>, vi: number, r: number): { x: number; y: number } => {
+  const map = c.defenceGame.mapOf(vi);
   assert.ok(map !== undefined);
-  const occ = c.defenceGame.occupancyOf(k);
+  const occ = c.defenceGame.occupancyOf(vi);
   for (let dx = r; dx < 45; dx++) {
     const x = DEFENCE_KEEP_CENTRE + dx;
     const t = DEFENCE_KEEP_CENTRE * DEFENCE_MAP_SIZE + x;
@@ -216,8 +216,7 @@ test('assault: walls must be broken through — the trace shows wall-hits and br
   // the defender CLOSES A RING around the keep — a mere line gets flanked (correctly),
   // so the fixture must genuinely gate every approach. Radius 5 inside the guaranteed
   // keep clearing: all-open ground, ~40 walls, well inside the starting stone.
-  const k = 1;
-  const before = d.c.defenceGame.occupancyOf(k).size;
+  const before = d.c.defenceGame.occupancyOf(v1).size;
   const ringR = 5;
   for (let i = -ringR; i <= ringR; i++) {
     for (const [x, y] of [
@@ -226,19 +225,18 @@ test('assault: walls must be broken through — the trace shows wall-hits and br
       [DEFENCE_KEEP_CENTRE - ringR, DEFENCE_KEEP_CENTRE + i],
       [DEFENCE_KEEP_CENTRE + ringR, DEFENCE_KEEP_CENTRE + i],
     ] as const) {
-      d.submit('defence.build', { def: 'base:building.wall', x, y }, 2);
+      d.submit('defence.build', { villageId: v1, def: 'base:building.wall', x, y }, 2);
     }
   }
   const built = d.events.filter((e) => e.type === 'defence.built' && e.data['def'] === 'base:building.wall').length;
   assert.ok(built >= 30, `wall ring built (${built})`);
-  void v1;
   d.submit('siege.assault', { armyId, origin: 'left' }, 1);
   const r = d.resolved();
   assert.ok(r !== undefined);
   const kinds = new Set((r['trace'] as { kind: string }[]).map((t) => t.kind));
   assert.ok(kinds.has('wall'), 'the column hit the wall line');
   assert.ok((r['breaches'] as number) >= 1, 'at least one breach opened');
-  assert.ok(d.c.defenceGame.occupancyOf(k).size < before + built, 'breached segments are really gone');
+  assert.ok(d.c.defenceGame.occupancyOf(v1).size < before + built, 'breached segments are really gone');
   assert.equal(r['outcome'], 'captured', 'the line alone cannot stop 4 units without a garrison');
 });
 
@@ -250,10 +248,9 @@ test('assault: towers grind the column (rangedArc content finally live)', () => 
 
   const b = driver(compose());
   const sb = besiegeCapital(b, 3);
-  void sb;
   // two towers on the west lane
-  b.submit('defence.build', { def: 'base:building.tower', x: DEFENCE_KEEP_CENTRE - 10, y: DEFENCE_KEEP_CENTRE - 2 }, 2);
-  b.submit('defence.build', { def: 'base:building.tower', x: DEFENCE_KEEP_CENTRE - 14, y: DEFENCE_KEEP_CENTRE + 2 }, 2);
+  b.submit('defence.build', { villageId: sb.v1, def: 'base:building.tower', x: DEFENCE_KEEP_CENTRE - 10, y: DEFENCE_KEEP_CENTRE - 2 }, 2);
+  b.submit('defence.build', { villageId: sb.v1, def: 'base:building.tower', x: DEFENCE_KEEP_CENTRE - 14, y: DEFENCE_KEEP_CENTRE + 2 }, 2);
   b.submit('siege.assault', { armyId: sb.armyId, origin: 'left' }, 1);
   const r = b.resolved();
   assert.ok(r !== undefined);
@@ -266,9 +263,9 @@ test('assault: towers grind the column (rangedArc content finally live)', () => 
 test('assault: same seed + same layout + same army ⇒ identical outcome, trace, and state hash', () => {
   const run = (): { trace: string; hash: number } => {
     const d = driver(compose());
-    const { armyId } = besiegeCapital(d, 2);
-    const site = openTileNearKeep(d.c, 1, 4);
-    d.submit('defence.build', { def: 'base:building.tower', x: site.x, y: site.y }, 2);
+    const { v1, armyId } = besiegeCapital(d, 2);
+    const site = openTileNearKeep(d.c, v1, 4);
+    d.submit('defence.build', { villageId: v1, def: 'base:building.tower', x: site.x, y: site.y }, 2);
     d.submit('siege.assault', { armyId, origin: 'bottom' }, 1);
     const r = d.resolved();
     assert.ok(r !== undefined);
@@ -288,7 +285,7 @@ test('drafting a posted unit into an army pulls it off the walls', () => {
   const v0 = d.c.villageOf(0) as number;
   const [unit] = d.spawnGarrison(0, v0, 1);
   assert.ok(unit !== undefined);
-  const site = openTileNearKeep(d.c, 0, 3);
+  const site = openTileNearKeep(d.c, v0, 3);
   d.submit('defence.post', { unitId: unit, x: site.x, y: site.y }, 1);
   assert.ok(d.c.world.has(unit as never, d.c.defenceGame.DefencePost), 'posted');
   d.submit('army.createArmy', { name: 'Levy', villageId: d.villageEntity(v0) }, 1);

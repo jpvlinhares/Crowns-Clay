@@ -29,6 +29,7 @@ import { DEFAULT_PERSONALITY_WEIGHTS } from '../ai/planner.js';
 import { STARTING_TREASURY } from './kingdom.js';
 import { OCCUPATION_DAYS } from './occupation.js';
 import { CAPITULATION_WINDOW_DAYS } from './succession.js';
+import { DEFENCE_KEEP_CENTRE } from './defence.js';
 import { bestSiteNear } from './settlers.js';
 import type { CampaignSettings } from '@crowns/protocol';
 
@@ -144,7 +145,15 @@ function driver(c: ReturnType<typeof composeCampaign>) {
     placeArmy(army, at.x, at.y);
     submit('siege.begin', { armyId: army, villageId: villageEntity(castle) }, attackerK + 1);
     assert.ok(has('siege.begun'), `siege begun (${JSON.stringify(last('village.rejected')?.data)})`);
-    submit('siege.assault', { armyId: army }, attackerK + 1);
+    // M57: the layer's seed is now VILLAGE-keyed (was kingdom-keyed) — a fresh terrain roll
+    // per defender, so a fixed/auto-derived origin can land on a river-blocked edge for some
+    // village indices (a real, accepted terrain feature: `worldgen/defenceMap.ts`'s water
+    // strips can fully bisect one approach). Try every origin in a fixed deterministic
+    // order rather than pinning one that happened to work for the old seed.
+    for (const origin of ['left', 'right', 'top', 'bottom'] as const) {
+      submit('siege.assault', { armyId: army, origin }, attackerK + 1);
+      if (has('siege.capitalFallen')) break;
+    }
     assert.ok(has('siege.capitalFallen'), `keep fell (${JSON.stringify(last('village.rejected')?.data)})`);
     return { castle, army };
   };
@@ -340,7 +349,47 @@ test('a new banner rises on the vacant heartland after the cooldown, politically
 
 // ---------------- 6. occupation exemption + persistence ----------------
 
-test('a defence-layer capital cannot be occupied by countdown — the layer is the only way in', () => {
+test('a GARRISONED defence-layer capital cannot be occupied by countdown — the layer is the only way in', () => {
+  // M57 (ADR-4 A1 option (C)): the split is garrison-based, not walls-based — an
+  // UNDEFENDED layer capital now DOES flip by countdown (its own coverage below); this
+  // test is the surviving half of the old "layer alone exempts" invariant, narrowed to
+  // what still holds: a capital that's actually MANNED resists occupation regardless of
+  // its walls, exactly like the pre-M57 blanket exemption did.
+  const c = compose({ trust: 1 });
+  const d = driver(c);
+  c.kernel.step();
+
+  const castle = c.villageOf(0) as number;
+  const def = c.db.units.get('base:unit.spearman');
+  assert.ok(def !== undefined);
+  const defCode = c.militaryGame.ops.defCode('base:unit.spearman');
+  assert.ok(defCode !== undefined);
+  const garrison = c.world.spawn();
+  c.world.attach(garrison, c.militaryGame.Unit, {
+    def: defCode,
+    kingdomId: c.kingdomGame.kingdomEntities()[0] as number,
+    homeVillage: d.villageEntity(castle),
+    armyId: 0,
+    count: def.popCost.count,
+    progress: 1,
+    complete: true,
+    morale: def.stats.moraleBase,
+  });
+  d.submit('defence.post', { unitId: garrison as number, x: DEFENCE_KEEP_CENTRE + 4, y: DEFENCE_KEEP_CENTRE }, 1);
+  assert.ok(c.world.has(garrison, c.defenceGame.DefencePost), `garrison posted (${JSON.stringify(d.last('defence.rejected')?.data)})`);
+  const keepCentre = d.centreOf(castle);
+
+  d.submit('kingdom.declareWar', { targetKingdom: 0, casusBelli: true }, 2);
+  const army = d.makeColumn(1, c.villageOf(1) as number);
+  d.placeArmy(army, keepCentre.x, keepCentre.y);
+  d.days(OCCUPATION_DAYS + 3);
+  assert.ok(
+    !d.events.some((e) => e.type === 'village.occupied' && e.data['village'] === castle),
+    'the countdown never takes a GARRISONED layer capital',
+  );
+});
+
+test('an UNGARRISONED defence-layer capital DOES flip by countdown — the split is garrison-based (M57)', () => {
   const c = compose({ trust: 1 });
   const d = driver(c);
   c.kernel.step();
@@ -352,8 +401,8 @@ test('a defence-layer capital cannot be occupied by countdown — the layer is t
   d.placeArmy(army, at.x, at.y);
   d.days(OCCUPATION_DAYS + 3);
   assert.ok(
-    !d.events.some((e) => e.type === 'village.occupied' && e.data['village'] === castle),
-    'the countdown never takes a layer capital',
+    d.events.some((e) => e.type === 'village.occupied' && e.data['village'] === castle),
+    'an undefended keep is no different from open country — it still flips by countdown',
   );
 });
 

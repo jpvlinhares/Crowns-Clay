@@ -39,12 +39,13 @@ import {
   loadLocaleTable,
   VICTORY_TYPES,
   type AIPersonalityDef,
+  type CastleTemplateDef,
   type LoadReport,
   type ModSource,
 } from '@crowns/data';
 import type { CampaignSettings, TerrainSnapshot } from '@crowns/protocol';
 import { Kernel, type TickContext } from './kernel.js';
-import { World, type SoAComponent } from './ecs.js';
+import { World, type SoAComponent, type WorldSaveState } from './ecs.js';
 import { CalendarSystem, TICKS_PER_DAY } from './time.js';
 import { describePersonality, perturbWeights, toPlannerWeights } from './ai/personality.js';
 import { KnowledgeModel } from './ai/knowledge.js';
@@ -864,31 +865,15 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   game.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
   settlerGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
 
-  // ---- M47.8: occupation — the non-layer conquest path (campaign-only; wrapper opts out) ----
-  const occupationGame = (options.occupation ?? true)
-    ? registerOccupationGameplay(kernel, world, game, militaryGame, armiesGame, kingdomGame, {
-        isAtWar: (a, b) => diplomacyGame.state.isAtWar(a as number, b as number),
-        // M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown —
-        // the layer is its fortification surface; only a siege takes it. Late-bound:
-        // spatialAssault.applicable is assigned after the defence layer registers below.
-        // M55 (A1): ungated by `capitalDeathRules` so this matches `siege.begin` exactly —
-        // a village the siege system owns must never also be occupiable, and vice versa.
-        exempt: (vi) => spatialAssault.applicable?.(vi) ?? false,
-      })
-    : null;
-  // ---- M49 (Phase 8, ADR-4): the per-kingdom castle-defence layer — maps, keep,
-  // defence.build/demolish/post commands, 'defence' hash source. Appended registration:
-  // no periodic systems, so existing streams and cadences are untouched.
-  const defenceGame = registerDefenceGameplay(kernel, world, db, game, econGame, kingdomGame, militaryGame, {
-    worldSeed: options.seed,
-    kingdomCount: options.kingdomCount,
-    capitalOf: (k) => villageIndexByKingdom.get(k) ?? null,
-  });
-  // ---- M52: per-kingdom AI defence — template build queue + garrison posting. Registered
-  // AFTER the defence layer (it consumes maps/occupancy) and appended to the pipeline, so
-  // existing systems' cadences and streams are untouched. Template choice is deterministic
-  // per kingdom (seeded index over the sorted template ids — personality-tag mapping is
-  // content polish for M54's balance pass if wanted).
+  // ---- M52's template assignment, HOISTED above the defence layer (M57): defence-genesis
+  // needs "this village's owning kingdom's archetype" to materialise the free tiered core
+  // for ANY eligible village (not just the one the AI daily manager walks), so the
+  // assignment itself must exist before `registerDefenceGameplay` runs. Deterministic per
+  // kingdom (seeded index over the sorted template ids; personality tags override when
+  // matched) — unchanged from M52, just computed earlier and shared. AI kingdoms only
+  // (aiFromIndex..kingdomCount): the player's capital keeps its shipped bare-keep-only
+  // behaviour — no template is assigned, so genesis grants it nothing beyond the keep.
+  const kingdomTemplateOf = new Map<number, CastleTemplateDef>();
   if (options.aiDefence ?? true) {
     const templates = [...db.castleTemplates.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
     // M54 (the M52 note's promised content polish): personality TAGS pick the archetype —
@@ -910,16 +895,75 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         const template =
           (assigned != null ? templateForTags(assigned.def.tags) : undefined) ??
           (templates[(((options.seed >>> 0) + k) % templates.length)] as (typeof templates)[number]);
-        registerAiDefenceManager(kernel, world, db, game, militaryGame, kingdomGame, defenceGame, {
-          issuer: k + 1,
-          kingdomIndex: k,
-          template,
-          id: String(k),
-          capitalOf: () => villageIndexByKingdom.get(k) ?? null,
-        });
+        kingdomTemplateOf.set(k, template);
       }
     }
   }
+
+  // ---- M49 (Phase 8, ADR-4); M57 (ADR-4 A1 option (C)): the defence layer, re-keyed from
+  // kingdom to VILLAGE — maps, keep, defence.build/demolish/post commands, 'defence' hash
+  // source. A village is eligible iff it is a kingdom's capital (A1's political exception,
+  // unconditional) or carries a completed Keep. Appended registration: no periodic systems
+  // pre-existed here, so existing streams and cadences are untouched.
+  const defenceGame = registerDefenceGameplay(kernel, world, db, game, econGame, militaryGame, {
+    worldSeed: options.seed,
+    villageIndices: () => [...ownerIndexByVillage.keys()].sort((a, b) => a - b),
+    isCapital: (vi) => villageIndexByKingdom.get(ownerIndexByVillage.get(vi) ?? -1) === vi,
+    templateOf: (vi) => kingdomTemplateOf.get(ownerIndexByVillage.get(vi) ?? -1),
+  });
+  // 1.x ownership guard, dense-village-index shaped (defence.ts never sees a full entity
+  // id) — mirrors kingdomGame.ownsVillage without needing world.isAlive: a bad/stale index
+  // simply reads a defaulted VillageOwner slot, and every command already validated the
+  // structure/village exists before reaching this guard.
+  defenceGame.setOwnershipGuard((issuer, vi) => {
+    if (kingdomGame.VillageOwner === undefined) return true;
+    const kingdomId = kingdomGame.kingdomEntities()[issuer - 1] ?? kingdomGame.kingdomEntities()[0];
+    if (kingdomId === undefined) return false;
+    return (world.read(kingdomGame.VillageOwner).kingdom[vi] as number) === (kingdomId as number);
+  });
+  // ---- M52: per-kingdom AI defence — the PAID "ambition" build queue + garrison posting,
+  // beyond whatever the free tiered core already gave the kingdom's operated village.
+  // Registered AFTER the defence layer (it consumes maps/occupancy) and appended to the
+  // pipeline. v1 inheritance (file-top doc comment): each AI kingdom still operates its
+  // FIRST village only, so this targets `villageIndexByKingdom.get(k)`, exactly like the
+  // construction manager — never a second AI-founded castle village (none exist yet).
+  for (const [k, template] of kingdomTemplateOf) {
+    registerAiDefenceManager(kernel, world, db, game, militaryGame, defenceGame, {
+      issuer: k + 1,
+      template,
+      id: String(k),
+      villageOf: () => villageIndexByKingdom.get(k) ?? null,
+    });
+  }
+
+  // ---- M47.8: occupation — the non-layer conquest path (campaign-only; wrapper opts out).
+  // Registered AFTER the defence layer (M57: needs `defenceGame.DefencePost` in its access
+  // declaration, so it can no longer precede it — a behaviour-relevant reordering, folded
+  // into this milestone's expected re-record rather than paid separately). ----
+  // M57 (ADR-4 A1 option (C)): the split is now GARRISON-based, not walls-based — "an
+  // undefended village still flips by countdown even with a Keep." A layer alone no longer
+  // exempts a village from occupation; it must ALSO be either actively garrisoned (a posted,
+  // complete unit whose home is this village) or under an active siege (so the two systems
+  // never fight over the same village mid-resolution — occupation stays out while a siege
+  // already claims it, exactly like the pre-M57 "never both" invariant).
+  const villageGarrisoned = (vi: number): boolean => {
+    const u = world.read(militaryGame.Unit);
+    let found = false;
+    world.query([militaryGame.Unit, defenceGame.DefencePost]).forEach((ui) => {
+      if (found || (u.complete[ui] as number) !== 1 || (u.count[ui] as number) <= 0) return;
+      if (index(u.homeVillage[ui] as number) === vi) found = true;
+    });
+    return found;
+  };
+  const occupationGame = (options.occupation ?? true)
+    ? registerOccupationGameplay(kernel, world, game, militaryGame, armiesGame, kingdomGame, {
+        isAtWar: (a, b) => diplomacyGame.state.isAtWar(a as number, b as number),
+        exempt: (vi) =>
+          (spatialAssault.applicable?.(vi) ?? false) &&
+          (villageGarrisoned(vi) || siegeGame.state.siegeOfCastle(vi) !== undefined),
+        extraReads: [defenceGame.DefencePost],
+      })
+    : null;
 
   // M54: posted capital garrison in MEN (the unit the garrisonStrength belief stores) —
   // shared by the belief sensor and the assault report's belief-error line.
@@ -932,27 +976,27 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     return total;
   };
 
-  // The spatial assault applies to CAPITALS with a defence layer (ADR-4 §6: the layer guards
-  // the capital only); every other castle keeps the legacy breach-and-engagement path.
-  // `applicable` additionally makes such capitals SIEGE-ELIGIBLE without a world-map wall
-  // enclosure — the layer is their castle-ness. Interim loss rules unchanged (doc 14 OQ-9
-  // item 2): a capture is still an owner flip; capital-death arrives at M53.
+  // M57 (ADR-4 A1 option (C)): the spatial assault applies to ANY village with a standing
+  // defence layer, capital or not — the layer's mere existence IS the eligibility test
+  // (`defenceGame.mapOf` only ever returns a state for a village defence-genesis actually
+  // granted one: a capital unconditionally, any other village once it completes a Keep).
+  // `applicable` makes such villages SIEGE-ELIGIBLE without a world-map wall enclosure —
+  // the layer is their castle-ness. Interim loss rules unchanged (doc 14 OQ-9 item 2): a
+  // capture is still an owner flip; capital-death (M53) is a SEPARATE, still capital-only
+  // political consequence layered on top, not a precondition for this.
   // GUARD-FREE (M53): `applicable` is now consulted from inside OTHER systems' access
   // scopes (ai-military's warTargets, occupation's exemption) — it must read the plain
   // event-maintained ownership maps, never VillageOwner, or the access guard trips.
-  spatialAssault.applicable = (castleVi) => {
-    const k = ownerIndexByVillage.get(castleVi);
-    return k !== undefined && villageIndexByKingdom.get(k) === castleVi && defenceGame.mapOf(k) !== undefined;
-  };
+  spatialAssault.applicable = (castleVi) => defenceGame.mapOf(castleVi) !== undefined;
   spatialAssault.current = (ctx, siege, origin) => {
     if (kingdomGame.VillageOwner === undefined) return null;
     const ownerId = world.read(kingdomGame.VillageOwner).kingdom[siege.castle] as number;
     const k = kingdomGame.kingdomEntities().indexOf(ownerId as EntityId);
-    if (k < 0 || villageIndexByKingdom.get(k) !== siege.castle) return null;
-    if (defenceGame.mapOf(k) === undefined) return null;
+    if (k < 0 || defenceGame.mapOf(siege.castle) === undefined) return null;
     // M54: the belief-error story — capture what the attacker BELIEVED (noisy, decayed,
     // possibly never observed) and the pre-assault truth, BEFORE the resolver spends
-    // the garrison. Rides the assaultResolved event for the battle report.
+    // the garrison. Rides the assaultResolved event for the battle report. Beliefs stay
+    // KINGDOM-paired (unaffected by the village re-key): `k` is the defending KINGDOM.
     const attackerIdx = kingdomGame.kingdomEntities().indexOf(siege.attackerKingdom as EntityId);
     const believedRaw = attackerIdx >= 0 ? believedGarrisonOf(attackerIdx, k) : undefined;
     const actualGarrison = postedMenOf(ownerId);
@@ -962,7 +1006,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       game,
       militaryGame,
       defenceGame,
-      defenderKingdomIndex: k,
+      defenderVillageIndex: siege.castle,
       defenderKingdomId: ownerId,
       attackerArmy: siege.attackerArmy,
       origin,
@@ -1150,7 +1194,26 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   saves.setSandboxFlags({ sandbox: sandboxEnabled, ironman: options.sandbox?.ironman ?? false });
   if (options.settings !== undefined) saves.setCampaignSettings(options.settings);
   saves.register(kernelSection(kernel));
-  saves.register(worldSection(world));
+  // M57 (ADR-4 A1 option (C)): `DefenceStructure` re-keyed from a kingdom index to a
+  // village index — a FIELD rename (`kingdom` → `village`) inside the world section's
+  // per-component payload. `world.loadState` hard-asserts every current field name is
+  // present verbatim, so an old save's `defenceStructure` entries need the rename applied
+  // before loadState ever sees them. The migration can only reshape its OWN payload — it
+  // has no access to the kingdom→capital-village binding, so the VALUES stay the raw
+  // kingdom index for now; `defenceGame.remapLegacyOwners` fixes those up in `afterLoad`,
+  // once `villageIndexByKingdom` is restored, gated on `saves.originalVersionOf('defence')`.
+  saves.register(worldSection(world, 2));
+  saves.registerMigration('world', 1, (data) => {
+    const state = data as WorldSaveState;
+    return {
+      ...state,
+      components: state.components.map((c) => {
+        if (c.name !== 'defenceStructure' || c.soa?.['kingdom'] === undefined) return c;
+        const { kingdom, ...restSoa } = c.soa;
+        return { ...c, soa: { ...restSoa, village: kingdom } };
+      }),
+    };
+  });
   saves.register({
     key: 'roads',
     version: 1,
@@ -1234,11 +1297,17 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // definition; structures/posts live in worldSection regardless).
   saves.register({
     key: 'defence',
-    version: 1,
+    // M57: v2 — `k` is now a VILLAGE index, was a kingdom index. The stored shape is
+    // unchanged (still `{k, seed, version, tiles}[]`), so the migration is an identity
+    // passthrough — it exists purely to make `saves.originalVersionOf('defence')`
+    // observable, which `afterLoad` uses to gate the real remap (needs the
+    // kingdom→capital-village binding, unavailable to a pure Migration function).
+    version: 2,
     optional: true,
     save: () => defenceGame.save(),
     load: (data) => defenceGame.restore(data as ReturnType<typeof defenceGame.save>),
   });
+  saves.registerMigration('defence', 1, (data) => data);
   // M54: stale structure snapshots. Optional: pre-M54 saves simply start uninformed —
   // the next contact re-observes, which is exactly what stale intel means anyway.
   if (intelGame !== null) {
@@ -1276,7 +1345,6 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   saves.afterLoad(() => {
     game.ops.rebuildDerived();
     kingdomGame.refreshAfterLoad();
-    defenceGame.rebuildDerived();
     // genesis only runs on tick 1 — after hydration the plain ownership map is re-derived
     // from VillageOwner (the authoritative record). The kingdom→capital binding is NOT
     // derivable (it carries conquest history): the 'capitals' section restores it; only
@@ -1296,6 +1364,17 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       for (const [k, vi] of restoredCapitals) villageIndexByKingdom.set(k, vi);
       restoredCapitals = null;
     }
+    // M57: `defenceGame.rebuildDerived()` moved to AFTER the kingdom→capital binding is
+    // restored (above) — a pre-M57 save's `DefenceStructure.village` values (and the
+    // 'defence' section's map keys) are still raw KINGDOM indices at this point (the world
+    // and defence migrations could only reshape their own payloads, not remap values
+    // against a binding they have no access to); `remapLegacyOwners` fixes the VALUES up
+    // first, using the binding just restored above, then rebuildDerived() re-scans the
+    // now-correct village indices into occupancy.
+    if ((saves.originalVersionOf('defence') ?? 1) < 2) {
+      defenceGame.remapLegacyOwners((k) => villageIndexByKingdom.get(k) ?? null);
+    }
+    defenceGame.rebuildDerived();
   });
 
   // ---- render-ready terrain snapshot (protocol), when worldgen ran ----

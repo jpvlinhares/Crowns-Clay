@@ -31,6 +31,8 @@ import type { VillageGameplay } from './villages.js';
 import type { DefenceGameplay } from './defence.js';
 import type { SiegeGameplay } from './siege.js';
 
+const index = (id: number): number => id & 0x3fffff;
+
 // ---------------------------------------------------------------- constants
 
 /** Attack strength one garrisoned man adds to the resistance estimate — mirrors the
@@ -158,11 +160,15 @@ export function registerDefenceIntel(
   const state = new IntelState();
   kernel.addHashSource('intel', (fold) => state.fold(fold));
 
-  const captureStructures = (targetIndex: number): IntelStructureRec[] => {
+  // M57: intel stays capital-scoped (kingdom-pair keyed, doc 07 §4) — the layer itself is
+  // village-keyed now, so a snapshot's structures are the TARGET KINGDOM'S CAPITAL village's.
+  const captureStructures = (targetKingdomIndex: number): IntelStructureRec[] => {
+    const capitalVi = options.capitalOf(targetKingdomIndex);
+    if (capitalVi === null) return [];
     const s = world.read(DefenceStructure);
     const out: IntelStructureRec[] = [];
     world.query([DefenceStructure]).forEach((si) => {
-      if ((s.kingdom[si] as number) !== targetIndex) return;
+      if (index(s.village[si] as number) !== capitalVi) return;
       const def = game.ops.buildingDef(s.def[si] as number);
       out.push({ def: def.id, x: s.x[si] as number, y: s.y[si] as number, w: def.footprint.w, h: def.footprint.h });
     });

@@ -71,6 +71,9 @@ export class SaveManager {
   private readonly sections: SaveSection[] = [];
   private readonly migrations = new Map<string, Map<number, Migration>>();
   private readonly afterLoadHooks: (() => void)[] = [];
+  /** The version each section's payload carried in the save just hydrated, BEFORE any
+   * migration chain ran — see `originalVersionOf`. */
+  private readonly hydratedVersions = new Map<string, number>();
   private modManifest: readonly ModManifestEntry[] = [];
   private sandboxFlags: SandboxFlags = { sandbox: false, ironman: false };
   private campaignSettings: CampaignSettings | undefined;
@@ -123,6 +126,20 @@ export class SaveManager {
     this.afterLoadHooks.push(hook);
   }
 
+  /**
+   * The version `key`'s payload carried in the save just hydrated, before its migration
+   * chain ran — undefined if nothing has been hydrated yet, or the section was absent
+   * (optional, pre-dates it) in the save just loaded. A pure `Migration` function only
+   * sees its own section's payload, with no access to other sections' restored state
+   * (e.g. the kingdom→capital binding) — so a migration that needs a VALUE remap
+   * conditioned on "did this actually come from an old save" (not just a structural
+   * reshape) has to defer that remap to an `afterLoad` hook, gated on this. (M57: the
+   * defence layer's kingdom→village re-key is the first consumer.)
+   */
+  originalVersionOf(key: string): number | undefined {
+    return this.hydratedVersions.get(key);
+  }
+
   snapshot(): CampaignSave {
     const sections: CampaignSave['sections'] = {};
     for (const s of this.sections) {
@@ -157,6 +174,7 @@ export class SaveManager {
       `save seed ${save.header.seed} ≠ session seed ${this.kernel.seed} — compose the session from the save header`,
     );
     const report: string[] = [];
+    this.hydratedVersions.clear();
     for (const section of this.sections) {
       const stored = save.sections[section.key];
       if (stored === undefined && section.optional === true) {
@@ -165,6 +183,7 @@ export class SaveManager {
       }
       invariant(stored !== undefined, `save is missing section '${section.key}'`);
       let { version, data } = stored;
+      this.hydratedVersions.set(section.key, version);
       while (version < section.version) {
         const step = this.migrations.get(section.key)?.get(version);
         invariant(step !== undefined, `no migration for section '${section.key}' v${version} → v${version + 1}`);
@@ -238,10 +257,10 @@ export function kernelSection(kernel: Kernel): SaveSection {
   };
 }
 
-export function worldSection(world: World): SaveSection {
+export function worldSection(world: World, version = 1): SaveSection {
   return {
     key: 'world',
-    version: 1,
+    version,
     save: () => world.saveState(),
     load: (data) => world.loadState(data as ReturnType<World['saveState']>),
   };
