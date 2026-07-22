@@ -190,6 +190,11 @@ export interface PanelDefenceState {
     readonly h: number;
     readonly cost: readonly (readonly [string, number])[];
   }[];
+  /** M58: `def.cost × (1 − hp/maxHp)` summed over the village's structures, display-ready
+   * as [resource name, amount] — empty when nothing is damaged. */
+  readonly repairCost: readonly (readonly [string, number])[];
+  /** M58: the tick the in-flight repair completes, or null if nothing is repairing. */
+  readonly repairingUntil: number | null;
 }
 
 /** M54 (ADR-4 §4): what the PLAYER last saw of a rival capital's walls — a STALE

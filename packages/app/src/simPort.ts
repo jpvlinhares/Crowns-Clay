@@ -244,7 +244,15 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
           h: def.footprint.h,
           cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount]),
         }));
-      return { villageId: playerVillage, size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
+      // M58: repair — cost display-ready like `buildable[].cost`, and the in-flight window.
+      const repairCost = [...cc.defenceGame.repairCostOf(playerVillage)].map(
+        ([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount],
+      );
+      const repairingUntil = cc.defenceGame.repairingUntil(playerVillage) ?? null;
+      return {
+        villageId: playerVillage, size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles),
+        structures, posts, buildable, repairCost, repairingUntil,
+      };
     })();
 
     // ---- enemy intel (M54, ADR-4 §4): the player's STALE snapshot of each rival capital —

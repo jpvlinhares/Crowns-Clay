@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { composeCampaign } from '../campaign.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { DEFAULT_PERSONALITY_WEIGHTS } from './planner.js';
+import { KEEP_DEF, REPAIR_DURATION_DAYS } from '../game/defence.js';
 
 /** Kingdom 1 is AI (the defender under test), pinned PACIFIST: aggression 0 keeps the
  * planner off war archetypes, so its garrison stays posted instead of being drafted into
@@ -174,6 +175,54 @@ test('T objective: the AI layout repels the baseline raid — and stays crackabl
 
   const heavy = raid(10); // 100 men — a serious column
   assert.equal(heavy.outcome, 'captured', 'castles stay crackable (GDD §7: strong but crackable)');
+});
+
+/** Damage kingdom 1's keep directly (bypassing assault.ts, matching defence.test.ts's own
+ * surgical setup technique) — returns the keep's current hp for before/after assertions. */
+function damageKeep(c: ReturnType<typeof composeCampaign>, fraction: number): void {
+  const vi = c.villageOf(1);
+  assert.ok(vi !== null);
+  const s = c.world.read(c.defenceGame.DefenceStructure);
+  const fort = c.world.write(c.defenceGame.Fortification);
+  let found = false;
+  c.world.query([c.defenceGame.DefenceStructure]).forEach((si) => {
+    if (found) return;
+    if (((s.village[si] as number) & 0x3fffff) !== vi) return;
+    if (c.game.ops.buildingDef(s.def[si] as number).id !== KEEP_DEF) return;
+    found = true;
+    fort.hp[si] = (fort.maxHp[si] as number) * (1 - fraction);
+  });
+  assert.ok(found, "kingdom 1's keep found");
+}
+
+function keepHp(c: ReturnType<typeof composeCampaign>): number {
+  const vi = c.villageOf(1);
+  assert.ok(vi !== null);
+  const s = c.world.read(c.defenceGame.DefenceStructure);
+  const fort = c.world.read(c.defenceGame.Fortification);
+  let hp = -1;
+  c.world.query([c.defenceGame.DefenceStructure]).forEach((si) => {
+    if (((s.village[si] as number) & 0x3fffff) === vi && c.game.ops.buildingDef(s.def[si] as number).id === KEEP_DEF) hp = fort.hp[si] as number;
+  });
+  return hp;
+}
+
+test('T objective: an AI castle damaged across two wars is repaired without player input (M58)', () => {
+  const c = compose(0xd0c52);
+  c.kernel.step(); // genesis
+  const maxHp = c.db.buildings.get(KEEP_DEF)?.defense?.hp as number;
+
+  // war one: the keep takes damage
+  damageKeep(c, 0.4);
+  assert.ok(keepHp(c) < maxHp, 'damaged');
+  days(c, REPAIR_DURATION_DAYS + 5); // no player input at all — only the daily AI manager runs
+  assert.equal(keepHp(c), maxHp, 'the AI repaired itself after war one, unprompted');
+
+  // war two: damaged again — repair is not a one-shot fluke
+  damageKeep(c, 0.7);
+  assert.ok(keepHp(c) < maxHp, 'damaged again');
+  days(c, REPAIR_DURATION_DAYS + 5);
+  assert.equal(keepHp(c), maxHp, 'the AI repaired itself again after war two');
 });
 
 test('wrapper pinning: the AI harness composition stays defence-inert', () => {

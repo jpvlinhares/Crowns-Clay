@@ -910,6 +910,9 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     villageIndices: () => [...ownerIndexByVillage.keys()].sort((a, b) => a - b),
     isCapital: (vi) => villageIndexByKingdom.get(ownerIndexByVillage.get(vi) ?? -1) === vi,
     templateOf: (vi) => kingdomTemplateOf.get(ownerIndexByVillage.get(vi) ?? -1),
+    // M58: repair is blocked while a village is under active siege — siegeGame is already
+    // registered above (line ~382), so this is a plain closure, not late-bound.
+    isUnderSiege: (vi) => siegeGame.state.siegeOfCastle(vi) !== undefined,
   });
   // 1.x ownership guard, dense-village-index shaped (defence.ts never sees a full entity
   // id) — mirrors kingdomGame.ownsVillage without needing world.isAlive: a bad/stale index
@@ -1306,6 +1309,15 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
     optional: true,
     save: () => defenceGame.save(),
     load: (data) => defenceGame.restore(data as ReturnType<typeof defenceGame.save>),
+  });
+  // M58: in-flight repair windows, keyed by village. Optional: no pre-M58 save was ever
+  // mid-repair (the mechanic didn't exist), so absence just means "nothing repairing".
+  saves.register({
+    key: 'defenceRepairs',
+    version: 1,
+    optional: true,
+    save: () => defenceGame.saveRepairs(),
+    load: (data) => defenceGame.restoreRepairs(data as ReturnType<typeof defenceGame.saveRepairs>),
   });
   saves.registerMigration('defence', 1, (data) => data);
   // M54: stale structure snapshots. Optional: pre-M54 saves simply start uninformed —

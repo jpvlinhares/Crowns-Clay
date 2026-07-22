@@ -93,7 +93,7 @@ export function registerAiDefenceManager(
 ): void {
   const { Stockpile } = game.comps;
   const { Unit } = militaryGame;
-  const { DefencePost } = defenceGame;
+  const { DefencePost, DefenceStructure, Fortification } = defenceGame;
   const targets = expandTemplate(db, options.template);
   const stoneCode = game.ops.resourceCode('base:resource.stone') as number;
 
@@ -101,13 +101,29 @@ export function registerAiDefenceManager(
     name: options.id !== undefined ? `ai-defence-${options.id}` : 'ai-defence',
     period: TICKS_PER_DAY,
     phase: 8, // after the military manager's daily action, before occupation settles
-    access: { reads: [Unit, DefencePost, Stockpile] },
+    access: { reads: [Unit, DefencePost, Stockpile, DefenceStructure, Fortification] },
     update(): void {
       const village = options.villageOf();
       if (village === null) return; // landless: nothing to fortify from
       const map = defenceGame.mapOf(village);
       if (map === undefined) return; // no layer yet (no capital grant, no completed Keep)
       const occupancy = defenceGame.occupancyOf(village);
+
+      // ---- 0. repair: fix what's broken before building more (M58) — otherwise an AI
+      // castle scarred across two wars decays permanently while the player's does not.
+      // Below the SAME stone reserve build respects; the command itself is the real
+      // gate (siege-blocked, atomic cost), this is only the quiet-rejection-stream check. ----
+      if (defenceGame.repairingUntil(village) === undefined) {
+        const cost = defenceGame.repairCostOf(village);
+        if (cost.size > 0) {
+          const stoneCost = cost.get('base:resource.stone') ?? 0;
+          const stock = world.readObj(Stockpile).tryGet(village);
+          const stoneHeld = stock?.get(stoneCode) ?? 0;
+          if (stoneHeld >= stoneCost + DEFENCE_STONE_RESERVE) {
+            kernel.submit({ type: 'defence.repair', issuer: options.issuer, payload: { villageId: village } });
+          }
+        }
+      }
 
       // ---- 1. build: first plan target whose ground is free (skip = adaptation; this
       // naturally skips whatever defence-genesis already materialised for free) ----

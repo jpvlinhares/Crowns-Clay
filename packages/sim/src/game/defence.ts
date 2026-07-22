@@ -46,6 +46,7 @@ import type { BuildingDef, CastleTemplateDef, DefinitionDatabase } from '@crowns
 import { expandPlanEntry } from '@crowns/data';
 import { SoAComponent, World } from '../ecs.js';
 import type { Kernel, TickContext } from '../kernel.js';
+import { TICKS_PER_DAY } from '../time.js';
 import {
   DEFENCE_MAP_SIZE,
   DEFENCE_MAP_VERSION,
@@ -64,6 +65,11 @@ const index = (id: number): number => id & 0x3fffff;
 
 export const KEEP_DEF = 'base:building.keep';
 export const DEFENCE_KEEP_CENTRE = Math.floor(DEFENCE_MAP_SIZE / 2);
+/** M58 (ADR-4 A1): the strike-again-before-they-recover window a Repair order buys —
+ * cost is paid immediately, but hp only returns at the end of this window (a defender
+ * who just paid for repairs is still weak for this long). Balance material, alongside
+ * ASSAULT_WALL_DAMAGE/DEFENCE_STONE_RESERVE — tunable without touching the mechanism. */
+export const REPAIR_DURATION_DAYS = 10;
 
 // ---------------------------------------------------------------- components
 
@@ -122,6 +128,19 @@ export interface DefenceGameplay {
    * restriction (single-kingdom/Terra). Takes a DENSE VILLAGE INDEX, never a full entity
    * id — matching every other accessor here. */
   setOwnershipGuard(guard: (issuer: number, villageIndex: number) => boolean): void;
+  /** M58: `def.cost × (1 − hp/maxHp)` summed over the village's structures, per resource
+   * id, rounded up to whole units at the total (never per-structure — avoids compounding
+   * ceil bias). Empty map = nothing damaged. Pure/read-only: the panel, the AI's
+   * affordability pre-check, and `defence.repair`'s real atomic charge all share this one
+   * formula, so none of them can drift from the others. */
+  repairCostOf(villageIndex: number): ReadonlyMap<string, number>;
+  /** M58: the tick this village's in-flight repair completes, or undefined if it isn't
+   * currently repairing (never started, or already resolved). */
+  repairingUntil(villageIndex: number): number | undefined;
+  /** M58: repair-window state, keyed by village dense index. Optional section (absent on
+   * pre-M58 saves — nothing was ever mid-repair before this milestone existed). */
+  saveRepairs(): readonly { readonly v: number; readonly until: number }[];
+  restoreRepairs(data: readonly { readonly v: number; readonly until: number }[]): void;
 }
 
 export interface DefenceOptions {
@@ -138,6 +157,11 @@ export interface DefenceOptions {
    * template), or undefined for no additive core — the village still gets the bare
    * cost-free keep if eligible, just no template-derived ring around it. */
   readonly templateOf: (villageIndex: number) => CastleTemplateDef | undefined;
+  /** M58: is this village currently besieged? `defence.repair` is blocked while true — a
+   * stone-rich defender who could out-repair the bombardment would otherwise be
+   * unbreakable. `siegeGame` already exists by the time this layer registers (campaign.ts
+   * registration order), so this is a plain closure, not a late-bound setter. */
+  readonly isUnderSiege: (villageIndex: number) => boolean;
 }
 
 // ---------------------------------------------------------------- register
@@ -214,6 +238,37 @@ export function registerDefenceGameplay(
     world.attach(entity, Fortification, { hp: def.defense?.hp ?? 1, maxHp: def.defense?.hp ?? 1 });
     occupy(vi, entity as number, def, x, y);
     return entity as number;
+  };
+
+  // ---- M58: repair. `def.cost × (1 − hp/maxHp)` summed over the village's structures —
+  // no repair-cost table, the def's own build cost IS the repair cost (self-balancing:
+  // towers hurt more than wall segments). repairingUntil is keyed by village dense index;
+  // ONE field per village, matching the roadmap's shape ("the strike-again-before-they-
+  // recover window survives" instant repair would delete). ----
+  const repairingUntil = new Map<number, number>();
+  const repairCostOf = (vi: number): Map<string, number> => {
+    const totals = new Map<string, number>(); // resource id → fractional total (pre-ceil)
+    const s = world.read(DefenceStructure);
+    const fort = world.read(Fortification);
+    world.query([DefenceStructure]).forEach((si) => {
+      if (index(s.village[si] as number) !== vi) return;
+      const hp = fort.hp[si] as number;
+      const maxHp = fort.maxHp[si] as number;
+      if (maxHp <= 0 || hp >= maxHp) return;
+      const missing = 1 - hp / maxHp;
+      const def = game.ops.buildingDef(s.def[si] as number);
+      for (const [resId, amount] of Object.entries(def.cost)) {
+        totals.set(resId, (totals.get(resId) ?? 0) + amount * missing);
+      }
+    });
+    // ceil at the TOTAL, not per-structure — many small fragments ceiling individually
+    // would compound into a materially larger bill than the formula actually prices.
+    const out = new Map<string, number>();
+    for (const [resId, amount] of totals) {
+      const whole = Math.ceil(amount);
+      if (whole > 0) out.set(resId, whole);
+    }
+    return out;
   };
 
   // ---- genesis: every eligible village's layer materialises, idempotent by presence.
@@ -299,6 +354,7 @@ export function registerDefenceGameplay(
     }
     maps.delete(vi);
     occupancy.delete(vi);
+    repairingUntil.delete(vi); // M58: a razed village's in-flight repair is moot
   });
 
   // ---- helpers ----
@@ -414,6 +470,71 @@ export function registerDefenceGameplay(
     ctx.events.publish({ type: 'defence.unposted', tick: ctx.tick, data: { village: homeVillage, unit: unitId } });
   });
 
+  kernel.registerCommand<{ villageId: number }>('defence.repair', (ctx, p, command) => {
+    const villageId = p.villageId | 0;
+    if (!world.isAlive(villageId as EntityId) || !world.has(villageId as EntityId, VillageCore)) {
+      return reject(ctx, 'defence.repair', 'no such village');
+    }
+    const vi = index(villageId);
+    if (!ownsVillage(command.issuer, vi)) return reject(ctx, 'defence.repair', 'not your village');
+    // load-bearing (ADR-4 A1): otherwise a stone-rich defender out-repairs the bombardment
+    // and is unbreakable — this is the one rule that becomes an exploit if missed.
+    if (options.isUnderSiege(vi)) return reject(ctx, 'defence.repair', 'cannot repair while under siege');
+    const already = repairingUntil.get(vi);
+    if (already !== undefined && already > ctx.tick) return reject(ctx, 'defence.repair', 'already repairing');
+    const cost = repairCostOf(vi);
+    if (cost.size === 0) return reject(ctx, 'defence.repair', 'nothing to repair');
+
+    // cost: check-all-then-deduct-all from the VILLAGE'S OWN stockpile (never the
+    // kingdom's — the same asymmetry defence.build's cost already draws)
+    const stock = world.readObj(Stockpile).tryGet(vi);
+    if (stock === undefined) return reject(ctx, 'defence.repair', 'village has no stockpile');
+    for (const [resId, amount] of cost) {
+      const have = stock.get(game.ops.resourceCode(resId) as number) ?? 0;
+      if (have < amount) return reject(ctx, 'defence.repair', `insufficient ${resId} (${have}/${amount})`);
+    }
+    const mutStock = world.writeObj(Stockpile).get(vi);
+    for (const [resId, amount] of cost) {
+      const rc = game.ops.resourceCode(resId) as number;
+      mutStock.set(rc, (mutStock.get(rc) as number) - amount);
+      econGame.ledger.record(vi, rc, 'built', amount);
+    }
+
+    // commits immediately; hp only returns once the window elapses (the strike-again-
+    // before-they-recover beat instant repair would delete)
+    const completesAt = ctx.tick + REPAIR_DURATION_DAYS * TICKS_PER_DAY;
+    repairingUntil.set(vi, completesAt);
+    ctx.events.publish({
+      type: 'defence.repairStarted',
+      tick: ctx.tick,
+      data: { village: vi, completesAt, cost: [...cost.entries()] },
+    });
+  });
+
+  // ---- M58: repair completion — daily, idempotent (only villages with an elapsed window
+  // do anything). Heals every structure of that village back to maxHp in one step; instant
+  // per-structure regeneration was rejected precisely to keep the vulnerability window
+  // real (see the command above). ----
+  kernel.registerSystem({
+    name: 'defence-repair',
+    period: TICKS_PER_DAY,
+    access: { reads: [DefenceStructure], writes: [Fortification] },
+    update(ctx: TickContext): void {
+      if (repairingUntil.size === 0) return;
+      const s = world.read(DefenceStructure);
+      const fort = world.write(Fortification);
+      for (const [vi, until] of [...repairingUntil.entries()]) {
+        if (ctx.tick < until) continue;
+        world.query([DefenceStructure]).forEach((si) => {
+          if (index(s.village[si] as number) !== vi) return;
+          fort.hp[si] = fort.maxHp[si] as number;
+        });
+        repairingUntil.delete(vi);
+        ctx.events.publish({ type: 'defence.repaired', tick: ctx.tick, data: { village: vi } });
+      }
+    },
+  });
+
   // ---- M51 conflict rule: drafting a posted unit into an army pulls it OFF the walls —
   // one soldier pool, one place at a time. Subscriber touches component state only (the
   // codebase's standing subscriber discipline). ----
@@ -423,7 +544,7 @@ export function registerDefenceGameplay(
     }
   });
 
-  // ---------------- determinism: maps fold into the state hash ----------------
+  // ---------------- determinism: maps + repair windows fold into the state hash ----------------
   kernel.addHashSource('defence', (fold) => {
     for (const vi of [...maps.keys()].sort((a, b) => a - b)) {
       const m = maps.get(vi) as DefenceMapState;
@@ -431,6 +552,10 @@ export function registerDefenceGameplay(
       fold(m.seed);
       fold(m.version);
       fold(m.digest);
+    }
+    for (const vi of [...repairingUntil.keys()].sort((a, b) => a - b)) {
+      fold(vi);
+      fold(repairingUntil.get(vi) as number);
     }
   });
 
@@ -495,6 +620,14 @@ export function registerDefenceGameplay(
     },
     setOwnershipGuard(guard: (issuer: number, villageIndex: number) => boolean): void {
       ownershipGuard = guard;
+    },
+    repairCostOf: (vi) => repairCostOf(vi),
+    repairingUntil: (vi) => repairingUntil.get(vi),
+    saveRepairs: () =>
+      [...repairingUntil.entries()].sort((a, b) => a[0] - b[0]).map(([v, until]) => ({ v, until })),
+    restoreRepairs(data): void {
+      repairingUntil.clear();
+      for (const { v, until } of data) repairingUntil.set(v, until);
     },
   };
 }

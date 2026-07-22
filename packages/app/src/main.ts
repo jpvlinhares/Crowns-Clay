@@ -8,7 +8,7 @@
  */
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
-import { BASE_TICKS_PER_SECOND, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
+import { BASE_TICKS_PER_SECOND, TICKS_PER_DAY, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
 import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel, type VillageInfo } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
@@ -1287,6 +1287,23 @@ function renderCastlePanel(): void {
   });
   palette.append(demolishBtn);
   tools.append(palette);
+
+  // -- repair (M58) --
+  if (st.repairingUntil !== null) {
+    const daysLeft = Math.max(0, Math.ceil((st.repairingUntil - lastDeltaTick) / TICKS_PER_DAY));
+    tools.append(el('div', `🔧 Repairing — ready in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`, 'hint'));
+  } else if (st.repairCost.length > 0) {
+    const row = el('div', undefined, 'row');
+    const repairBtn = document.createElement('button');
+    repairBtn.textContent = 'Repair';
+    tip(repairBtn, `Costs ${st.repairCost.map(([n, a]) => `${a} ${n}`).join(', ')} from this village's own stores. Blocked while under siege. Walls stay down until the window elapses.`);
+    repairBtn.addEventListener('click', () => {
+      command('defence.repair', { villageId: st.villageId });
+      send({ kind: 'requestPanels' });
+    });
+    row.append(repairBtn);
+    tools.append(row);
+  }
 
   // -- garrison --
   tools.append(el('h3', 'Garrison', 'ledger-heading'));

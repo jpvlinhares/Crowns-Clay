@@ -23,7 +23,7 @@ import {
   encodeDefenceMap,
   generateDefenceMap,
 } from '../worldgen/defenceMap.js';
-import { DEFENCE_KEEP_CENTRE, KEEP_DEF } from './defence.js';
+import { DEFENCE_KEEP_CENTRE, KEEP_DEF, REPAIR_DURATION_DAYS } from './defence.js';
 import type { CampaignSettings } from '@crowns/protocol';
 
 const SEED = 0xdef83;
@@ -47,7 +47,7 @@ function compose(): ReturnType<typeof composeCampaign> {
 
 function driver(c: ReturnType<typeof composeCampaign>) {
   const events: { type: string; data: Record<string, unknown> }[] = [];
-  for (const type of ['defence.built', 'defence.demolished', 'defence.posted', 'defence.unposted', 'defence.rejected']) {
+  for (const type of ['defence.built', 'defence.demolished', 'defence.posted', 'defence.unposted', 'defence.rejected', 'defence.repairStarted', 'defence.repaired', 'army.created']) {
     c.kernel.subscribe(type, (e) => events.push({ type, data: e.data as Record<string, unknown> }));
   }
   const submit = (type: string, payload: unknown, issuer = 1): void => {
@@ -273,4 +273,177 @@ test('pre-defence saves (1.0) load: absent section falls back to fresh generatio
   const map = loaded.defenceGame.mapOf(loaded.villageOf(0) as number);
   assert.ok(map !== undefined && map.version === DEFENCE_MAP_VERSION);
   assert.deepEqual([...map.tiles], [...generateDefenceMap(map.seed)]);
+});
+
+// ---------------- M58: repair ----------------
+
+/** Damage a structure directly (bypassing assault.ts) for surgical repair-test setup —
+ * same technique the suite already uses for garrison units (world.attach). Returns the
+ * structure's entity id and its def (for cost-formula assertions). */
+function damageKeep(c: ReturnType<typeof composeCampaign>, vi: number, fraction: number): number {
+  const s = c.world.read(c.defenceGame.DefenceStructure);
+  const fort = c.world.write(c.defenceGame.Fortification);
+  let keepId = -1;
+  c.world.query([c.defenceGame.DefenceStructure]).forEach((si, entity) => {
+    if (keepId !== -1) return;
+    if (((s.village[si] as number) & 0x3fffff) !== vi) return;
+    if (c.game.ops.buildingDef(s.def[si] as number).id !== KEEP_DEF) return;
+    keepId = entity as number;
+    fort.hp[si] = (fort.maxHp[si] as number) * (1 - fraction);
+  });
+  assert.ok(keepId >= 0, 'keep found');
+  return keepId;
+}
+
+test('defence.repair: pays def.cost × (1 − hp/maxHp) immediately; hp only returns after the window', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis
+  const capital = c.villageOf(0) as number;
+  damageKeep(c, capital, 0.5); // keep: 20 wood / 60 stone → half-damaged ⇒ 10 wood / 30 stone
+
+  const resCode = (id: string): number => c.game.ops.resourceCode(id) as number;
+  const stockOf = (res: string): number => c.econGame.totalOf(capital, resCode(res));
+  const woodBefore = stockOf('base:resource.wood');
+  const stoneBefore = stockOf('base:resource.stone');
+
+  d.submit('defence.repair', { villageId: capital });
+  assert.ok(d.events.some((e) => e.type === 'defence.repairStarted'), d.lastRejection());
+  assert.equal(stockOf('base:resource.wood'), woodBefore - 10, 'wood repair cost committed immediately');
+  assert.equal(stockOf('base:resource.stone'), stoneBefore - 30, 'stone repair cost committed immediately');
+
+  const fort = c.world.read(c.defenceGame.Fortification);
+  const s = c.world.read(c.defenceGame.DefenceStructure);
+  const keepHp = (): number => {
+    let hp = -1;
+    c.world.query([c.defenceGame.DefenceStructure]).forEach((si) => {
+      if (((s.village[si] as number) & 0x3fffff) === capital && c.game.ops.buildingDef(s.def[si] as number).id === KEEP_DEF) {
+        hp = fort.hp[si] as number;
+      }
+    });
+    return hp;
+  };
+  const maxHp = c.db.buildings.get(KEEP_DEF)?.defense?.hp as number;
+  assert.equal(keepHp(), maxHp * 0.5, 'still damaged right after paying — the window has not elapsed');
+
+  // just short of the window: still damaged
+  for (let t = 0; t < REPAIR_DURATION_DAYS * TICKS_PER_DAY - TICKS_PER_DAY; t++) c.kernel.step();
+  assert.equal(keepHp(), maxHp * 0.5, 'still damaged short of the window');
+
+  // past the window: healed, and the completion event fired
+  for (let t = 0; t < TICKS_PER_DAY * 2; t++) c.kernel.step();
+  assert.equal(keepHp(), maxHp, 'healed to full once the window elapsed');
+  assert.ok(d.events.some((e) => e.type === 'defence.repaired'));
+});
+
+test('defence.repair: refused while under siege — the exploit this rule exists to close', () => {
+  const c = composeCampaign({
+    seed: SEED, kingdomCount: 2, mapSize: 'small', mods: { sources: [] }, settings: SETTINGS,
+    aiFromIndex: 2, // both manual — surgical siege setup
+    succession: false,
+  });
+  const d = driver(c);
+  c.kernel.step();
+  const capital = c.villageOf(0) as number;
+  damageKeep(c, capital, 0.5);
+
+  // an enemy army sits at the capital and besieges it
+  const defCode = c.militaryGame.ops.defCode('base:unit.spearman');
+  const unitDef = c.db.units.get('base:unit.spearman');
+  assert.ok(unitDef !== undefined && defCode !== undefined);
+  const v1 = c.villageOf(1) as number;
+  let v1Id = -1;
+  let v0Id = -1;
+  c.world.query([c.game.comps.VillageCore]).forEach((i, entity) => {
+    if (i === v1) v1Id = entity as number;
+    if (i === capital) v0Id = entity as number;
+  });
+  d.submit('army.createArmy', { name: 'Siege', villageId: v1Id }, 2);
+  const attackerArmy = d.events.filter((e) => e.type === 'army.created').at(-1)?.data['army'] as number;
+  assert.ok(attackerArmy >= 0, 'attacking army created');
+  const unit = c.world.spawn();
+  c.world.attach(unit, c.militaryGame.Unit, {
+    def: defCode, kingdomId: c.kingdomGame.kingdomEntities()[1] as number, homeVillage: v1Id,
+    armyId: attackerArmy, count: unitDef.popCost.count, progress: 1, complete: true, morale: unitDef.stats.moraleBase,
+  });
+  const core = c.world.read(c.game.comps.VillageCore);
+  const m = c.world.write(c.armiesGame.ArmyMovement);
+  const ai = attackerArmy & 0x3fffff;
+  m.x[ai] = core.centerX[capital] as number;
+  m.y[ai] = core.centerY[capital] as number;
+  c.world.writeObj(c.armiesGame.ArmyPath).set(ai, []);
+  d.submit('siege.begin', { armyId: attackerArmy, villageId: v0Id }, 2);
+  assert.ok(c.siegeGame.state.siegeOfCastle(capital) !== undefined, 'siege active');
+
+  d.submit('defence.repair', { villageId: capital }, 1);
+  assert.match(d.lastRejection(), /siege/);
+  assert.ok(!d.events.some((e) => e.type === 'defence.repairStarted'), 'no repair started under siege');
+
+  // the siege lifts — repair is available again
+  d.submit('siege.lift', { armyId: attackerArmy }, 2);
+  d.submit('defence.repair', { villageId: capital }, 1);
+  assert.ok(d.events.some((e) => e.type === 'defence.repairStarted'), d.lastRejection());
+});
+
+test('defence.repair: refused with nothing damaged, and refused mid-window (no double-billing)', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step();
+  const capital = c.villageOf(0) as number;
+
+  d.submit('defence.repair', { villageId: capital });
+  assert.match(d.lastRejection(), /nothing to repair/);
+
+  damageKeep(c, capital, 0.2);
+  d.submit('defence.repair', { villageId: capital });
+  assert.ok(d.events.some((e) => e.type === 'defence.repairStarted'), d.lastRejection());
+  d.submit('defence.repair', { villageId: capital });
+  assert.match(d.lastRejection(), /already repairing/);
+});
+
+test('defence.repair: paid from the VILLAGE\'s own stores, not pooled with any other village', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step();
+  const v0 = c.villageOf(0) as number;
+  const v1 = c.villageOf(1) as number;
+  damageKeep(c, v0, 1); // fully ruined: full def.cost is the bill
+  const stoneOf = (vi: number): number => c.econGame.totalOf(vi, c.game.ops.resourceCode('base:resource.stone') as number);
+  const v0Before = stoneOf(v0);
+  const v1Before = stoneOf(v1);
+  d.submit('defence.repair', { villageId: v0 });
+  assert.ok(d.events.some((e) => e.type === 'defence.repairStarted'), d.lastRejection());
+  assert.equal(stoneOf(v0), v0Before - 60, "v0's own stockpile paid the keep's full stone cost");
+  assert.equal(stoneOf(v1), v1Before, "v1's stockpile untouched — no kingdom pooling");
+});
+
+test('defence layer: an in-flight repair survives save→load and stays in lockstep', () => {
+  const original = compose();
+  const d = driver(original);
+  original.kernel.step();
+  const capital = original.villageOf(0) as number;
+  damageKeep(original, capital, 0.3);
+  d.submit('defence.repair', { villageId: capital });
+  assert.ok(d.events.some((e) => e.type === 'defence.repairStarted'), d.lastRejection());
+  for (let t = 0; t < TICKS_PER_DAY * 3; t++) original.kernel.step(); // mid-window
+
+  const save = original.saves.snapshot();
+  assert.ok(save.sections['defenceRepairs'] !== undefined, 'defenceRepairs section present');
+
+  const loaded = compose();
+  const report = loaded.saves.hydrate(JSON.parse(JSON.stringify(save)) as typeof save);
+  assert.deepEqual(report, []);
+  assert.equal(loaded.kernel.stateHash(), original.kernel.stateHash(), 'hash identical after hydration');
+  assert.equal(
+    loaded.defenceGame.repairingUntil(capital),
+    original.defenceGame.repairingUntil(capital),
+    'repair window survives the round trip',
+  );
+
+  for (let t = 0; t < TICKS_PER_DAY * (REPAIR_DURATION_DAYS + 2); t++) {
+    original.kernel.step();
+    loaded.kernel.step();
+  }
+  assert.equal(loaded.kernel.stateHash(), original.kernel.stateHash(), 'both sessions resolve the repair in lockstep');
+  assert.equal(loaded.defenceGame.repairingUntil(capital), undefined, 'repair completed in both');
 });
