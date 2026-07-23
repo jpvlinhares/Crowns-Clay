@@ -1,289 +1,386 @@
 /**
- * Sieges (M29) — the roadmap T objective is "siege pacing stats within
- * design bands" (GDD §8): starving a castle should take SEASONS, and
- * storming (assault) should be BLOODY. Also covers the phase progression —
- * encircle, bombard/breach, assault, sortie — and determinism.
+ * Sieges (M29; M55 rewrite) — the roadmap T objective is "siege pacing stats
+ * within design bands" (GDD §8): starving a castle should take SEASONS, and
+ * storming should be BLOODY. Also covers the phase progression — encircle,
+ * assault, sortie — and determinism.
+ *
+ * M55 (ADR-4 Amendment A1, Phase 8.1) moved these onto the REAL campaign
+ * composition. They used to run on a hand-built harness that registered siege
+ * WITHOUT a defence layer and took its castle-ness from an M28 world-map wall
+ * enclosure. A1 retires that: `siege.begin` now requires a standing defence
+ * layer, and the only place a layer and a siege are wired together is
+ * `composeCampaign` — so a standalone harness could no longer reach a siege at
+ * all, and one hand-rolled here would be a second, synthetic wiring of the
+ * spatial hook, free to drift from the shipping one (ADR-3's documented
+ * failure mode, and the reason its rule reads "composition into the SHIPPING
+ * game, not only harness verification").
+ *
+ * Composition choices, and why:
+ *   - `aiDefence: false` — castles stay KEEP-ONLY, so the spatial resolver's
+ *     outcome is deterministic and these tests exercise siege PHASES rather
+ *     than the resolver (assault.test.ts owns that).
+ *   - `succession: false` — a capture stays a plain owner flip, which is the
+ *     semantics every one of these tests was originally written against;
+ *     succession.test.ts owns the capital-death chain.
+ *   - pacifist weights — the M52 lesson: an armed AI conquers the scenario out
+ *     from under the test.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { EntityId } from '@crowns/core';
-import { DefinitionDatabase, BASE_CONTENT_FILES } from '@crowns/data';
-import { Kernel } from '../kernel.js';
-import { World } from '../ecs.js';
+import { composeCampaign } from '../campaign.js';
+import { STARVATION_SURRENDER_DAYS } from './siege.js';
 import { TICKS_PER_DAY } from '../time.js';
-import { registerVillageGameplay, type TerrainAccessor } from './villages.js';
-import { registerPopulationGameplay } from './population.js';
-import { registerEconomyGameplay } from './economy.js';
-import { registerLogisticsGameplay } from './logistics.js';
-import { registerKingdomGameplay, StatModifiers } from './kingdom.js';
-import { registerMilitaryGameplay } from './military.js';
-import { registerArmyGameplay } from './armies.js';
-import { registerCombatGameplay } from './combat.js';
-import { registerCastleGameplay } from './castles.js';
-import { registerSiegeGameplay, STARVATION_SURRENDER_DAYS } from './siege.js';
+import { DEFAULT_PERSONALITY_WEIGHTS } from '../ai/planner.js';
+import { bestSiteNear } from './settlers.js';
+import { VILLAGE_MIN_SPACING } from './villages.js';
+import type { CampaignSettings } from '@crowns/protocol';
 
-const plain: TerrainAccessor = {
-  width: 80,
-  height: 80,
-  tagsAt: () => ['open', 'farmable', 'mineable', 'woodland'],
-  riverAt: () => false,
-  movementCostAt: () => 1,
+const SEED = 0x51e6;
+const index = (id: number): number => id & 0x3fffff;
+
+const SETTINGS: CampaignSettings = {
+  mapSize: 'small',
+  kingdomCount: 2,
+  difficulty: 'fair',
+  victory: [],
+  defeatEnabled: false,
 };
 
-function makeSiege(options: { seed?: number; food?: number } = {}) {
-  const kernel = new Kernel(options.seed ?? 3);
-  const world = new World(1024);
-  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
-  const stock = {
-    'base:resource.wood': 600, 'base:resource.stone': 800,
-    'base:resource.food': options.food ?? 500, 'base:resource.tools': 400,
-  };
-  const mods = new StatModifiers();
-  const game = registerVillageGameplay(kernel, world, db, plain, stock);
-  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 12, adults: 30, elders: 5 }, mods);
-  const econ = registerEconomyGameplay(kernel, world, db, game, mods);
-  const Position = world.defineSoA('position', { x: 'f64', y: 'f64' });
-  registerLogisticsGameplay(kernel, world, db, game, popGame, econ, Position);
-  const kingdom = registerKingdomGameplay(kernel, world, db, game, popGame, econ, mods, { kingdomCount: 2 });
-  const military = registerMilitaryGameplay(kernel, world, db, game, popGame, kingdom);
-  const armies = registerArmyGameplay(kernel, world, game, military, kingdom);
-  const combat = registerCombatGameplay(kernel, world, military, armies, kingdom);
-  const castles = registerCastleGameplay(kernel, world, db, game);
-  const siege = registerSiegeGameplay(kernel, world, game, military, armies, castles, combat, kingdom);
-  kernel.attachGuard(world);
-  kernel.addHashSource('world', (fold) => world.hash(fold));
+/** Pacifist pinning: the AI must not prosecute its own wars during these scenarios. */
+const pacifist = () => ({
+  ...DEFAULT_PERSONALITY_WEIGHTS,
+  aggression: 0,
+  expansion: 0,
+  riskTolerance: 0,
+});
 
-  const rejections: string[] = [];
-  const events: { type: string; data: unknown }[] = [];
-  kernel.subscribe<{ what: string; reason: string }>('village.rejected', (e) => rejections.push(`${e.data.what}: ${e.data.reason}`));
+function compose(opts: { seed?: number } = {}): ReturnType<typeof composeCampaign> {
+  return composeCampaign({
+    seed: opts.seed ?? SEED,
+    kingdomCount: 2,
+    mapSize: 'small',
+    mods: { sources: [] },
+    settings: SETTINGS,
+    victory: { enabled: [], defeatEnabled: false },
+    aiDefence: false,
+    succession: false,
+    weightsOf: pacifist,
+    // Neither kingdom is AI-conducted (aiFromIndex === kingdomCount, so the per-kingdom
+    // conduct loop `for (k = aiFromIndex; k < kingdomCount; k++)` never runs). This is not
+    // the same as pacifist weights: a siege ALREADY under way is `committedToWar` regardless
+    // of aggression, so an AI-conducted attacker independently assaults or lifts an
+    // existing siege every day, racing the test's own orchestration — invisible in tests
+    // that resolve in one step, but it silently cycled the starvation test's siege through
+    // lift/re-begin (confirmed empirically: daysStarving reset every time the AI relifted).
+    // The old isolated harness had no AI at all on either side; this matches it exactly.
+    aiFromIndex: 2,
+    startingPopulation: { children: 10, adults: 34, elders: 3 },
+  });
+}
+
+function driver(c: ReturnType<typeof composeCampaign>) {
+  const events: { type: string; tick: number; data: Record<string, unknown> }[] = [];
   for (const type of [
-    'army.created', 'siege.begun', 'siege.targetSet', 'siege.breached', 'siege.assaultBegun', 'siege.sortieBegun',
-    'siege.captured', 'siege.ended', 'battle.resolved',
+    'army.created', 'village.founded', 'village.rejected',
+    'siege.begun', 'siege.ended', 'siege.captured', 'siege.assaultResolved',
+    'siege.assaultBegun', 'siege.sortieBegun',
   ]) {
-    kernel.subscribe(type, (e) => events.push({ type, data: e.data }));
+    c.kernel.subscribe(type, (e) => events.push({ type, tick: e.tick, data: e.data as Record<string, unknown> }));
   }
-
-  const submit = (type: string, payload: unknown, issuer = 1): void => {
-    kernel.submit({ type, issuer, payload });
-    kernel.step();
-  };
-
-  submit('village.found', { x: 40, y: 40, name: 'Crownton' });
-  let villageId = -1;
-  world.query([popGame.Population]).forEach((_i, entity) => (villageId = entity as number));
-  assert.ok(villageId >= 0);
-  // 'village.found' doesn't take a multi-kingdom owner (that path is the AI
-  // harness's bespoke genesis) — tag it directly, owned by kingdom 0 (defender)
-  if (kingdom.VillageOwner !== undefined) {
-    world.attach(villageId as EntityId, kingdom.VillageOwner, { kingdom: kingdom.kingdomEntities()[0] as number });
-  }
-
-  const placeNear = (defId: string, ox: number, oy: number): number => {
-    submit('village.build', { villageId, def: defId, x: 40 + ox, y: 40 + oy });
-    let building = -1;
-    const b = world.read(game.comps.BuildingCore);
-    world.query([game.comps.BuildingCore]).forEach((i, entity) => {
-      if ((b.x[i] as number) === 40 + ox && (b.y[i] as number) === 40 + oy) building = entity as number;
+  const villageEntity = (vi: number): number => {
+    let id = -1;
+    c.world.query([c.game.comps.VillageCore]).forEach((i, entity) => {
+      if (i === vi) id = entity as number;
     });
-    assert.ok(building >= 0, `placement failed at offset (${ox},${oy}): ${rejections.at(-1) ?? ''}`);
-    return building;
+    return id;
   };
-
+  const centreOf = (vi: number): { x: number; y: number } => {
+    const core = c.world.read(c.game.comps.VillageCore);
+    return { x: core.centerX[vi] as number, y: core.centerY[vi] as number };
+  };
   const days = (n: number): void => {
-    for (let t = 0; t < n * TICKS_PER_DAY; t++) kernel.step();
+    for (let t = 0; t < n * TICKS_PER_DAY; t++) c.kernel.step();
   };
-
-  // a closed, CONTIGUOUS 3×3 ring of walls (every perimeter tile, no gaps),
-  // offset well clear of the 2×2 village-centre footprint at (40,40)-(41,41)
-  const ring = [[5, 5], [6, 5], [7, 5], [5, 7], [6, 7], [7, 7], [5, 6], [7, 6]] as const;
-  const wallIds = ring.map(([ox, oy]) => placeNear('base:building.wall', ox, oy));
-  days(3); // buildTicks 24 = 1 day, generous margin
-
-  const createArmy = (issuer: number): number => {
-    submit('army.createArmy', { name: `Army-${issuer}`, villageId }, issuer);
-    const created = events.filter((e) => e.type === 'army.created').at(-1);
-    return (created?.data as { army: number } | undefined)?.army ?? -1;
+  const submit = (type: string, payload: unknown, issuer: number): void => {
+    c.kernel.submit({ type, issuer, payload });
+    c.kernel.step();
   };
-
-  const spawnUnit = (armyId: number, kingdomIndex: number, unitDefId: string): number => {
-    const def = db.units.get(unitDefId);
+  const has = (type: string): boolean => events.some((e) => e.type === type);
+  const last = (type: string) => events.filter((e) => e.type === type).at(-1);
+  const rejection = (what: string): string | undefined =>
+    events.filter((e) => e.type === 'village.rejected' && e.data['what'] === what).at(-1)?.data['reason'] as
+      | string
+      | undefined;
+  /** A 100-man column (10 spearman units) — crosses keep-only ground above holdStrength 60. */
+  const makeColumn = (kingdomIndex: number, atVillage: number): number => {
+    submit('army.createArmy', { name: `T${kingdomIndex}`, villageId: villageEntity(atVillage) }, kingdomIndex + 1);
+    const armyId = (last('army.created')?.data['army'] as number) ?? -1;
+    assert.ok(armyId >= 0, 'army created');
+    const def = c.db.units.get('base:unit.spearman');
     assert.ok(def !== undefined);
-    const code = military.ops.defCode(unitDefId);
-    assert.ok(code !== undefined);
-    const kingdomId = kingdom.kingdomEntities()[kingdomIndex] as EntityId;
-    const unit = world.spawn();
-    world.attach(unit, military.Unit, {
-      def: code, kingdomId: kingdomId as number, homeVillage: villageId, armyId,
-      count: def.popCost.count, progress: 1, complete: true, morale: def.stats.moraleBase,
+    const defCode = c.militaryGame.ops.defCode('base:unit.spearman');
+    assert.ok(defCode !== undefined);
+    for (let i = 0; i < 10; i++) {
+      const unit = c.world.spawn();
+      c.world.attach(unit, c.militaryGame.Unit, {
+        def: defCode,
+        kingdomId: c.kingdomGame.kingdomEntities()[kingdomIndex] as number,
+        homeVillage: villageEntity(atVillage),
+        armyId,
+        count: def.popCost.count,
+        progress: 1,
+        complete: true,
+        morale: def.stats.moraleBase,
+      });
+    }
+    return armyId;
+  };
+  /** Empty army at `atVillage`, no units — the old harness's `createArmy` granularity, for
+   * tests that need to hand-size a force unit by unit (a weak besieger, a lone catapult). */
+  const createArmy = (kingdomIndex: number, atVillage: number): number => {
+    submit('army.createArmy', { name: `U${kingdomIndex}`, villageId: villageEntity(atVillage) }, kingdomIndex + 1);
+    const armyId = (last('army.created')?.data['army'] as number) ?? -1;
+    assert.ok(armyId >= 0, 'army created');
+    return armyId;
+  };
+  /** One unit of `unitDefId` onto an existing army — the old harness's `spawnUnit`. */
+  const spawnUnit = (armyId: number, kingdomIndex: number, unitDefId: string, atVillage: number): number => {
+    const def = c.db.units.get(unitDefId);
+    assert.ok(def !== undefined, `unknown unit def ${unitDefId}`);
+    const defCode = c.militaryGame.ops.defCode(unitDefId);
+    assert.ok(defCode !== undefined);
+    const unit = c.world.spawn();
+    c.world.attach(unit, c.militaryGame.Unit, {
+      def: defCode,
+      kingdomId: c.kingdomGame.kingdomEntities()[kingdomIndex] as number,
+      homeVillage: villageEntity(atVillage),
+      armyId,
+      count: def.popCost.count,
+      progress: 1,
+      complete: true,
+      morale: def.stats.moraleBase,
     });
     return unit;
   };
-
-  const positionArmy = (armyId: number, x: number, y: number): void => {
-    const ai = armyId & 0x3fffff;
-    const m = world.write(armies.ArmyMovement);
+  const placeArmy = (armyId: number, x: number, y: number): void => {
+    const ai = index(armyId);
+    const m = c.world.write(c.armiesGame.ArmyMovement);
     m.x[ai] = x;
     m.y[ai] = y;
+    c.world.writeObj(c.armiesGame.ArmyPath).set(ai, []);
   };
-
-  const lastRejection = (): string => rejections.at(-1) ?? '';
-
+  /** Put a fresh column of `attackerK`'s at `castle`'s gates, at war, ready to besiege. */
+  const marchOn = (attackerK: number, defenderK: number, castle: number): number => {
+    submit('kingdom.declareWar', { targetKingdom: defenderK, casusBelli: true }, attackerK + 1);
+    const army = makeColumn(attackerK, c.villageOf(attackerK) as number);
+    const at = centreOf(castle);
+    placeArmy(army, at.x, at.y);
+    return army;
+  };
+  /** Found a second village through the real settler path. It has NO defence layer, which
+   * is exactly what makes it un-besiegeable under M55. */
+  const foundSecondVillage = (kingdomIndex: number): number => {
+    const home = c.villageOf(kingdomIndex) as number;
+    const at = centreOf(home);
+    const site = bestSiteNear(c.game, c.db, at.x, at.y, VILLAGE_MIN_SPACING + 10);
+    assert.ok(site !== null, 'a second-village site exists');
+    submit(
+      'village.sendSettlers',
+      { villageId: villageEntity(home), x: site.x, y: site.y, name: 'Outlying' },
+      kingdomIndex + 1,
+    );
+    const kId = c.kingdomGame.kingdomEntities()[kingdomIndex] as number;
+    let founded = -1;
+    for (let day = 0; day < 15 && founded < 0; day++) {
+      days(1);
+      const e = events.find(
+        (x) => x.type === 'village.founded' && x.data['kingdom'] === kId && index(x.data['village'] as number) !== home,
+      );
+      if (e !== undefined) founded = index(e.data['village'] as number);
+    }
+    assert.ok(founded >= 0, `second village founded (rejected: ${rejection('village.sendSettlers') ?? 'n/a'})`);
+    return founded;
+  };
   return {
-    kernel, world, db, game, popGame, kingdom, military, armies, combat, castles, siege,
-    villageId, wallIds, submit, placeNear, days, createArmy, spawnUnit, positionArmy, lastRejection, events,
+    events, villageEntity, centreOf, days, submit, has, last, rejection,
+    makeColumn, createArmy, spawnUnit, placeArmy, marchOn, foundSecondVillage,
   };
 }
 
 // ---------------- encircle ----------------
 
-test('siege.begin: encircles a hostile castle; rejects self-siege and non-castles', () => {
-  const m = makeSiege();
-  const attacker = m.createArmy(2); // kingdom 1
-  m.spawnUnit(attacker, 1, 'base:unit.catapult');
-  m.positionArmy(attacker, 40, 40);
+test('siege.begin: the defence layer IS the castle — takes a layer-bearing capital, refuses your own and refuses a layer-less village', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis: keeps rise on the layer
 
-  m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
-  assert.ok(m.siege.state.siegeOfArmy(attacker) !== undefined, 'the castle must now be under siege');
-  assert.equal(m.world.read(m.armies.ArmyMovement).stance[attacker & 0x3fffff], 3, 'stance flips to siege');
+  const v0 = c.villageOf(0);
+  const v1 = c.villageOf(1);
+  assert.ok(v0 !== null && v1 !== null);
 
-  const defender = m.createArmy(1); // kingdom 0, same as the castle's owner
-  m.positionArmy(defender, 40, 40);
-  m.submit('siege.begin', { armyId: defender, villageId: m.villageId }, 1);
-  assert.match(m.lastRejection(), /cannot besiege your own castle/);
+  // A village with no layer: kingdom 1's outlying settlement. Founded BEFORE any siege
+  // stands, so the settler party's ticks cannot advance one behind our back.
+  const outlying = d.foundSecondVillage(1);
+
+  const army = d.marchOn(0, 1, v1);
+
+  // 1. your own capital has a layer too — ownership, not fortification, refuses this
+  d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(v0) }, 1);
+  assert.ok(!d.has('siege.begun'), 'no siege opened against your own capital');
+  assert.equal(d.rejection('siege.begin'), 'cannot besiege your own castle');
+
+  // 2. a layer-less village is not a castle at all — it is occupation's business.
+  //    Pre-M55 this was the M28 enclosure check; an enclosure now confers nothing.
+  const outskirts = d.centreOf(outlying);
+  d.placeArmy(army, outskirts.x, outskirts.y);
+  d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(outlying) }, 1);
+  assert.ok(!d.has('siege.begun'), 'no siege opened against a village with no defence layer');
+  assert.equal(d.rejection('siege.begin'), 'no defence layer — nothing to besiege');
+
+  // 3. the hostile capital, whose layer stands: encircled
+  const gates = d.centreOf(v1);
+  d.placeArmy(army, gates.x, gates.y);
+  d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(v1) }, 1);
+  assert.ok(d.has('siege.begun'), `siege begun (last rejection: ${d.rejection('siege.begin') ?? 'none'})`);
+  assert.equal(index(d.last('siege.begun')?.data['castle'] as number), v1);
+  assert.ok(c.siegeGame.state.siegeOfArmy(army) !== undefined, 'the siege is indexed by its army');
+  assert.equal(
+    c.world.read(c.armiesGame.ArmyMovement).stance[index(army)],
+    3,
+    'the besieger holds the siege stance',
+  );
 });
 
-// ---------------- bombard & breach ----------------
-
-test('bombard: a targeted wall loses HP and is breached, opening the enclosure', () => {
-  const m = makeSiege();
-  assert.equal(m.castles.isCastle(m.villageId), true);
-  const attacker = m.createArmy(2);
-  for (let i = 0; i < 3; i++) m.spawnUnit(attacker, 1, 'base:unit.catapult');
-  m.positionArmy(attacker, 40, 40);
-  m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
-
-  const target = m.wallIds[0] as number;
-  m.submit('siege.setTarget', { armyId: attacker, buildingId: target }, 2);
-  for (let d = 0; d < 10 && m.world.isAlive(target as EntityId); d++) m.days(1);
-  assert.equal(m.world.isAlive(target as EntityId), false, 'a sustained bombardment must breach the wall');
-  assert.ok(m.siege.state.siegeOfArmy(attacker)?.breaches ?? 0 >= 1);
-});
+// M55: the old "bombard: a targeted wall loses HP and is breached" test is DROPPED, not
+// converted — its mechanism (siege.setTarget, the daily bombard-vs-Fortification) is
+// deleted with the legacy path it belonged to. Wall-breaking is now the spatial
+// resolver's own business and is already covered there: assault.test.ts's "walls must be
+// broken through — the trace shows wall-hits and breaches, and structures really fall".
 
 // ---------------- assault: no defenders captures immediately ----------------
 
-test('siege.assault: with no defenders present, the castle falls immediately', () => {
-  const m = makeSiege();
-  const attacker = m.createArmy(2);
-  for (let i = 0; i < 3; i++) m.spawnUnit(attacker, 1, 'base:unit.catapult');
-  m.positionArmy(attacker, 40, 40);
-  m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
-  m.submit('siege.assault', { armyId: attacker }, 2);
-  assert.match(m.lastRejection(), /no breach/);
+test('siege.assault: with no defenders present, the castle falls on the first assault', () => {
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis
 
-  const target = m.wallIds[0] as number;
-  m.submit('siege.setTarget', { armyId: attacker, buildingId: target }, 2);
-  for (let d = 0; d < 10 && m.world.isAlive(target as EntityId); d++) m.days(1);
-  m.submit('siege.assault', { armyId: attacker }, 2);
-  assert.ok(m.events.some((e) => e.type === 'siege.captured'), 'an undefended breached castle must fall on assault');
-  assert.ok(m.kingdom.VillageOwner !== undefined);
-  const newOwner = m.world.read(m.kingdom.VillageOwner as NonNullable<typeof m.kingdom.VillageOwner>).kingdom[m.villageId & 0x3fffff] as number;
-  assert.equal(newOwner, m.kingdom.kingdomEntities()[1], 'ownership must transfer to the attacker');
+  const v1 = c.villageOf(1);
+  assert.ok(v1 !== null);
+  const army = d.marchOn(0, 1, v1);
+  d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(v1) }, 1);
+  assert.ok(d.has('siege.begun'), `siege begun (${d.rejection('siege.begin') ?? 'n/a'})`);
+
+  // M55: there is no bombard-first precondition any more — the spatial resolver breaks
+  // its own walls as it walks, so an undefended bare keep falls on the FIRST assault.
+  d.submit('siege.assault', { armyId: army }, 1);
+  assert.ok(d.has('siege.captured'), `an undefended castle must fall on assault (${d.rejection('siege.assault') ?? 'n/a'})`);
+  assert.ok(c.kingdomGame.VillageOwner !== undefined);
+  const newOwner = c.world.read(c.kingdomGame.VillageOwner as NonNullable<typeof c.kingdomGame.VillageOwner>).kingdom[v1] as number;
+  assert.equal(newOwner, c.kingdomGame.kingdomEntities()[0], 'ownership transfers to the attacker');
 });
 
-// ---------------- the T objective: bloody assaults vs. ordinary field battles ----------------
-
-test('assault casualties are decisively bloodier than an equivalent ordinary field battle (GDD §8)', () => {
-  // measure the CASUALTY RATE over a short, fixed window rather than waiting for
-  // full resolution — both scenarios saturate at "everyone's dead" well within
-  // the 12-tick cap otherwise, masking the multiplier's effect entirely
-  const TICKS_TO_SAMPLE = 1;
-  const fight = (assault: boolean, seed: number): number => {
-    const m = makeSiege({ seed });
-    const attacker = m.createArmy(2);
-    const defender = m.createArmy(1);
-    for (let i = 0; i < 4; i++) m.spawnUnit(attacker, 1, 'base:unit.spearman');
-    for (let i = 0; i < 4; i++) m.spawnUnit(defender, 0, 'base:unit.spearman');
-    m.positionArmy(attacker, 60, 60);
-    m.positionArmy(defender, 60, 60);
-    const startCount = 40; // 4 units × 10 count, each side
-    m.combat.state.begin(attacker, defender, assault ? 2.5 : 1); // ASSAULT_CASUALTY_MULTIPLIER vs. ordinary
-    for (let t = 0; t < TICKS_TO_SAMPLE && m.combat.state.engagementOf(attacker) !== undefined; t++) m.kernel.step();
-    const u = m.world.read(m.military.Unit);
-    let remaining = 0;
-    m.world.query([m.military.Unit]).forEach((ui) => {
-      if ((u.armyId[ui] as number) === attacker || (u.armyId[ui] as number) === defender) remaining += u.count[ui] as number;
-    });
-    return startCount * 2 - remaining; // total casualties across both sides so far
-  };
-
-  let normalTotal = 0;
-  let assaultTotal = 0;
-  const TRIALS = 20;
-  for (let i = 0; i < TRIALS; i++) {
-    normalTotal += fight(false, 100 + i);
-    assaultTotal += fight(true, 200 + i);
-  }
-  const normalAvg = normalTotal / TRIALS;
-  const assaultAvg = assaultTotal / TRIALS;
-  assert.ok(
-    assaultAvg > normalAvg * 1.5,
-    `assault casualties (avg ${assaultAvg.toFixed(1)}) must be decisively bloodier than a normal battle (avg ${normalAvg.toFixed(1)}) over the same ${TICKS_TO_SAMPLE}-tick window`,
-  );
-});
+// M55: the old "assault casualties are decisively bloodier than an ordinary field battle"
+// test is NOT converted. It measured ASSAULT_CASUALTY_MULTIPLIER against combat.ts's
+// ordinary Engagement resolver — both are deleted with the legacy path; the spatial
+// resolver has its own bespoke combat math and never touches combat.ts at all. The GDD §8
+// "storming should be bloody" objective this verified has no home post-M55: it is neither
+// re-proven here nor superseded by an existing assault.test.ts test (checked — the closest,
+// "a garrison bleeds the column", shows casualties occur but makes no bloodier-than-X
+// comparison). Left open rather than silently dropped or worked around with a new
+// comparison invented here — flagged in the handoff.
 
 // ---------------- sortie ----------------
 
 test('siege.sortie: a defending garrison can fight the besieger; wiping it out lifts the siege', () => {
-  const m = makeSiege();
-  const attacker = m.createArmy(2);
-  m.spawnUnit(attacker, 1, 'base:unit.militia'); // a weak besieger
-  m.positionArmy(attacker, 40, 40);
-  m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis
 
-  const defender = m.createArmy(1);
-  for (let i = 0; i < 6; i++) m.spawnUnit(defender, 0, 'base:unit.spearman'); // a strong garrison
-  m.positionArmy(defender, 40, 40);
+  const v0 = c.villageOf(0);
+  const v1 = c.villageOf(1);
+  assert.ok(v0 !== null && v1 !== null);
 
-  m.submit('siege.sortie', { armyId: defender }, 1);
-  assert.ok(m.events.some((e) => e.type === 'siege.sortieBegun'));
-  for (let t = 0; t < 200 && m.siege.state.siegeOfArmy(attacker) !== undefined; t++) m.kernel.step();
-  assert.equal(m.siege.state.siegeOfArmy(attacker), undefined, 'a decisively won sortie must lift the siege');
-  assert.ok(m.events.some((e) => e.type === 'siege.ended'));
+  d.submit('kingdom.declareWar', { targetKingdom: 1 }, 1);
+  const attacker = d.createArmy(0, v0);
+  d.spawnUnit(attacker, 0, 'base:unit.militia', v0); // a weak besieger
+  const gates = d.centreOf(v1);
+  d.placeArmy(attacker, gates.x, gates.y);
+  d.submit('siege.begin', { armyId: attacker, villageId: d.villageEntity(v1) }, 1);
+  assert.ok(d.has('siege.begun'), `siege begun (${d.rejection('siege.begin') ?? 'n/a'})`);
+
+  const defender = d.createArmy(1, v1);
+  for (let i = 0; i < 6; i++) d.spawnUnit(defender, 1, 'base:unit.spearman', v1); // a strong garrison
+  d.placeArmy(defender, gates.x, gates.y);
+
+  d.submit('siege.sortie', { armyId: defender }, 2);
+  assert.ok(d.has('siege.sortieBegun'), 'sortie begun');
+  for (let t = 0; t < 200 && c.siegeGame.state.siegeOfArmy(attacker) !== undefined; t++) c.kernel.step();
+  assert.equal(c.siegeGame.state.siegeOfArmy(attacker), undefined, 'a decisively won sortie must lift the siege');
+  assert.ok(d.has('siege.ended'), 'siege ended');
 });
 
 // ---------------- the T objective: starvation pacing within "seasons" ----------------
 
 test('starvation: an empty granary surrenders the castle on a "should take seasons" timescale', () => {
-  const m = makeSiege({ food: 0 }); // granary already empty at siege start
-  const attacker = m.createArmy(2);
-  m.spawnUnit(attacker, 1, 'base:unit.catapult');
-  m.positionArmy(attacker, 40, 40);
-  m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
+  const c = compose();
+  const d = driver(c);
+  c.kernel.step(); // genesis
+
+  const v1 = c.villageOf(1);
+  assert.ok(v1 !== null);
+
+  // The isolated pre-M55 harness had no real economy to speak of, so an empty granary
+  // simply STAYED empty. This composition has a live economy, whose production is
+  // deliberately out of scope for the SIEGE-PACING mechanic under test here (that's a
+  // balance question, not this test's — its daysStarving counter is a pure function of
+  // "food at/under threshold", not of what a real siege does to a real farm). Pinning the
+  // stockpile empty once per DAY is not enough — the starvation check fires partway
+  // through the day's tick block, after that day's production has already run, so a
+  // once-daily pin still gets read as "fed" on the days production outpaces consumption
+  // (confirmed empirically: daysStarving reset mid-run under a once-daily pin). Pinning
+  // every tick isolates the counter exactly as the old harness did structurally.
+  const foodCode = c.game.ops.resourceCode('base:resource.food') as number;
+  const pinFoodEmpty = (): void => {
+    c.world.writeObj(c.game.comps.Stockpile).get(v1).set(foodCode, 0);
+  };
+  pinFoodEmpty();
+
+  const army = d.marchOn(0, 1, v1);
+  d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(v1) }, 1);
+  assert.ok(d.has('siege.begun'), `siege begun (${d.rejection('siege.begin') ?? 'n/a'})`);
 
   let capturedAtDay = -1;
-  for (let d = 0; d < STARVATION_SURRENDER_DAYS + 30 && capturedAtDay === -1; d++) {
-    m.days(1);
-    if (m.events.some((e) => e.type === 'siege.captured')) capturedAtDay = d + 1;
+  for (let day = 0; day < STARVATION_SURRENDER_DAYS + 30 && capturedAtDay === -1; day++) {
+    for (let t = 0; t < TICKS_PER_DAY; t++) {
+      pinFoodEmpty();
+      c.kernel.step();
+    }
+    if (d.has('siege.captured')) capturedAtDay = day + 1;
   }
   assert.ok(capturedAtDay >= 0, 'a starved-out castle must eventually surrender');
   // "should take seasons" (GDD §8): not a five-day walkover, not a year-long slog
   const days90 = STARVATION_SURRENDER_DAYS;
-  assert.ok(capturedAtDay >= days90 - 5 && capturedAtDay <= days90 + 5, `surrendered on day ${capturedAtDay}, expected ~${days90}`);
+  assert.ok(
+    capturedAtDay >= days90 - 5 && capturedAtDay <= days90 + 5,
+    `surrendered on day ${capturedAtDay}, expected ~${days90}`,
+  );
 });
 
 // ---------------- determinism ----------------
 
 test('siege: identical histories hash identically', () => {
   const run = (): number => {
-    const m = makeSiege({ seed: 42 });
-    const attacker = m.createArmy(2);
-    for (let i = 0; i < 2; i++) m.spawnUnit(attacker, 1, 'base:unit.catapult');
-    m.positionArmy(attacker, 40, 40);
-    m.submit('siege.begin', { armyId: attacker, villageId: m.villageId }, 2);
-    m.submit('siege.setTarget', { armyId: attacker, buildingId: m.wallIds[0] as number }, 2);
-    m.days(5);
-    return m.kernel.stateHash();
+    const c = compose({ seed: 42 });
+    const d = driver(c);
+    c.kernel.step(); // genesis
+    const v1 = c.villageOf(1);
+    assert.ok(v1 !== null);
+    const army = d.marchOn(0, 1, v1);
+    d.submit('siege.begin', { armyId: army, villageId: d.villageEntity(v1) }, 1);
+    d.submit('siege.assault', { armyId: army }, 1);
+    d.days(5);
+    return c.kernel.stateHash();
   };
   assert.equal(run(), run());
 });

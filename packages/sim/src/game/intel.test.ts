@@ -86,10 +86,10 @@ function driver(c: ReturnType<typeof composeCampaign>) {
   return { submit, days, villageEntity, centreOf, makeArmy, placeArmy };
 }
 
-const openTileNear = (c: ReturnType<typeof composeCampaign>, k: number): { x: number; y: number } => {
-  const map = c.defenceGame.mapOf(k);
+const openTileNear = (c: ReturnType<typeof composeCampaign>, vi: number): { x: number; y: number } => {
+  const map = c.defenceGame.mapOf(vi);
   assert.ok(map !== undefined);
-  const occ = c.defenceGame.occupancyOf(k);
+  const occ = c.defenceGame.occupancyOf(vi);
   for (let r = 2; r < 40; r++) {
     const x = DEFENCE_KEEP_CENTRE + r;
     const t = DEFENCE_KEEP_CENTRE * DEFENCE_MAP_SIZE + x;
@@ -132,8 +132,8 @@ test('intel: nothing without contact; a siege camp observes; the snapshot freeze
   d.placeArmy(army, p0.x, p0.y);
   const stock = c.world.writeObj(c.game.comps.Stockpile).get(castle);
   stock.set(c.game.ops.resourceCode('base:resource.stone') as number, 10_000);
-  const site = openTileNear(c, 1);
-  d.submit('defence.build', { def: 'base:building.wall', x: site.x, y: site.y }, 2);
+  const site = openTileNear(c, castle);
+  d.submit('defence.build', { villageId: castle, def: 'base:building.wall', x: site.x, y: site.y }, 2);
   d.days(3);
   const stale = intel.state.get(0, 1);
   assert.ok(stale !== undefined);
@@ -170,7 +170,7 @@ test('garrison belief: exact at fresh contact (confidence 1 ⇒ no noise), absen
     complete: true,
     morale: def.stats.moraleBase,
   });
-  const site = openTileNear(c, 1);
+  const site = openTileNear(c, c.villageOf(1) as number);
   d.submit('defence.post', { unitId: unit as number, x: site.x, y: site.y }, 2);
 
   const castle = c.villageOf(1) as number;

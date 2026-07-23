@@ -1,13 +1,15 @@
 /**
  * Village occupation (M47.8; doc 12 R1 — makes the Conquest track reachable).
  *
- * Sieges (M29) only apply to CASTLES ("not a castle — nothing to besiege"),
- * which left plain villages literally unconquerable — the M47.7 audit note.
- * Occupation is the deliberately simple complement: an army standing in an
- * AT-WAR enemy village whose owner fields no defender nearby raises its
- * banner after `OCCUPATION_DAYS` consecutive days. Castles keep their full
- * siege treatment (walls mean the defence graph decides, not a countdown);
- * occupation explicitly skips any village whose enclosure is intact.
+ * Sieges (M29) only apply to villages with a standing DEFENCE LAYER ("no
+ * defence layer — nothing to besiege", M51/M55), which leaves every other
+ * village literally unconquerable — the M47.7 audit note. Occupation is the
+ * deliberately simple complement: an army standing in an AT-WAR enemy
+ * village whose owner fields no defender nearby raises its banner after
+ * `OCCUPATION_DAYS` consecutive days. A layer village keeps its full siege
+ * treatment (the layer decides, not a countdown) — occupation explicitly
+ * skips any village the siege system claims (`options.exempt`, M55: purely
+ * "has a defence layer", no world-map wall enclosure involved at all).
  *
  * The countdown map is real sim state: folded into stateHash and serialized
  * via save()/restore() like every other relational class (M47.6 discipline).
@@ -16,14 +18,13 @@
  * without it — same pinning reasoning as its inert victory tracker).
  */
 import type { EntityId } from '@crowns/core';
-import { World } from '../ecs.js';
+import { World, type Component } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from './villages.js';
 import type { MilitaryGameplay } from './military.js';
 import type { ArmyGameplay } from './armies.js';
 import type { KingdomGameplay } from './kingdom.js';
-import type { CastleGameplay } from './castles.js';
 
 export const OCCUPATION_DAYS = 5; // consecutive days an unopposed army must hold the square
 export const OCCUPATION_RADIUS = 2; // Chebyshev tiles from the village centre that count as "in it"
@@ -32,10 +33,14 @@ export const DEFENDER_RADIUS = 6; // an owner army this close contests the occup
 export interface OccupationOptions {
   /** War gate (game/diplomacy.ts): occupation requires a declared war, not mere hostility. */
   isAtWar(a: EntityId, b: EntityId): boolean;
-  /** M53 (OQ-9 item 2): a defence-layer capital cannot be occupied by countdown — the layer
-   * IS its fortification surface, so only a siege (and the capital-death chain) takes it.
-   * Late-bound closure (the layer registers after occupation); default: nothing exempt. */
+  /** M53 (OQ-9 item 2); M57 (ADR-4 A1): a defence-layer village is exempt from occupation
+   * only while it's actively garrisoned or under siege — the split is garrison-based, not
+   * walls-based. Late-bound closure (the layer registers after occupation); default:
+   * nothing exempt. */
   exempt?(villageIndex: number): boolean;
+  /** Extra components `exempt` reads that this module cannot import (the M34 extension-point
+   * pattern) — M57's garrison check reads `DefencePost`, owned by game/defence.ts. */
+  readonly extraReads?: readonly Component[];
 }
 
 interface Occupation {
@@ -94,7 +99,6 @@ export function registerOccupationGameplay(
   militaryGame: MilitaryGameplay,
   armiesGame: ArmyGameplay,
   kingdomGame: KingdomGameplay,
-  castleGame: CastleGameplay,
   options: OccupationOptions,
 ): OccupationGameplay {
   const { VillageCore } = game.comps;
@@ -118,7 +122,7 @@ export function registerOccupationGameplay(
     period: TICKS_PER_DAY,
     phase: 9, // after movement/combat have settled the day's positions
     access: {
-      reads: [VillageCore, Army, ArmyMovement, Unit],
+      reads: [VillageCore, Army, ArmyMovement, Unit, ...(options.extraReads ?? [])],
       writes: [...(VillageOwner !== undefined ? [VillageOwner] : [])],
     },
     update(ctx: TickContext): void {
@@ -138,9 +142,12 @@ export function registerOccupationGameplay(
         const ownerId = owner.kingdom[vi] as number;
         const cx = core.centerX[vi] as number;
         const cy = core.centerY[vi] as number;
-        // castles are the siege system's business while their walls stand — and (M53) so
-        // are defence-layer capitals, whose "walls" live on the layer, not the world map
-        if ((core.isCastle[vi] as number) === 1 || (options.exempt?.(vi) ?? false)) {
+        // Villages with a defence layer are the siege system's business — their "walls"
+        // live on the layer, not the world map. M55 (A1, pulled forward from M56): a
+        // world-map wall enclosure no longer exempts anything, or an M28-enclosed village
+        // would be neither besiegeable (siege.begin wants a layer) nor occupiable — i.e.
+        // untakeable. `isCastle` itself is deleted at M56.
+        if (options.exempt?.(vi) ?? false) {
           state.clear(vi);
           return;
         }

@@ -336,8 +336,8 @@ export function registerEventGameplay(
   const edictCode = new Map(edictIds.map((id, i) => [id, i]));
 
   const issuerFor = options.issuerFor ?? ((k: number): number => k + 1);
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   /** Lowest dense-index village owned by `kingdomId` (or the first village at all, single-
@@ -425,23 +425,23 @@ export function registerEventGameplay(
   kernel.registerCommand<{ eventId: string; choiceId: string }>('event.choose', (ctx, p, command) => {
     const kingdomIndex = Math.max(0, Math.min(kingdomGame.kingdomEntities().length - 1, command.issuer - 1));
     const kingdomId = kingdomGame.kingdomEntities()[kingdomIndex];
-    if (kingdomId === undefined) return reject(ctx, 'event.choose', 'no kingdom');
+    if (kingdomId === undefined) return reject(ctx, 'event.choose', 'no kingdom', command.issuer);
     const code = eventCode(String(p.eventId));
-    if (code === undefined) return reject(ctx, 'event.choose', `unknown event '${String(p.eventId)}'`);
+    if (code === undefined) return reject(ctx, 'event.choose', `unknown event '${String(p.eventId)}'`, command.issuer);
     const ki = kingdomId as number;
     if (!state.pendingOf(ki).some((pe) => pe.eventCode === code)) {
-      return reject(ctx, 'event.choose', 'no such pending event for this kingdom');
+      return reject(ctx, 'event.choose', 'no such pending event for this kingdom', command.issuer);
     }
     const def = eventById(code);
     const choice = def.choices.find((c) => c.id === p.choiceId);
-    if (choice === undefined) return reject(ctx, 'event.choose', `unknown choice '${String(p.choiceId)}'`);
+    if (choice === undefined) return reject(ctx, 'event.choose', `unknown choice '${String(p.choiceId)}'`, command.issuer);
     const vi = representativeVillage(ki);
     const calendar = calendarFromTick(ctx.tick);
     if (choice.requirements !== undefined) {
       const rng = ctx.rng.fork(`event-choose:${code}:${ki}:${ctx.tick}`);
       const evalCtx = contextFor(ki, vi, calendar.seasonName, rng);
       if (!evaluatePredicate(choice.requirements, evalCtx)) {
-        return reject(ctx, 'event.choose', 'requirements not met');
+        return reject(ctx, 'event.choose', 'requirements not met', command.issuer);
       }
     }
     const effectCtx = effectContextFor(ki, vi);

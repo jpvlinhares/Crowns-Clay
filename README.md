@@ -1020,42 +1020,58 @@ strong AND advantaged) rather than an authored milestone sequence. Both stay at 
 wherever no military context is wired in — verified against a real regression caught while building
 this: adding them un-gated briefly crowded `ExpandSettle` out of M24's own 8-kingdom fingerprint
 test. Once `ConquestWar` is active, the **military manager** raises a barracks, recruits, assembles
-an army, queues a basic defensive wall ring (**castle-building AI**, a fixed template — not doc
-07 §5's terrain-adapted motte/concentric/ridge-line skeletons), and marches on the nearest known
-rival — `siege.begin`/`siege.setTarget`/`siege.assault` against a castle, or nothing extra against
-an open village (combat.ts's own proximity detection engages automatically, M27). The harness test
+an army, and marches on the nearest known rival — `siege.begin`/`siege.assault` against a
+keep-bearing village (the M51/Phase-8.1 defence layer; see **Castle defence (Phase 8.1)** below —
+`siege.setTarget` and the fixed wall-ring builder this paragraph once described are both deleted,
+ADR-4 Amendment A1), or nothing extra against an undefended village (combat.ts's own proximity
+detection engages automatically, M27). The harness test
 — "wars start & end; AI wins vs. passive baseline" — runs an aggressive kingdom against a pure-economy
 one and confirms both a real war concludes (not a forever-stalemate) and the attacked kingdom fares
 measurably worse than the identical kingdom left at peace.
 
-### Sieges (M29)
+### Sieges (M29; spatial resolution since M51, single-path since M55)
 
-Castles can now fall (`packages/sim/src/game/siege.ts`, GDD §7/§8): `siege.begin` **encircles** a
-hostile castle, flipping the besieging army's stance to `siege` (armies.ts's fifth stance, inert
-since M26 — its payoff). **Bombard** runs daily, not sub-ticked — sieges pace in days/seasons, not
-combat rounds — chipping away at a targeted wall/gate/tower/keep's HP (siege-class units, e.g. the
-new Catapult, count triple) until it's breached and demolished through the exact same code path a
-player's own `village.demolish` uses, so castles.ts's enclosure rebuild fires with zero new
-plumbing. **Assault** and **sortie** don't reimplement combat — they open a real combat.ts
-engagement with `Engagement.casualtyMultiplier` cranked up for assaults, so "storming should be
-bloody" (GDD §8) is one number, not a parallel resolver. **Starve**: an empty granary capitulates
-the castle after `STARVATION_SURRENDER_DAYS` (a season) — the T objective, "siege pacing stats
-within design bands", is this number matched directly against GDD §8's own pacing target. Winning
-an assault or starving a castle out transfers ownership (`VillageOwner`, M22).
+Keep-bearing villages can now fall (`packages/sim/src/game/siege.ts`, GDD §7/§8): `siege.begin`
+**encircles** a village whose Keep has raised a standing defence layer, flipping the besieging
+army's stance to `siege` (armies.ts's fifth stance, inert since M26 — its payoff; a village with no
+layer has nothing to besiege — a plain undefended village is taken by occupation, M22, not siege).
+**Assault** resolves as a deterministic **flow-field walk** across that layer — the besieging force
+paths from its approach edge through whatever walls, towers and garrison stand between it and the
+keep, replayable afterward as a trace, not a wall-HP breach count — and doesn't reimplement combat:
+it opens a real combat.ts engagement with `Engagement.casualtyMultiplier` cranked up, so "storming
+should be bloody" (GDD §8) is one number, not a parallel resolver. **Sortie** lets the defender
+strike out at the besieger the same way. **Starve**: an empty granary capitulates the village after
+`STARVATION_SURRENDER_DAYS` (a season) — the T objective, "siege pacing stats within design bands",
+is this number matched directly against GDD §8's own pacing target. Winning an assault or starving
+a village out transfers ownership (`VillageOwner`, M22).
 
-### Castles v1 (M28)
+### Castle defence (M28 origin; the layer since M49; single system since Phase 8.1/M55–M61)
 
-A castle isn't a new entity kind — it's what a **Village becomes** the moment its fortifications
-close a loop (`packages/sim/src/game/castles.ts`, GDD §7): wall, gatehouse, tower, and keep are
-ordinary `BuildingDef`s (a new `defense` block: hp, armor, kind) placed through the existing
-`village.build` — no new command. The T objective, the **enclosure algorithm**, is a bounded
-flood-fill: seed from the border of a search box around the village, flow through anything that
-isn't a wall/gate tile, and whatever the flood never reaches is enclosed — gates block it exactly
-like walls, a defended chokepoint, not a hole. `isCastle` and the defence graph are **derived**,
-recomputed only when a defense-kind building completes or is demolished, never per-tick. This also
-resolves **[OQ-3](docs/design/14-open-questions.md)** at its due milestone: 12 base content files
-through M28, zero scripting needed — the DSL-only path holds, pending the real ≥90%-expressiveness
-measurement at M32–M33.
+There is exactly **one** castle/defence system (ADR-4 Amendment A1, GDD §7): the **Keep** — an
+ordinary `military`-category `BuildingDef`, `requires.villageTier: 2`, placed through the normal
+`village.build` like any other building — is the sole gate. The instant a Keep completes, that
+village gains a dedicated defence layer: a terrain-bearing ~100×100 grid generated once from
+`hash(worldSeed, villageId)` and persisted (`packages/sim/src/game/defence.ts`), keyed to the
+VILLAGE, not the kingdom or capital — any keep-bearing village gets one, uniformly. Layouts are
+**derived, not hand-laid**: content-defined archetype templates (motte / concentric / ridge-line,
+doc 07 §5) expand around the Keep, additive by village tier — a tier-up spawns only the newly
+unlocked entries, healing nothing and duplicating nothing — with a free tier-2 starter core and
+everything past it built like any other structure, one-per-day, via `defence.build` (AI queue or
+player order). No wall, gatehouse, or tower is placeable on the ordinary village map, by anyone —
+`category: 'castle'` is rejected outright in the one placement rulebook player and AI both share.
+Footprints are real content values, not always 1×1: Keep 7×7 **on the layer** (a deliberately
+different scale from its 2×2 village-map footprint), Tower 3×3, Gatehouse 3×2 with a 2×3 rotation
+twin, Wall 1×1 — hp re-scaled per frontage tile (`max(w,h)`) so a wider structure isn't
+proportionally weaker per tile of wall it covers, EXCEPT the gatehouse, whose lower hp-per-frontage
+is a deliberate soft spot the siege AI's toughness-aware targeting genuinely exploits, giving it a
+real tactical role instead of being strictly dominated by the wall. This is the system that resolves
+**[OQ-3](docs/design/14-open-questions.md)**: 12 base content files sufficed through M28's original
+shipping, zero scripting needed — the DSL-only path held, and nothing about the Phase 8.1 rewrite
+reopened it (content values changed, not the placement mechanism). An M28-era save's grandfathered
+wall/gate/tower/keep buildings load as **inert** ordinary buildings (occupancy-blocking,
+demolishable, no graph, no siege meaning) — `game/castles.ts` and the flood-fill enclosure algorithm
+it once ran are deleted, not merely superseded (M56); `VillageCore.isCastle` stays in the save
+schema, deprecated, never set true again (M60).
 
 ### Field combat (M27)
 

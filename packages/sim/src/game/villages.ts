@@ -39,7 +39,10 @@ export const CENTER_DEF_ID = 'base:building.village-center';
 export interface VillageComponents {
   readonly VillageCore: SoAComponent<{
     centerX: 'i32'; centerY: 'i32'; radius: 'u16'; tier: 'u8'; taxRate: 'u8';
-    isCastle: 'bool'; // M28: true once the village's defence graph actually encloses tiles (game/castles.ts)
+    // M28 (game/castles.ts, DELETED at M56 — ADR-4 Amendment A1): was true once a village's
+    // wall/gate enclosure actually closed. Stays in the save schema, deprecated, never set
+    // true again — a format bump is not worth it for a field nothing writes or reads.
+    isCastle: 'bool';
   }>;
   readonly VillageName: ObjectComponent<string>;
   readonly Stockpile: ObjectComponent<Map<number, number>>; // interned resource → amount
@@ -54,6 +57,13 @@ export interface VillageComponents {
     complete: 'bool';
     workers: 'u16'; // assigned by the jobs solver (M12); builders for sites
   }>;
+  // M-era: pause a COMPLETED production building — the jobs solver skips it (its worker slots
+  // flow to later buildings in the same pass) and its recipes halt. Sparse SoA, ONE UNUSED FIELD:
+  // presence on the entity IS the flag, so old saves (which never mention this component) hydrate
+  // with it empty = nobody paused, no migration needed (ecs.ts loadState only errors when a SAVE
+  // names a component the live world lacks, never the reverse — see ecs.test.ts). Construction
+  // SITES are never pausable — building.ts/population.ts never check this for incomplete buildings.
+  readonly BuildingPaused: SoAComponent<{ v: 'bool' }>;
 }
 
 export function defineVillageComponents(world: World): VillageComponents {
@@ -73,6 +83,9 @@ export function defineVillageComponents(world: World): VillageComponents {
     BuildingCore: world.defineSoA('buildingCore', {
       def: 'u32', x: 'i32', y: 'i32', w: 'u8', h: 'u8', village: 'eid', progress: 'f64', complete: 'bool', workers: 'u16',
     }),
+    // registered AFTER every other component — append-only, so old saves that never mention it
+    // hydrate empty rather than tripping the composition-mismatch invariant.
+    BuildingPaused: world.defineSoA('buildingPaused', { v: 'bool' }),
   };
 }
 
@@ -83,6 +96,15 @@ export type PlacementVerdict =
   | { readonly ok: false; readonly reason: string };
 
 const no = (reason: string): PlacementVerdict => ({ ok: false, reason });
+
+/** M60 (ADR-4 A1): a standing building occupies the footprint it was PLACED with (its persisted
+ * BuildingCore.w/h), so a later def-footprint change never retroactively resizes it (the M59
+ * fallout). Falls back to the current def only for a pre-w/h save that recorded no per-instance
+ * footprint (stored 0) — no building legitimately has a zero dimension, so 0 unambiguously means
+ * "absent". Used by every occupancy read/write on load and demolish (one place, one rule). */
+function footprintOf(storedW: number, storedH: number, def: BuildingDef): { w: number; h: number } {
+  return storedW > 0 && storedH > 0 ? { w: storedW, h: storedH } : { w: def.footprint.w, h: def.footprint.h };
+}
 
 export class VillageOps {
   private readonly interner = new Interner();
@@ -140,12 +162,20 @@ export class VillageOps {
     this.centers.length = 0;
     const b = this.world.read(this.comps.BuildingCore);
     this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
-      const def = this.buildingDef(b.def[i] as number);
       const x = b.x[i] as number;
       const y = b.y[i] as number;
-      for (let dy = 0; dy < def.footprint.h; dy++) {
-        for (let dx = 0; dx < def.footprint.w; dx++) {
-          this.occupancy.set(this.tileIndex(x + dx, y + dy), entity);
+      // M60 (ADR-4 A1) footprint reconciliation: occupy the footprint the building was PLACED
+      // with (its own persisted BuildingCore.w/h — hashed SoA fields), NOT the live def. A def
+      // whose footprint grew since this save was written (M59 raised tower 1×1→3×3, gatehouse
+      // 1×1→3×2) must not retroactively enlarge an already-standing instance and swallow a
+      // previously-legal neighbour's tiles. For every building placed by current code stored ==
+      // def, so this is a no-op there; it only bites a grandfathered M28-era structure. Fall
+      // back to the def only for a pre-w/h save (stored 0 — no footprint was ever recorded).
+      const { w, h } = footprintOf(b.w[i] as number, b.h[i] as number, this.buildingDef(b.def[i] as number));
+      for (let dy = 0; dy < h; dy++) {
+        for (let dx = 0; dx < w; dx++) {
+          const tile = this.tileIndex(x + dx, y + dy);
+          if (!this.occupancy.has(tile)) this.occupancy.set(tile, entity); // first-writer-wins keeps the cache single-valued under any residual overlap
         }
       }
     });
@@ -157,6 +187,11 @@ export class VillageOps {
 
   /** The single placement rulebook (player, AI, genesis — one code path). */
   validatePlacement(def: BuildingDef, x: number, y: number, village: EntityId | null): PlacementVerdict {
+    // M56 (ADR-4 Amendment A1): the village map is not a fortification surface for anyone,
+    // player or AI — defence lives exclusively on the M51 layer. This is POLICY, not
+    // leak-patching (the earlier 2026-07-20 investigation found no leak — M28 was a
+    // shipped, intentional mechanic — but A1 retires it, so the category is barred here now).
+    if (def.category === 'castle') return no(`'${def.id}' is a castle structure — build it on the defence map`);
     const { w, h } = def.footprint;
     if (x < 0 || y < 0 || x + w > this.terrain.width || y + h > this.terrain.height) {
       return no('out of bounds');
@@ -262,7 +297,7 @@ export class VillageOps {
     this.world.attach(village, this.comps.VillageCore, {
       centerX: x, centerY: y, radius: VILLAGE_RADIUS_T1, tier: 1,
       taxRate: 2, // 'normal' (M16 TAX_RATES; adjust via village.setTaxRate)
-      isCastle: false, // M28: flips true once the defence graph actually encloses tiles
+      isCastle: false, // deprecated M28 field (M56) — never set true again
     });
     this.world.attach(village, this.comps.VillageName, name);
     this.world.attach(village, this.comps.Stockpile, stock);
@@ -277,7 +312,7 @@ export class VillageOps {
       // absent → the composition's starting population applies.
       // M47.6: the owning kingdom rides on the event so subscribers (victory.ts's
       // defeat bookkeeping) never need an ECS read inside another system's
-      // access-guarded scope — the exact hazard castles.ts's own doc describes.
+      // access-guarded scope.
       data: {
         village: village as number, name, x, y,
         ...(settlers !== undefined ? { settlers } : {}),
@@ -335,13 +370,44 @@ export class VillageOps {
     const x = core.x[index] as number;
     const y = core.y[index] as number;
     const villageId = core.village[index] as number;
-    for (let dy = 0; dy < def.footprint.h; dy++) {
-      for (let dx = 0; dx < def.footprint.w; dx++) {
-        this.occupancy.delete(this.tileIndex(x + dx, y + dy));
+    // M60: vacate the footprint this instance was PLACED with (stored w/h), matching what
+    // rebuildDerived claimed — freeing def.footprint could clear tiles a grandfathered
+    // neighbour still occupies, or miss tiles this building actually holds.
+    const { w, h } = footprintOf(core.w[index] as number, core.h[index] as number, def);
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const tile = this.tileIndex(x + dx, y + dy);
+        if (this.occupancy.get(tile) === building) this.occupancy.delete(tile); // only clear tiles THIS entity owns (overlap-safe)
       }
     }
     this.world.despawn(building);
     ctx.events.publish({ type: 'building.demolished', tick: ctx.tick, data: { building: buildingId, def: def.id, village: villageId } });
+    return true;
+  }
+
+  /** M-era: pause/resume a COMPLETED building that actually claims worker slots. Presence of
+   * BuildingPaused IS the flag (no payload beyond the required schema field). Two deliberate
+   * boundaries:
+   *  - construction SITES can't be paused — pausing a site would strand its footprint in
+   *    permanent limbo, and "prioritise goods over building" is already served by simply not
+   *    queuing the site;
+   *  - buildings with no worker slots (`workers.required === 0` or absent, e.g. housing) can't be
+   *    paused either — pausing is entirely about freeing a worker slot for the jobs solver to hand
+   *    to someone else, so a building the solver never staffs has nothing for pause to affect.
+   * The jobs solver (population.ts) and economy.ts both read this component; this method only
+   * flips it. */
+  setPaused(buildingId: number, paused: boolean): true | string {
+    const building = buildingId as EntityId;
+    if (!this.world.isAlive(building)) return 'no such building';
+    const index = buildingId & 0x3fffff;
+    const core = this.world.read(this.comps.BuildingCore);
+    if ((core.complete[index] as number) !== 1) return 'cannot pause a building under construction';
+    const def = this.buildingDef(core.def[index] as number);
+    if ((def.workers?.required ?? 0) === 0) return 'this building has no worker slots to pause';
+    const already = this.world.has(building, this.comps.BuildingPaused);
+    if (paused === already) return true; // idempotent — no-op, not an error
+    if (paused) this.world.attach(building, this.comps.BuildingPaused);
+    else this.world.detach(building, this.comps.BuildingPaused);
     return true;
   }
 
@@ -360,14 +426,20 @@ export class VillageOps {
     const vi = villageId & 0x3fffff;
     const name = this.world.readObj(this.comps.VillageName).tryGet(vi) ?? `village ${vi}`;
     const b = this.world.read(this.comps.BuildingCore);
-    const doomed: { entity: number; def: BuildingDef; x: number; y: number }[] = [];
+    const doomed: { entity: number; x: number; y: number; w: number; h: number }[] = [];
     this.world.query([this.comps.BuildingCore]).forEach((i, entity) => {
       if (((b.village[i] as number) & 0x3fffff) !== vi) return;
-      doomed.push({ entity: entity as number, def: this.buildingDef(b.def[i] as number), x: b.x[i] as number, y: b.y[i] as number });
+      // M60: the whole village is being removed, so occupancy just needs coherent clearing —
+      // vacate the placed footprint (stored w/h) so nothing is left dangling for any instance.
+      const { w, h } = footprintOf(b.w[i] as number, b.h[i] as number, this.buildingDef(b.def[i] as number));
+      doomed.push({ entity: entity as number, x: b.x[i] as number, y: b.y[i] as number, w, h });
     });
     for (const d of doomed) {
-      for (let dy = 0; dy < d.def.footprint.h; dy++) {
-        for (let dx = 0; dx < d.def.footprint.w; dx++) this.occupancy.delete(this.tileIndex(d.x + dx, d.y + dy));
+      for (let dy = 0; dy < d.h; dy++) {
+        for (let dx = 0; dx < d.w; dx++) {
+          const tile = this.tileIndex(d.x + dx, d.y + dy);
+          if (this.occupancy.get(tile) === (d.entity as EntityId)) this.occupancy.delete(tile);
+        }
       }
       this.world.despawn(d.entity as EntityId);
     }
@@ -459,8 +531,13 @@ export function registerVillageGameplay(
   const ops = new VillageOps(world, comps, db, terrain);
   const settings: VillageSettings = { laborGated: false, haulerTarget: 0 };
 
-  const rejected = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  // `issuer` rides along so the client can tell a PLAYER's own rejected order from an AI
+  // kingdom's — the AI construction manager deliberately submits unaffordable orders and
+  // relies on this rejection to retry later (see ai/manager.ts's module doc), so without an
+  // issuer every AI kingdom's routine "insufficient wood" noise was indistinguishable from
+  // the player's own and surfaced as a toast regardless of whose order it was.
+  const rejected = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   // 1.x ownership guard (late-bound from kingdom.ts; un-set ⇒ allow, i.e. single-kingdom/Terra).
@@ -468,20 +545,26 @@ export function registerVillageGameplay(
   const ownsVillage = (issuer: number, villageId: number): boolean =>
     ownershipGuard === null || ownershipGuard(issuer, villageId);
 
-  kernel.registerCommand<{ x: number; y: number; name: string }>('village.found', (ctx, p) => {
+  kernel.registerCommand<{ x: number; y: number; name: string }>('village.found', (ctx, p, command) => {
     const result = ops.found(ctx, p.x | 0, p.y | 0, String(p.name ?? 'Nameless'), startingStock);
-    if (typeof result === 'string') rejected(ctx, 'village.found', result);
+    if (typeof result === 'string') rejected(ctx, 'village.found', result, command.issuer);
   });
   kernel.registerCommand<{ villageId: number; def: string; x: number; y: number }>('village.build', (ctx, p, command) => {
-    if (!ownsVillage(command.issuer, p.villageId | 0)) return rejected(ctx, 'village.build', 'not your village');
+    if (!ownsVillage(command.issuer, p.villageId | 0)) return rejected(ctx, 'village.build', 'not your village', command.issuer);
     const result = ops.place(ctx, p.villageId | 0, String(p.def), p.x | 0, p.y | 0);
-    if (typeof result === 'string') rejected(ctx, 'village.build', result);
+    if (typeof result === 'string') rejected(ctx, 'village.build', result, command.issuer);
   });
   kernel.registerCommand<{ buildingId: number }>('village.demolish', (ctx, p, command) => {
     const village = ops.villageOfBuilding(p.buildingId | 0);
-    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village');
+    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village', command.issuer);
     const result = ops.demolish(ctx, p.buildingId | 0);
-    if (typeof result === 'string') rejected(ctx, 'village.demolish', result);
+    if (typeof result === 'string') rejected(ctx, 'village.demolish', result, command.issuer);
+  });
+  kernel.registerCommand<{ buildingId: number; paused: boolean }>('village.setBuildingPaused', (ctx, p, command) => {
+    const village = ops.villageOfBuilding(p.buildingId | 0);
+    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.setBuildingPaused', 'not your village', command.issuer);
+    const result = ops.setPaused(p.buildingId | 0, Boolean(p.paused));
+    if (typeof result === 'string') rejected(ctx, 'village.setBuildingPaused', result, command.issuer);
   });
 
   // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
@@ -491,19 +574,19 @@ export function registerVillageGameplay(
   // separate bypass here: granting resources then issuing the ordinary
   // `village.build` achieves the same "spawn a building" outcome through the
   // one already-validated placement rulebook, rather than a second one.
-  kernel.registerCommand<{ villageId: number; resource: string; amount: number }>('sandbox.grantResource', (ctx, p) => {
-    if (!sandboxEnabled) return rejected(ctx, 'sandbox.grantResource', 'sandbox mode is not enabled');
+  kernel.registerCommand<{ villageId: number; resource: string; amount: number }>('sandbox.grantResource', (ctx, p, command) => {
+    if (!sandboxEnabled) return rejected(ctx, 'sandbox.grantResource', 'sandbox mode is not enabled', command.issuer);
     const village = p.villageId as EntityId;
     if (!world.isAlive(village) || !world.has(village, comps.VillageCore)) {
-      return rejected(ctx, 'sandbox.grantResource', 'no such village');
+      return rejected(ctx, 'sandbox.grantResource', 'no such village', command.issuer);
     }
     if (!db.resources.has(String(p.resource))) {
-      return rejected(ctx, 'sandbox.grantResource', `unknown resource '${String(p.resource)}'`);
+      return rejected(ctx, 'sandbox.grantResource', `unknown resource '${String(p.resource)}'`, command.issuer);
     }
     const amount = Number(p.amount);
-    if (!(amount > 0)) return rejected(ctx, 'sandbox.grantResource', 'amount must be a positive number');
+    if (!(amount > 0)) return rejected(ctx, 'sandbox.grantResource', 'amount must be a positive number', command.issuer);
     const stock = world.readObj(comps.Stockpile).tryGet((village as number) & 0x3fffff);
-    if (stock === undefined) return rejected(ctx, 'sandbox.grantResource', 'village has no stockpile');
+    if (stock === undefined) return rejected(ctx, 'sandbox.grantResource', 'village has no stockpile', command.issuer);
     const code = ops.resourceCode(String(p.resource)) as number;
     stock.set(code, (stock.get(code) ?? 0) + amount);
     ctx.events.publish({

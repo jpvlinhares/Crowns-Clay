@@ -93,8 +93,10 @@
     .ledger-row { padding: 1px 0; font-variant-numeric: tabular-nums; }
     .ledger-row.income { color: #9fc98a; }
     .ledger-row.expense { color: #e0a070; }
+    /* toasts must outrank every modal backdrop (castle view, event dialog, new-game, end
+       screen) so rejection warnings stay visible no matter what full-screen panel is open */
     #toasts { position: absolute; top: .5rem; left: 50%; transform: translateX(-50%);
-              display: flex; flex-direction: column; gap: .3rem; z-index: 6; pointer-events: none; }
+              display: flex; flex-direction: column; gap: .3rem; z-index: 11; pointer-events: none; }
     .toast { display: flex; align-items: center; gap: .5rem; padding: .35rem .4rem .35rem .7rem;
              border-radius: 3px; font-size: 12px; background: #2a241b;
              border: 1px solid #4a4030; opacity: .95; pointer-events: auto; }

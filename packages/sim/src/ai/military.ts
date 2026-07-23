@@ -7,8 +7,7 @@
  *
  * ONE ACTION PER DAY, in priority order (mirrors manager.ts's build-one-
  * per-day anti-spam pattern): raise a barracks if missing → recruit a unit →
- * assemble/garrison it into an army → fortify (queue the next missing wall
- * segment of a basic ring) → tactical war conduct.
+ * assemble/garrison it into an army → tactical war conduct.
  *
  * TACTICAL POLICY (doc 07 §3, v1 slice): pick the nearest known war target
  * (`AiMilitaryOptions.warTargets` — fog-gated, supplied by the composition,
@@ -23,10 +22,13 @@
  * is nothing for a tactical policy to choose between; retreat-on-losing
  * thresholds are the same gap and stay deferred here too.
  *
- * CASTLE-BUILDING AI (doc 07 §5): a fixed small ring around the village
- * centre (`planCastleRing`), not the doc's terrain-adapted archetype
- * templates (motte/concentric/ridge-line) — a v1 simplification, same
- * spirit as M20 shipping only 2 of doc 07 §5's need types.
+ * M56 (ADR-4 Amendment A1, Phase 8.1): the village-side castle-building AI
+ * (a fixed ring around the village centre, doc 07 §5's v1 simplification of
+ * the terrain-adapted archetype templates) is RETIRED along with the
+ * mechanic — no wall/gate/tower/keep is buildable on the village map by
+ * anyone. Under ratified option (C), fortification AI returns at M57 as a
+ * defence `SettlementNeed` proposing the Keep, feeding the existing
+ * construction manager rather than living here.
  */
 import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase } from '@crowns/data';
@@ -36,7 +38,6 @@ import { TICKS_PER_DAY } from '../time.js';
 import { VILLAGE_RADIUS_T1, type VillageGameplay } from '../game/villages.js';
 import type { MilitaryGameplay } from '../game/military.js';
 import type { ArmyGameplay } from '../game/armies.js';
-import type { CastleGameplay } from '../game/castles.js';
 import type { SiegeGameplay } from '../game/siege.js';
 import { FOOD_PER_PERSON_DAY, type PopulationGameplay } from '../game/population.js';
 import { productionCapacity } from './needs.js';
@@ -112,30 +113,7 @@ export const RECRUIT_MIN_POPULATION_FLOOR = 20;
 export const RECRUIT_MIN_ADULTS_REMAINING = 12;
 /** M47.8: realized-hunger gate — no levies from a village whose security EMA is sagging. */
 export const RECRUIT_MIN_FOOD_SECURITY = 0.95;
-export const WALL_DEF = 'base:building.wall';
-export const CASTLE_RING_RADIUS = 6;
 const WAR_STANCE_CONTACT_RANGE = 1; // Chebyshev — "arrived" for tactical purposes
-
-/** Full closed square perimeter at Chebyshev distance `radius` (every tile on the ring, not just
- * its 8 corners/midpoints) — a v1 simplification of doc 07 §5's terrain-adapted castle templates.
- * 1.x war-cadence fix: the previous 8-point version only actually CLOSED at radius 1 (matching
- * castles.test.ts's fixture, where corner and edge-midpoint tiles are already adjacent); at
- * `CASTLE_RING_RADIUS`'s radius 6 those 8 points left 5-tile gaps on every side, so
- * `castles.ts`'s 4-connected flood-fill always found a way through and `isCastle` never flipped
- * true for any AI-built capital — the balance matrix's confirmed "no capital sieges ever mounted"
- * finding traces here: `military.ts`'s own tactical-war gate never even attempts `siege.begin`
- * against a target whose `AiWarTarget.isCastle` reads false (campaign.ts's `warTargetsFor`).
- * Tiles are ordered walking the perimeter so the AI's one-wall-per-day build queue closes the
- * loop visibly, edge by edge, rather than jumping between distant points. */
-export function planCastleRing(centerX: number, centerY: number, radius: number): readonly { x: number; y: number }[] {
-  const r = radius;
-  const tiles: { x: number; y: number }[] = [];
-  for (let x = centerX - r; x <= centerX + r; x++) tiles.push({ x, y: centerY - r }); // top edge, left→right
-  for (let y = centerY - r + 1; y <= centerY + r; y++) tiles.push({ x: centerX + r, y }); // right edge, top→bottom
-  for (let x = centerX + r - 1; x >= centerX - r; x--) tiles.push({ x, y: centerY + r }); // bottom edge, right→left
-  for (let y = centerY + r - 1; y >= centerY - r + 1; y--) tiles.push({ x: centerX - r, y }); // left edge, bottom→top
-  return tiles;
-}
 
 export interface AiWarTarget {
   readonly kingdomId: number;
@@ -209,7 +187,6 @@ export function registerAiMilitaryManager(
   popGame: PopulationGameplay,
   military: MilitaryGameplay,
   armies: ArmyGameplay,
-  castleGame: CastleGameplay,
   siegeGame: SiegeGameplay,
   options: AiMilitaryOptions,
 ): void {
@@ -344,24 +321,10 @@ export function registerAiMilitaryManager(
       });
       if (assignedOne) return;
 
-      // castle-building AI (doc 07 §5): queue the next missing ring segment, one per day
-      const ring = planCastleRing(cx, cy, CASTLE_RING_RADIUS);
-      const wallDef = db.buildings.get(WALL_DEF);
-      if (wallDef !== undefined) {
-        const b = world.read(BuildingCore);
-        const missing = ring.find(({ x, y }) => {
-          let occupied = false;
-          world.query([BuildingCore]).forEach((i) => {
-            if (occupied) return;
-            if ((b.x[i] as number) === x && (b.y[i] as number) === y) occupied = true;
-          });
-          return !occupied && game.ops.validatePlacement(wallDef, x, y, options.villageId).ok;
-        });
-        if (missing !== undefined) {
-          kernel.submit({ type: 'village.build', issuer: options.issuer, payload: { villageId: options.villageId as number, def: WALL_DEF, x: missing.x, y: missing.y } });
-          return;
-        }
-      }
+      // M56 (ADR-4 Amendment A1): village-side fortification AI is retired along with the
+      // mechanic — walls/gates/towers are never buildable on the village map by anyone. A
+      // defence `SettlementNeed` proposing the Keep replaces this at M57, once the layer is
+      // keep-gated; until then the AI simply falls through to tactical war conduct.
 
       // tactical war conduct (doc 07 §3). ConquestWar/PunitiveRaid both INITIATE and conduct war;
       // MilitaryBuildup CONDUCTS a war already in progress but never opens a new front.
@@ -386,36 +349,21 @@ export function registerAiMilitaryManager(
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
-        // M53: spatial capitals have no bombardable world-map graph — assault directly.
-        // M54: unless the composition's intel counsels otherwise ('hold' waits at the
-        // walls — the siege camp itself refreshes the snapshot within a day; 'lift'
-        // walks away from a hopeless escalade instead of feeding it men).
-        if (options.spatialSiege?.(existingSiege.castle) ?? false) {
-          if (existingSiege.assaultEngagementArmy === 0) {
-            const advice = options.assaultAdvice?.(existingSiege.castle) ?? 'assault';
-            if (advice === 'assault') {
-              kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
-            } else if (advice === 'lift') {
-              kernel.submit({ type: 'siege.lift', issuer: options.issuer, payload: { armyId } });
-            }
-          }
-          return;
-        }
-        // 1.x war-cadence fix: assault THE MOMENT a breach is open (military.ts's documented
-        // intent) — this MUST be checked before re-targeting, because a breach resets
-        // `targetBuilding` to 0, and the old `if (targetBuilding===0) setTarget else if (breaches)
-        // assault` ordering therefore re-aimed at the next wall every single day and NEVER reached
-        // the assault: the balance matrix's sieges bombarded 9+ walls to rubble and issued zero
-        // assaults, so an undefended enemy capital that `siege.assault` would CAPTURE outright
-        // (siege.ts) was instead knocked about until forced peace ended the war. Bombard only while
-        // no breach exists yet; once one is open, storm it.
-        if (existingSiege.breaches > 0 && existingSiege.assaultEngagementArmy === 0) {
-          kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
-        } else if (existingSiege.targetBuilding === 0) {
-          const graph = castleGame.defenseGraphOf(existingSiege.castle);
-          const node = graph.nodes[0];
-          if (node !== undefined) {
-            kernel.submit({ type: 'siege.setTarget', issuer: options.issuer, payload: { armyId, buildingId: node.building } });
+        // M55 (A1): every siege is spatial now, so there is no bombard-vs-assault choice
+        // left to make — a besieging army assaults, waits, or walks away. This also retires
+        // the 1.x war-cadence part-4 bug for good rather than by fix: the old ordering
+        // (`if (targetBuilding===0) setTarget else if (breaches) assault`) re-aimed at the
+        // next wall every day and never reached the assault, so sieges bombarded 9+ walls to
+        // rubble and issued zero assaults. With no walls to aim at, the failure mode is gone.
+        // M54: intel may still counsel otherwise — 'hold' waits at the walls (the siege camp
+        // refreshes the snapshot within a day); 'lift' walks away from a hopeless escalade
+        // instead of feeding it men.
+        if (existingSiege.assaultEngagementArmy === 0) {
+          const advice = options.assaultAdvice?.(existingSiege.castle) ?? 'assault';
+          if (advice === 'assault') {
+            kernel.submit({ type: 'siege.assault', issuer: options.issuer, payload: { armyId } });
+          } else if (advice === 'lift') {
+            kernel.submit({ type: 'siege.lift', issuer: options.issuer, payload: { armyId } });
           }
         }
         return;

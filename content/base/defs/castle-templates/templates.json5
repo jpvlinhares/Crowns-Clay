@@ -1,28 +1,51 @@
 // Castle-layout archetypes (roadmap M52; doc 07 §5 — the "template-based skeletons"
 // finally load-bearing). Offsets from the keep centre; entries build IN ORDER, one
 // structure per day as the capital's stores allow. Tiles the local ground refuses
-// (rock, water) are skipped — nature already walls them (the terrain adaptation).
+// (rock, water) are skipped — nature already walls them (the terrain adaptation); an
+// already-occupied tile (another structure got there first, e.g. a gatehouse claiming
+// part of a wall ring) is skipped the same way — the same mechanism doubles as the gate's
+// carve-out.
+//
+// M57 (ADR-4 A1 option (C)): each template's tier:2 entries are the modest, genesis-
+// derived FREE core a keep-bearing village gets the instant it reaches village tier 2
+// (no cost, no AI queue wait). Untagged entries stay "ambition": paid, one-per-day, via
+// the ordinary `defence.build` command (the AI manager or a player order). Additivity
+// (validator-enforced): tiers only ever increase reading down a plan, and no offset is
+// ever claimed at two DIFFERENT tiers (same-tier collisions ARE allowed and expected —
+// that's how a gatehouse carves its opening out of a tier-2 wall ring).
+//
+// M59: every offset below is the structure's CENTRE (centre-anchored placement — the
+// diagnosed trap: origin-anchoring silently deletes multi-tile structures whose footprint
+// then collides with its own ring). The keep is now 7×7 (offsets −3..+3), so every
+// tower/gatehouse position was recomputed to clear both the keep and whichever wall ring
+// or line it sits near, with the def's own footprint centred there. Gatehouses are listed
+// BEFORE the wall entries they interrupt, so the wall's later fill sees those tiles
+// already occupied and naturally skips them — a real chokepoint, not a hole.
 [
   {
     "id": "base:castle.motte",
     "name": "Motte",
-    "desc": "One tight ring, corner towers — cheap, cramped, quick to raise.",
+    "desc": "One tight ring, corner towers, twin gates — cheap, cramped, quick to raise.",
     "plan": [
-      { "def": "base:building.wall", "ring": 4 },
-      { "def": "base:building.tower", "at": [[-5, -5], [5, -5], [-5, 5], [5, 5]] },
+      { "def": "base:building.gatehouse", "at": [[0, -5], [0, 5]], "tier": 2 },
+      { "def": "base:building.gatehouse-v", "at": [[-5, 0], [5, 0]], "tier": 2 },
+      { "def": "base:building.wall", "ring": 5, "tier": 2 },
+      { "def": "base:building.tower", "at": [[-7, -7], [7, -7], [-7, 7], [7, 7]] },
     ],
-    "garrisonAnchors": [[-3, 0], [3, 0], [0, -3], [0, 3]],
+    "garrisonAnchors": [[-4, 0], [4, 0], [0, -4], [0, 4]],
     "tags": ["cheap"],
   },
   {
     "id": "base:castle.concentric",
     "name": "Concentric",
-    "desc": "Two rings and flanking towers — the storm breaks twice.",
+    "desc": "Two rings, flanking towers, gated inner wall — the storm breaks twice.",
     "plan": [
-      { "def": "base:building.wall", "ring": 5 },
-      { "def": "base:building.tower", "at": [[-6, -6], [6, -6], [-6, 6], [6, 6]] },
+      { "def": "base:building.gatehouse", "at": [[0, -5], [0, 5]], "tier": 2 },
+      { "def": "base:building.gatehouse-v", "at": [[-5, 0], [5, 0]], "tier": 2 },
+      { "def": "base:building.wall", "ring": 5, "tier": 2 },
+      { "def": "base:building.tower", "at": [[-7, -7], [7, -7], [-7, 7], [7, 7]] },
       { "def": "base:building.wall", "ring": 9 },
-      { "def": "base:building.tower", "at": [[-10, 0], [10, 0], [0, -10], [0, 10]] },
+      { "def": "base:building.tower", "at": [[-11, 0], [11, 0], [0, -11], [0, 11]] },
     ],
     "garrisonAnchors": [[-4, 0], [4, 0], [0, -4], [0, 4], [-7, 0], [7, 0]],
     "tags": ["expensive"],
@@ -30,11 +53,13 @@
   {
     "id": "base:castle.ridge-line",
     "name": "Ridge line",
-    "desc": "A heavy face and towers on two approaches; the far sides trust the ground.",
+    "desc": "A heavy, gated face and towers on two approaches; the far sides trust the ground.",
     "plan": [
-      { "def": "base:building.wall", "at": [[-6, -6], [-6, -5], [-6, -4], [-6, -3], [-6, -2], [-6, -1], [-6, 0], [-6, 1], [-6, 2], [-6, 3], [-6, 4], [-6, 5], [-6, 6]] },
-      { "def": "base:building.wall", "at": [[-5, -6], [-4, -6], [-3, -6], [-2, -6], [-1, -6], [0, -6], [1, -6], [2, -6], [3, -6], [4, -6], [5, -6], [6, -6]] },
-      { "def": "base:building.tower", "at": [[-7, -7], [-8, 0], [0, -8]] },
+      { "def": "base:building.gatehouse-v", "at": [[-6, 3]], "tier": 2 },
+      { "def": "base:building.gatehouse", "at": [[3, -6]], "tier": 2 },
+      { "def": "base:building.wall", "at": [[-6, -6], [-6, -5], [-6, -4], [-6, -3], [-6, -2], [-6, -1], [-6, 0], [-6, 1], [-6, 2], [-6, 3], [-6, 4], [-6, 5], [-6, 6]], "tier": 2 },
+      { "def": "base:building.wall", "at": [[-5, -6], [-4, -6], [-3, -6], [-2, -6], [-1, -6], [0, -6], [1, -6], [2, -6], [3, -6], [4, -6], [5, -6], [6, -6]], "tier": 2 },
+      { "def": "base:building.tower", "at": [[-8, -8], [-8, 0], [0, -8]] },
       { "def": "base:building.wall", "at": [[-6, 7], [-5, 7], [7, -6], [7, -5]] },
     ],
     "garrisonAnchors": [[-4, 0], [0, -4], [4, 0], [0, 4]],

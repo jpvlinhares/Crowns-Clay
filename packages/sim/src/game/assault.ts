@@ -29,8 +29,7 @@ import type { EventBus } from '../eventBus.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
 import type { VillageGameplay } from './villages.js';
 import type { MilitaryGameplay } from './military.js';
-import type { CastleGameplay } from './castles.js';
-import type { DefenceGameplay } from './defence.js';
+import { defenceFootprintOf, type DefenceGameplay } from './defence.js';
 import { SIEGE_BOMBARD_BONUS } from './siege.js';
 import { BASE_MORALE_DAMAGE, CASUALTY_FRACTION_OF_DAMAGE, ROUT_MORALE_THRESHOLD, ROUT_CHANCE_PER_SUBROUND } from './combat.js';
 
@@ -58,6 +57,14 @@ export const GARRISON_SUPPORT_RANGE = 2;
 export const ASSAULT_CASUALTY_FRACTION = CASUALTY_FRACTION_OF_DAMAGE * 2.5;
 /** Hard safety cap; a 100×100 walk with breaches resolves far below this. */
 export const MAX_ASSAULT_ROUNDS = 600;
+/** M59: `pickWallTarget` weighs TOUGHNESS (current hp × armor, per tile of frontage —
+ * effort to break a hole THIS wide) alongside distance, so the column actually prefers
+ * the gate over an equally-close wall or tower. Toughness-per-frontage today: gate 450,
+ * wall 1000, tower 1500 (the gate is "the deliberate soft spot" despite its higher raw
+ * hp, once normalised by the 3-wide hole it opens vs. a wall's 1). This constant converts
+ * that into an equivalent tile-distance penalty; balance material like ASSAULT_WALL_DAMAGE
+ * — M61 recerts it, not this milestone. */
+export const WALL_TARGET_TOUGHNESS_WEIGHT = 0.01;
 
 // ---------------------------------------------------------------- trace
 
@@ -82,9 +89,10 @@ export interface AssaultInput {
   readonly rng: Rng;
   readonly game: VillageGameplay;
   readonly militaryGame: MilitaryGameplay;
-  readonly castleGame: CastleGameplay;
   readonly defenceGame: DefenceGameplay;
-  readonly defenderKingdomIndex: number;
+  /** M57: the defence layer is village-keyed — dense index of the besieged village. */
+  readonly defenderVillageIndex: number;
+  /** Still kingdom-scoped: garrison units belong to a KINGDOM's soldier pool, not a village. */
   readonly defenderKingdomId: number;
   readonly attackerArmy: number;
   readonly origin: AssaultOrigin;
@@ -93,12 +101,12 @@ export interface AssaultInput {
 // ---------------------------------------------------------------- resolver
 
 export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
-  const { world, rng, militaryGame, castleGame, defenceGame, game } = input;
+  const { world, rng, militaryGame, defenceGame, game } = input;
   const size = DEFENCE_MAP_SIZE;
-  const map = defenceGame.mapOf(input.defenderKingdomIndex);
+  const map = defenceGame.mapOf(input.defenderVillageIndex);
   if (map === undefined) throw new Error('resolveSpatialAssault: no defence map');
   const { Unit, ops } = militaryGame;
-  const Fortification = castleGame.Fortification;
+  const Fortification = defenceGame.Fortification;
   const DefencePost = defenceGame.DefencePost;
   const DefenceStructure = defenceGame.DefenceStructure;
 
@@ -169,24 +177,26 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
   // ---- structures: footprint tiles, keep tiles, towers ----
   const s = world.read(DefenceStructure);
   const fort = world.write(Fortification);
-  interface Blocker { entity: number; kind: string; armor: number; tiles: number[]; x: number; y: number; range: number; damage: number }
+  interface Blocker { entity: number; kind: string; armor: number; tiles: number[]; x: number; y: number; range: number; damage: number; frontage: number }
   const blockers = new Map<number, Blocker>(); // entity → blocker
   const tileToStructure = new Map<number, number>(); // tile → entity
   const keepTiles = new Set<number>();
   const towers: Blocker[] = [];
   world.query([DefenceStructure]).forEach((si, entity) => {
-    if ((s.kingdom[si] as number) !== input.defenderKingdomIndex) return;
+    if (index(s.village[si] as number) !== input.defenderVillageIndex) return;
     const def = game.ops.buildingDef(s.def[si] as number);
     const kind = def.defense?.kind ?? 'wall';
+    const fp = defenceFootprintOf(def);
     const tiles: number[] = [];
-    for (let dy = 0; dy < def.footprint.h; dy++) {
-      for (let dx = 0; dx < def.footprint.w; dx++) tiles.push(((s.y[si] as number) + dy) * size + (s.x[si] as number) + dx);
+    for (let dy = 0; dy < fp.h; dy++) {
+      for (let dx = 0; dx < fp.w; dx++) tiles.push(((s.y[si] as number) + dy) * size + (s.x[si] as number) + dx);
     }
     const blocker: Blocker = {
       entity: entity as number, kind, armor: def.defense?.armor ?? 1, tiles,
       x: s.x[si] as number, y: s.y[si] as number,
       range: def.defense?.rangedArc?.range ?? TOWER_RANGE,
       damage: def.defense?.rangedArc?.damage ?? TOWER_ATTACK,
+      frontage: Math.max(fp.w, fp.h),
     };
     blockers.set(entity as number, blocker);
     for (const t of tiles) tileToStructure.set(t, entity as number);
@@ -326,7 +336,12 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
       }
       if (!onFrontier) continue;
       const keepCentre = Math.floor(size / 2);
-      const score = Math.abs(b.x - keepCentre) + Math.abs(b.y - keepCentre);
+      const distance = Math.abs(b.x - keepCentre) + Math.abs(b.y - keepCentre);
+      // M59: toughness-aware — current hp × armor, per tile of frontage (the gate's
+      // deliberate soft spot only shows up once normalised by the hole width it opens).
+      const bi = index(b.entity);
+      const toughnessPerFrontage = ((fort.hp[bi] as number) * b.armor) / Math.max(1, b.frontage);
+      const score = distance + toughnessPerFrontage * WALL_TARGET_TOUGHNESS_WEIGHT;
       if (score < bestScore) {
         bestScore = score;
         best = b;

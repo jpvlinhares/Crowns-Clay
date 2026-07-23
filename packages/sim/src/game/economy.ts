@@ -199,12 +199,16 @@ export function registerEconomyGameplay(
   const production: SimSystem = {
     name: 'production',
     period: 1,
-    access: { writes: [BuildingInventory], reads: [BuildingCore, VillageCore] },
+    access: { writes: [BuildingInventory], reads: [BuildingCore, VillageCore, game.comps.BuildingPaused] },
     update(): void {
       const b = world.read(BuildingCore);
       const inventories = world.writeObj(BuildingInventory);
       world.query([BuildingCore, BuildingInventory]).forEach((i, entity) => {
         if ((b.complete[i] as number) !== 1) return;
+        // M-era: a paused building's recipes halt outright — WITHOUT this check a zero-worker
+        // recipe (required === 0 ⇒ efficiency 1 below, regardless of the jobs-solver zeroing
+        // b.workers) would keep producing even while "paused".
+        if (world.has(entity, game.comps.BuildingPaused)) return;
         const def = defOf(b, i);
         if (def.recipes === undefined) return;
         const required = def.workers?.required ?? 0;
@@ -286,9 +290,9 @@ export function registerEconomyGameplay(
   // GDD §3 player interaction: per-village stockpile limits. limit < 0 clears.
   kernel.registerCommand<{ villageId: number; resource: string; limit: number }>(
     'village.setStockLimit',
-    (ctx, p) => {
+    (ctx, p, command) => {
       const reject = (reason: string): void => {
-        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.setStockLimit', reason } });
+        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.setStockLimit', reason, issuer: command.issuer } });
       };
       const village = p.villageId as EntityId;
       if (!world.isAlive(village)) return reject('no such village');

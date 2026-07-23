@@ -40,6 +40,13 @@ export interface BuildingRec {
    * the inspector pairs these with the owning village's live totals. */
   readonly storageCapacity?: number; // per-resource stockpile headroom added
   readonly housingCapacity?: number; // occupant slots added
+  /** M-era: does this building have worker slots at all (def.workers.required > 0)? Gates whether
+   * the inspector offers a pause toggle — pausing a building the jobs solver never staffs (e.g.
+   * housing) would be a no-op. Absent/false = not pausable. */
+  readonly pausable?: boolean;
+  /** M-era: is this building currently paused (village.setBuildingPaused)? Only meaningful when
+   * `pausable` is true; a paused COMPLETED building takes zero workers and its recipes halt. */
+  readonly paused?: boolean;
 }
 
 // ---- player-facing content catalog (M18): defs the UI may offer ----
@@ -172,6 +179,9 @@ export interface PanelDefencePostRec {
   readonly y: number;
 }
 export interface PanelDefenceState {
+  /** M57: the defence layer is village-keyed — dense index of the village this panel is
+   * showing (the player's own operated village), needed by `defence.build`'s payload. */
+  readonly villageId: number;
   /** Map edge length in tiles. */
   readonly size: number;
   /** Run-length pairs [code, count, ...]: 0 open · 1 rock · 2 water. */
@@ -187,6 +197,11 @@ export interface PanelDefenceState {
     readonly h: number;
     readonly cost: readonly (readonly [string, number])[];
   }[];
+  /** M58: `def.cost × (1 − hp/maxHp)` summed over the village's structures, display-ready
+   * as [resource name, amount] — empty when nothing is damaged. */
+  readonly repairCost: readonly (readonly [string, number])[];
+  /** M58: the tick the in-flight repair completes, or null if nothing is repairing. */
+  readonly repairingUntil: number | null;
 }
 
 /** M54 (ADR-4 §4): what the PLAYER last saw of a rival capital's walls — a STALE
@@ -342,7 +357,17 @@ export type ToSimMessage =
   // A read-only validity probe answered by the sim's one placement rulebook, so the
   // outline preview honours every current and future placement rule automatically.
   // `seq` lets the client discard responses older than the cursor's current tile. ----
-  | { kind: 'previewBuild'; seq: number; villageId: number; def: string; x: number; y: number };
+  | { kind: 'previewBuild'; seq: number; villageId: number; def: string; x: number; y: number }
+  // ---- defence-layer footprint preview: the same read-only probe as `previewBuild`, but
+  // answered by the defence layer's OWN placement rulebook (`defence.build`'s bounds/terrain/
+  // occupancy check) rather than the village-map validator. `x`/`y` are the structure ORIGIN
+  // (top-left), already centre-anchored + clamped by the client — the exact tile `defence.build`
+  // would receive — so preview validity equals placement validity by construction. ----
+  | { kind: 'previewDefenceBuild'; seq: number; villageId: number; def: string; x: number; y: number }
+  // ---- road placement preview: the same read-only probe again, answered by logistics'
+  // `roadReason` (the exact validation `village.buildRoad` enforces). `x`/`y` are the single tile
+  // under the cursor, so preview validity equals placement validity by construction. ----
+  | { kind: 'previewBuildRoad'; seq: number; villageId: number; x: number; y: number };
 
 // ---- from sim ----
 export type FromSimMessage =
@@ -400,6 +425,10 @@ export type FromSimMessage =
         id: number;
         name: string;
         population: number;
+        /** workforce split from the last hourly jobs solve (M-era labour legibility): adults
+         * staffing completed buildings, adults hauling, and the idle remainder. Optional for
+         * back-compat; absent ⇒ the panel simply omits the breakdown line. */
+        workforce?: { working: number; hauling: number; idle: number };
         food: number;
         happiness: number;
         /** other stocked goods (M13 chains): display name → floored amount */
@@ -434,6 +463,9 @@ export type FromSimMessage =
       buildingsAdded?: BuildingRec[];
       /** flat pairs: [id, progress, ...] for buildings under construction */
       buildingProgress?: number[];
+      /** M-era: flat pairs [id, 0|1, ...] — buildings whose paused state changed since last delta
+       * (a rare, player-initiated event; unrelated to construction progress). */
+      buildingPaused?: number[];
       buildingsRemoved?: number[];
       /** flat [x, y, level] triples for road tiles added since last delta (M14) */
       roadsAdded?: number[];
@@ -470,6 +502,13 @@ export type FromSimMessage =
   // footprint (w, h) so the renderer can draw purely from the reply, and `seq`+(x,y)
   // so the client ignores any reply the cursor has already moved past. ----
   | { kind: 'buildPreview'; seq: number; x: number; y: number; w: number; h: number; ok: boolean }
+  // ---- defence-layer footprint preview verdict. The client already knows the footprint
+  // (it armed the structure from the buildable palette), so this carries only the validity
+  // and `seq` to discard replies the cursor has moved past. ----
+  | { kind: 'defenceBuildPreview'; seq: number; ok: boolean }
+  // ---- road placement preview verdict: validity for the single cursor tile, plus `seq`+(x,y)
+  // so the client discards replies it has moved past (mirrors buildPreview, w/h fixed at 1). ----
+  | { kind: 'buildRoadPreview'; seq: number; x: number; y: number; ok: boolean }
   | { kind: 'fatal'; message: string }
   // ---- storage quota (roadmap M44; doc 11 §3/§4; Risk R6) ----
   // Sent when the tripwire fires (quota estimate < 2× current usage) — a real advisory, not a

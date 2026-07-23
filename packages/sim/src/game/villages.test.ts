@@ -127,6 +127,59 @@ test('placement: rivers block, occupancy blocks, radius blocks, bounds block', (
   assert.match(g.lastRejection(), /unknown building/);
 });
 
+// ---------------- M56 (ADR-4 Amendment A1): the village map is not a fortification surface ----------------
+
+test('placement: a castle-category def is rejected on the village map, for player AND AI issuers alike', () => {
+  const g = makeGame();
+  const village = foundedVillage(g);
+  // ops.place()/validatePlacement() has no issuer parameter at all — the guard is the SAME
+  // code path regardless of who calls it. Issuer 1 stands in for the player (the harness's
+  // own `submit` convention); issuer 2 stands in for an AI kingdom — proving there is no
+  // special-cased allowlist for either.
+  for (const issuer of [1, 2]) {
+    g.kernel.submit({ type: 'village.build', issuer, payload: { villageId: village, def: 'base:building.wall', x: 9, y: 12 } });
+    g.kernel.step();
+    assert.match(g.lastRejection(), /is a castle structure — build it on the defence map/, `issuer ${issuer}`);
+  }
+  assert.ok(!g.events.some((e) => e.type === 'building.placed'), 'no castle structure was ever placed on the village map');
+});
+
+// ---------------- M60 (ADR-4 Amendment A1): footprint reconciliation ----------------
+
+test('rebuildDerived: a standing building occupies the footprint it was PLACED with, not the live def', () => {
+  // simulates a grandfathered M28-era tower: current code can no longer PLACE a castle
+  // structure on the village map (M56) and the def's footprint has since grown (M59: tower
+  // 1×1 → 3×3), but a save recorded before both changes still has to load without the
+  // instance retroactively swelling over whatever a player built next to it.
+  const g = makeGame();
+  const village = foundedVillage(g);
+  const towerDef = g.game.ops.buildingDef(g.game.ops.defCode('base:building.tower'));
+  assert.equal(towerDef.footprint.w, 3, 'precondition: the tower def is 3×3 today (M59)');
+
+  const grandfathered = g.world.spawn();
+  g.world.attach(grandfathered, g.game.comps.BuildingCore, {
+    def: g.game.ops.defCode('base:building.tower'), x: 9, y: 12, w: 1, h: 1, // its M28 footprint
+    village, progress: 1, complete: true, workers: 0,
+  });
+  g.game.ops.rebuildDerived();
+
+  assert.ok(g.game.ops.isOccupied(9, 12), 'the tower still occupies its own tile');
+  assert.ok(!g.game.ops.isOccupied(10, 13), 'a tile only inside the CURRENT 3×3 footprint stays free — the stored 1×1 governs');
+
+  // a neighbour can be placed on a tile the live 3×3 footprint would have claimed
+  g.submit('village.build', { villageId: village, def: 'base:building.house', x: 10, y: 12 });
+  assert.ok(
+    g.events.some((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.house'),
+    g.lastRejection(),
+  );
+
+  // demolishing the grandfathered tower frees exactly the tile it actually held (not the
+  // neighbour's, and not a phantom 3×3 block)
+  g.submit('village.demolish', { buildingId: grandfathered as number });
+  assert.ok(!g.game.ops.isOccupied(9, 12), 'demolish vacated the stored footprint');
+  assert.ok(g.game.ops.isOccupied(10, 12), 'the neighbour built on the reclaimed tile is untouched');
+});
+
 // ---------------- cost reservation ----------------
 
 test('costs: reserved in full at placement; insufficiency rejects atomically', () => {
@@ -150,6 +203,35 @@ test('costs: reserved in full at placement; insufficiency rejects atomically', (
   assert.match(g.lastRejection(), /insufficient base:resource.wood \(10\/30\)/);
   assert.equal(stock.get(wood), 10, 'no partial deduction');
   assert.equal(stock.get(stone), stoneBefore, 'other resources untouched');
+});
+
+// ---------------- M62: rejection events carry their issuer ----------------
+
+test('village.rejected carries the ISSUER, so a player order and an AI order are distinguishable', () => {
+  // the AI construction manager deliberately submits unaffordable orders and relies on this
+  // rejection to retry later (ai/manager.ts's module doc) — before M62 the rejection event
+  // carried no issuer, so the client could not tell an AI kingdom's routine "insufficient
+  // wood" from the player's own failed order, and surfaced both as toasts.
+  const g = makeGame();
+  const village = foundedVillage(g);
+
+  g.kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: village, def: 'base:building.house', x: 9, y: 20 } });
+  g.kernel.step();
+  const stock = g.world.readObj(g.game.comps.Stockpile).get(village & 0x3fffff);
+  stock.set(g.game.ops.resourceCode('base:resource.wood') as number, 0); // force the next order to fail
+
+  g.kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: village, def: 'base:building.house', x: 9, y: 22 } });
+  g.kernel.step();
+  const playerRejection = g.events.filter((e) => e.type === 'village.rejected').at(-1);
+  assert.equal((playerRejection?.data as { issuer: number }).issuer, 1, 'the player\'s own order carries issuer 1');
+
+  // issuer 2 stands in for an AI kingdom (the harness convention used throughout this repo,
+  // e.g. villages.test.ts's own castle-rejection test above) — same village, same shortage,
+  // a DIFFERENT issuer submitting the identical failing order.
+  g.kernel.submit({ type: 'village.build', issuer: 2, payload: { villageId: village, def: 'base:building.house', x: 9, y: 22 } });
+  g.kernel.step();
+  const aiRejection = g.events.filter((e) => e.type === 'village.rejected').at(-1);
+  assert.equal((aiRejection?.data as { issuer: number }).issuer, 2, 'a different issuer\'s order carries ITS issuer, not the player\'s');
 });
 
 // ---------------- construction math ----------------
@@ -218,6 +300,58 @@ test('demolish: frees occupancy for rebuilding; centers are protected', () => {
   g.submit('village.demolish', { buildingId: g.world.entityAt(centerId & 0x3fffff) as number });
   assert.match(g.lastRejection(), /cannot demolish a village center|no such building/);
   void village;
+});
+
+// ---------------- pause / resume (M-era) ----------------
+
+test('setBuildingPaused: refuses incomplete or worker-less buildings, idempotent, round-trips through save', () => {
+  const g = makeGame();
+  const village = foundedVillage(g);
+
+  g.submit('village.build', { villageId: village, def: 'base:building.farm', x: 16, y: 18 });
+  const farmPlaced = g.events.find((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.farm');
+  assert.ok(farmPlaced, g.lastRejection());
+  const farmId = (farmPlaced?.data as { building: number }).building;
+
+  g.submit('village.build', { villageId: village, def: 'base:building.house', x: 9, y: 12 });
+  const housePlaced = g.events.find((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.house');
+  assert.ok(housePlaced, g.lastRejection());
+  const houseId = (housePlaced?.data as { building: number }).building;
+
+  // refuses a freshly-placed (incomplete) building
+  g.submit('village.setBuildingPaused', { buildingId: farmId, paused: true });
+  assert.match(g.lastRejection(), /cannot pause a building under construction/);
+
+  // refuses a nonexistent building
+  g.submit('village.setBuildingPaused', { buildingId: 999999, paused: true });
+  assert.match(g.lastRejection(), /no such building/);
+
+  for (let t = 0; t < 72; t++) g.kernel.step(); // farm (72 ticks) and house (48) both complete, ungated
+  const b = g.world.read(g.game.comps.BuildingCore);
+  assert.equal(b.complete[farmId & 0x3fffff], 1, 'farm finished');
+  assert.equal(b.complete[houseId & 0x3fffff], 1, 'house finished');
+
+  // a COMPLETED building with no worker slots (housing has none) still refuses — pausing only
+  // makes sense for buildings the jobs solver actually staffs
+  g.submit('village.setBuildingPaused', { buildingId: houseId, paused: true });
+  assert.match(g.lastRejection(), /no worker slots/);
+
+  // the farm (workers.required 4) pauses, is idempotent, and un-pauses
+  const paused = (): boolean => g.world.has(farmId as EntityId, g.game.comps.BuildingPaused);
+  assert.equal(paused(), false, 'unpaused by default');
+  assert.equal(g.game.ops.setPaused(farmId, true), true);
+  assert.equal(paused(), true);
+  assert.equal(g.game.ops.setPaused(farmId, true), true, 'pausing an already-paused building is a no-op, not an error');
+  assert.equal(paused(), true);
+  assert.equal(g.game.ops.setPaused(farmId, false), true);
+  assert.equal(paused(), false);
+
+  // save round-trip: paused survives loadState into a fresh (same-composition) world
+  g.game.ops.setPaused(farmId, true);
+  const saved = g.world.saveState();
+  const g2 = makeGame();
+  g2.world.loadState(saved);
+  assert.ok(g2.world.has(farmId as EntityId, g2.game.comps.BuildingPaused), 'paused state survives a save/load round-trip');
 });
 
 // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------

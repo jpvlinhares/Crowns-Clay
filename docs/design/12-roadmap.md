@@ -543,25 +543,123 @@ second scene at M51 only if assault-trace playback outgrows the canvas.
 
 ---
 
-## Phase 8.1 — One Castle (M55–M58, post-1.0 — added by revision R3, plan only)
+## Phase 8.1 — One Castle (M55–M61, post-1.0 — added by revision R3, CHARTERED)
 
-Chartered by ADR-4 Amendment A1 (doc 15, owner-directed 2026-07-20): the M28 on-map castle
-mechanic is retired ENTIRELY — one castle/defence system, the M51 layer; no defensive structure
-buildable on the village map by anyone. Scope recommendation B (capital-only layers, occupation
-kept for non-capitals) awaits owner ratification; the milestones below assume B. **No
-implementation before that ratification.** Vertical-slice discipline: M55 proves the single
-resolution path end-to-end before any deletion breadth.
+Chartered by ADR-4 Amendment A1 (doc 15): the M28 on-map castle mechanic is retired ENTIRELY —
+one castle/defence system, the M51 layer; no wall, gatehouse or tower buildable on the village map
+by anyone. The A1 scope fork was **ratified by the owner on 2026-07-21 as option (C): keep-gated
+derived layers** — defence is gated on the Keep as an ordinary village-map building (recategorised
+out of `castle`), layouts are DERIVED from content templates rather than hand-built, they
+strengthen with village tier, and the layer is uniform across capitals and non-capitals. Capital
+status stays POLITICAL (M53 annexation), not military. Implementation is chartered; the milestones
+below are ordered so that the vertical slice proves the single resolution path before any deletion
+breadth (M55), every behaviour change lands before the save/corpus pass that has to absorb them
+(M60), and balance recert closes the phase AFTER the footprint change that moves the numbers
+(M61).
 
 | M | Milestone | Goal / Key work | T (test objective) |
 |---|---|---|---|
 | M55 | Single siege path (vertical slice) | `siege.begin` eligibility = standing defence layer only; delete the legacy assault branch, `siege.setTarget`, the bombard-vs-`Fortification` daily, `breaches`/`targetBuilding`; siege save v2→v3 migration (fields dropped; saved sieges of layer-less castles lifted); encirclement/starvation/sortie/lift unchanged (ADR-4 §2 pacing intact); player-besieges-AI and AI-besieges-player both resolve end-to-end through M51 | full suite green with the legacy path deleted; a siege v2 save migrates and resumes hash-stable; goldens/corpus re-recorded intentionally |
 | M56 | Retire village-side fortification | reject `category: 'castle'` in `ops.place()` + drop from the build catalog (policy, per A1); delete `planCastleRing` and `ai/military.ts`'s ring block; delete castles.ts enclosure/defense-graph/`isCastle` derivation, re-homing `Fortification` into the defence module; `AiWarTarget.isCastle` := layer eligibility; occupation drops its `isCastle` exemption (the layer hook stays); delete `castles.test.ts`, add rejection coverage | a castle def is rejected by village placement for player AND AI issuers; in one campaign an AI both besieges a capital and occupies a non-capital |
-| M57 | Legacy saves & corpus | grandfathered M28 structures: load as inert ordinary buildings (occupancy-blocking, demolishable, no graph, no siege meaning); `isCastle` deprecated-in-schema; add an M28-era fixture save to the corpus; torture pass | the M28-era save loads and resumes hash-stable with its walls standing-but-inert; corpus green including the new entry |
-| M58 | Docs & balance recert | GDD §7 rewrite (single system), doc 06 §4 `defenseGraph`/`isCastle` removal, doc 07 §5 delta; bench-balance matrix re-run — war cadence with rings gone (AI castles are now only capitals); Gate P8.1 | balance bands hold; siege/capture cadence no worse than the war-cadence-part-7 baseline |
+| M57 | Keep-gated derived layers (the (C) core) | re-key the layer from kingdom to VILLAGE — `defenceMapSeed`, `DefenceStructure.kingdom`, `occupancyFor(k)`, the `{ k, seed, version, tiles }[]` save section, `AiDefenceOptions`, `defence-genesis`'s `kingdomCount` loop — with a section migration mapping a shipped per-kingdom layer onto that kingdom's capital village; recategorise `base:building.keep` from `castle` to `military` so M56's placement guard needs no allowlist; generalise `defence-genesis` to materialise a keep-bearing village's DERIVED template idempotently-by-presence; derived templates as content, ADDITIVE by tier with a validator enforcing it; a defence `SettlementNeed` proposing the Keep, replacing `planCastleRing` | building a Keep in a non-capital village materialises its layer and makes the village assault-resolved instead of occupation-flipped; a village tier-up spawns only the NEW template entries, healing nothing and duplicating nothing; a Phase-8 save's per-kingdom layer migrates onto its capital with defences intact |
+| M58 | Keep-panel repair | Repair action on the Keep's village panel costing `def.cost × (1 − hp/maxHp)` summed over the village's structures — no repair-cost table; BLOCKED while a siege is active on that village; paid from the VILLAGE's stores; commits stone immediately and sets one `repairingUntil` field so the strike-again-before-they-recover window survives; mirrored in the M52 daily manager below its stone reserve | a damaged layer returns to full only after the repair window elapses; repair is refused during an active siege; an AI castle damaged across two wars is repaired without player input; closes the PRE-EXISTING M51 gap (assault.ts:469 writes damage and never despawns; nothing restored hp) |
+| M59 | Footprints, readability & zoom | real multi-tile footprints on the layer as CONTENT values (Keep 7×7, Tower 3×3, Gatehouse 3×2 + a 2×3 orientation twin, Wall stays 1×1) with hp re-scaled per frontage tile; gatehouse given an actual role (toughness-aware `pickWallTarget`, garrison cap, entries in all three templates); tile scale as config; render readability (ground visible around structures, keep drawn as a distinct structure not a flat block, wall segments joined rather than separate squares); ~3× tile scale with a viewport offset and pan | placement, hit-test and draw all agree at multi-tile footprints and at scale; a click at any pan offset resolves to the tile under the cursor; footprint/scale values changed in content alone shift behaviour with no code edit; every template still builds all its towers (no silent skips); the gatehouse is no longer dominated by the wall |
+| M60 | Legacy saves & corpus | **corrected at M56 execution — a blocking prerequisite the original scoping missed**: `Kernel.restoreState` throws a composition-mismatch invariant on ANY saved system name it doesn't currently register, and an M28-era save's `systemRngs` names `castle-defense-rebuild` (deleted at M56) — it fails BEFORE building-level grandfathering ever runs, so "M28-era saves hydrate unchanged" (A1) was false; fix with either a no-op stub system registered under the dead name, or `restoreState` tolerance for unknown saved system names, THEN: grandfathered M28 structures load as inert ordinary buildings (occupancy-blocking, demolishable, no graph, no siege meaning); `isCastle` deprecated-in-schema; add an M28-era fixture save to the corpus; torture pass. **Resolved at M60 execution**: chose the tolerance option, scoped by name (`RETIRED_SYSTEM_NAMES`, currently `{ castle-defense-rebuild }`) rather than a stub system, so no future save ever gains a dead-name entry and an unrelated unregistered name still hits the hard mismatch guard. M59's fallout (a grown footprint could make an already-saved structure overlap a previously-legal neighbour once `afterLoad` rebuilds occupancy) is resolved by one rule applied at both layers: a standing structure occupies the footprint it was PLACED with. On the village map that's literal — `BuildingCore` already persists per-instance `w`/`h`, hashed — so `rebuildDerived`/`demolish`/`raze` read stored w/h, falling back to the live def only when none was ever recorded (stored 0). The defence layer has no such field to fall back on (`DefenceStructure` stores only def code + origin, by design — the roadmap forbids serialising a footprint there), so a grown-footprint overlap there is the accepted one-time snap, made coherent with first-writer-wins occupy + owner-guarded vacate. Both changes are behaviour-neutral for every save current code can produce (stored footprint always equals the live def's at placement time), confirmed by all four goldens and the three pre-existing corpus entries re-verifying byte-identical with no re-record. | an M28-era save LOADS AT ALL (the newly-exposed gate); it then resumes hash-stable with its walls standing-but-inert; corpus green including the new entry |
+| M61 | Docs & balance recert | GDD §7 rewrite (single system), doc 06 §4 `defenseGraph`/`isCastle` removal, doc 07 §5 delta; bench-balance matrix re-run — war cadence with rings gone (AI castles are now only capitals); Gate P8.1 | balance bands hold; siege/capture cadence no worse than the war-cadence-part-7 baseline |
 
-Interaction notes: the pending defence-structure FOOTPRINT work (multi-tile keep/tower/gatehouse
-on the layer, config-driven) becomes cleanly defence-only once M56 lands — sequence it after or
-inside M56. The 1.x war-cadence backlog's remaining items are unaffected except that
+**Gate P8.1 (verified 2026-07-23):** all seven milestones (M55–M61) shipped, closing the ADR-4
+Amendment A1 retirement chartered by R3. Global DoD checks: `npm run build` clean · `npm run lint`
+clean (four `no-non-null-assertion` violations caught and fixed at M61's own gate check — none
+had been run since M60 landed, i.e. this gate is what caught them, not a prior milestone) · full
+suite 465/465 green · `npm run replay:verify` all four golden replays byte-stable (unchanged since
+M59 — M60/M61 are both behaviour-neutral for every fixture current code can produce) ·
+`npm run save-corpus:verify` all four corpus saves resume clean (including M60's new
+`legacy-castle-m28-v1`). Doc 11 §2 sim budgets (`npm run bench:scenes all`): war-max 0.080
+ms/tick, ai-8k 0.209 ms/tick, late-campaign 0.448 ms/tick — all ≤10 ms budget, comfortable
+headroom at every scene (late-campaign up from Gate P8's 0.357 — larger M59 footprints mean more
+occupancy tiles per structure — still far inside budget). Balance re-run on the SAME methodology
+the war-cadence-part-7 baseline used (`npm run bench:balance`, the flat harness — the only place
+war cadence is actually observable; the unified `--real` composition never once declares a war in
+this matrix across 2- and 4-kingdom runs at every difficulty, a pre-existing prosperity-outpaces-
+war pacing gap tracked separately, not moved by Phase 8.1): 12 campaigns (4 kingdoms × 100y × 4
+difficulties × 3 seeds), `sieges: 24 begun, 0 assaulted, 23 captured` — well above part-7's 8
+begun / 6 captured floor — 34 wars declared / 22 ended, both conquest and prosperity victory types
+seen organically, zero peacetime starvation, all 12 campaigns reach a victory before the year cap
+(SC-2 holds). `npm run bench:assault` — the matrix actually sensitive to M59's footprint/hp-per-
+frontage rescale — still holds the M54 bands: garrisoned templates (`g30`/`g60`) repel a light
+raid (`a20`) outright, a keep-only village (`g0`) falls to any host, 0% max origin deviation over
+0 contested configs (no dominant approach despite the larger keep/tower sizes). Design-doc
+reconciliation: GDD §7 rewritten as a single-system description (M28/Phase-8/Phase-8.1 history
+compressed to one closing paragraph, no more delta-bolted-onto-primary structure), §8's two
+orphaned "defence graph" references corrected alongside it; doc 06 §4's `isCastle`/`DefenseGraph`
+block and §2's `category: castle` note rewritten to describe the retirement, `isCastle` kept
+deprecated-in-schema rather than removed; doc 07 §5 gained the M55–M61 delta note the M52 entry
+promised (`planCastleRing` deleted, template AI no longer capital-only). No outstanding rewrite.
+**Phase 8.1 — One Castle is closed.** ADR-4 §6's "two parallel fortification systems must not
+ship" now holds structurally: `game/castles.ts` and the legacy breach-gated assault path are
+DELETED, not merely unreachable — there is exactly one castle/defence system in this repository.
+
+**M59 detail — sizes, and why they are not free parameters.** The map is 100×100 with a 17×17
+guaranteed-open centre (`KEEP_CLEARING_RADIUS = 8`); a finished concentric castle spans only
+~21–23 tiles, so the keep has offsets −3..+3 before it meets ring 4 or the motte's ±3 garrison
+anchors. Two constraints decide the numbers. (1) **Odd sizes centre, even sizes do not** — the
+keep is placed at `CENTRE − floor(w/2)`, so today's 2×2 sits half a tile off-centre (invisible at
+1×1, obvious at 3× zoom); 5×5 and 7×7 centre exactly. (2) **Any tower above 1×1 silently deletes
+towers from AI castles** — placement is ORIGIN-anchored so footprints grow toward +x/+y, a 2×2
+tower at concentric's (−6,−6) covers (−5,−5) which is a ring-5 wall corner, walls are plan entry
+#1, and `ai/defence.ts` SKIPS occupied tiles rather than failing. Tower size is therefore gated on
+centre-anchored placement, not on picking a number. 7×7 keep additionally needs the motte's ±3
+anchors pushed outward; 5×5 is the zero-template-churn fallback.
+
+**M59 detail — hp must move with footprint.** A multi-tile structure is ONE entity with ONE hp
+pool, so three separate walls (3 × 200 hp, broken one at a time) are not the same as one 3-wide
+structure at 200. Enlarging a footprint without re-scaling hp makes every structure dramatically
+weaker per tile of frontage. Target values:
+
+| | Footprint | Frontage | hp | hp/frontage | Cost |
+|---|---|---|---|---|---|
+| Wall | 1×1 | 1 | 200 | 200 | 8 stone |
+| Gatehouse | 3×2 / 2×3 | 3 | 450 | 150 — the deliberate soft spot | 20 wood + 35 stone |
+| Tower | 3×3 | 3 | 750 | 250 | 70 stone |
+| Keep | 7×7 | 7 | 1400 | 200 | unchanged (cost lives on the village-map def) |
+
+**M59 detail — the gatehouse needs a role, not just a size.** As shipped it is STRICTLY DOMINATED
+by the wall: costlier (15 wood + 10 stone vs 8 stone), less hp (150 vs 200), less armour (3 vs 5),
+no compensating mechanic — there is no reason to build one. It is also mechanically inert on the
+layer: `pickWallTarget` (assault.ts:329) scores blockers purely by Manhattan distance to the keep
+centre and ignores hp and armour entirely, and grepping `'gate'` across the sim finds only the
+type union and `intel.ts` treating it exactly like a wall. (The content file's "a real chokepoint,
+not a hole" describes M28's ENCLOSURE algorithm, which A1 deletes.) No shipped template contains a
+gatehouse either, so AI castles are solid gateless rings. Three fixes, all inside M59: rotation
+via TWO DEFS with swapped footprints (the schema has no orientation field), surfaced in the UI as
+one palette button with a rotate toggle so the twin stays an implementation detail; a
+toughness-aware `pickWallTarget` weighing hp/armour alongside distance so the column actually
+prefers the gate; and `military: { garrisonCap: 8 }` plus gatehouse entries on each wall face of
+all three templates, which is what finally gives AI castles gates.
+
+**Phase 8.1 open item (from A1, must resolve before M59 begins).** Under (C) the Keep exists at
+TWO scales — a 2×2 village-map building (where cost and the `requires.villageTier` gate live) and
+a substantial central structure on the defence map — but `def.footprint` is one field on one def.
+Resolve as either a separate defence-map def spawned by the derivation, or an optional second
+footprint field. The two values must not be conflated: village-map footprint prices the
+investment, defence-map footprint is occupancy on the assault flow field.
+
+Interaction notes: the FOOTPRINT work at M59 is sequenced after M56/M57 because it is only
+cleanly defence-only once village-side fortification is gone and the layer is village-keyed. Its render side is already footprint-driven
+and needs no fix — draw uses `r.w/r.h` (main.ts:1199), the hit-test spans the footprint
+(main.ts:1171), and the build click clamps the origin by `w`/`h` (main.ts:1263). What multi-tile
+footprints DO expose: (1) click-to-place treats the click as the ORIGIN, invisible at 1×1 but
+wrong-feeling for a large keep — needs centre-anchoring or a hover preview; (2) the current click
+math is proportional over the whole canvas and is correct ONLY while the entire map is visible —
+zoom/pan requires it to become tile-pixel arithmetic plus the viewport offset; (3) raising a
+footprint changes what an ALREADY-SAVED structure occupies when `afterLoad` rebuilds occupancy
+from defs, so previously-legal neighbours can overlap — needs a load-time reconciliation rule.
+Determinism, seeded generation and map dimensions are genuinely untouched (`generateDefenceMap`
+never reads building defs; `DEFENCE_MAP_SIZE` is unchanged) and the save FORMAT is untouched
+(footprints are not serialised — `DefenceStructure` stores the def code and origin), but
+BEHAVIOUR is not: placement/collision outcomes shift, so AI template building diverges and
+goldens/corpus re-record — fold that into M57's re-record rather than paying it twice, and note
+M60 (saves & corpus) deliberately follows M59 so it absorbs the footprint change too. The 1.x war-cadence backlog's remaining items are unaffected except that
 `planCastleRing`'s part-1 fix is superseded by its deletion.
 
 ---
@@ -624,13 +722,20 @@ inside M56. The 1.x war-cadence backlog's remaining items are unaffected except 
   work rather than a gap.
 
 **R3 — M28 retirement chartered as Phase 8.1 ("One Castle") (owner-directed 2026-07-20, ADR-4
-Amendment A1; scope recommendation pending ratification).**
+Amendment A1; scope option (C) RATIFIED 2026-07-21).**
 
-- **Change:** four milestones (M55–M58, "Phase 8.1 — One Castle") appended as planned post-1.0
+- **Change:** seven milestones (M55–M61, "Phase 8.1 — One Castle") chartered as post-1.0
   scope: retire the M28 on-map castle mechanic entirely — single siege-resolution path (M51),
-  village-side castle placement removed for player and AI, legacy saves grandfathered, docs and
-  balance recertified. Plan only; no implementation is chartered until the A1 scope
-  recommendation (B: capital-only layers, occupation kept) is ratified.
+  village-side wall/gatehouse/tower placement removed for player and AI, legacy saves
+  grandfathered, docs and real multi-tile footprints with readability and zoom
+  on the layer, legacy saves grandfathered, docs and balance recertified. **The A1 scope fork was
+  RATIFIED by the owner on 2026-07-21 as option (C)** — defence gated on the Keep as an ordinary
+  village building (recategorised out of `castle`), layouts DERIVED from content templates rather
+  than hand-built, strengthening with village tier, uniform across capitals and non-capitals — so
+  (C)'s core lands as M57 and its Keep-panel repair as M58, and the phase is now CHARTERED for
+  implementation rather than plan-only. Milestone order was corrected at ratification: balance
+  recert (M61) now follows the footprint change (M59) that moves the numbers, and the save/corpus
+  pass (M60) follows every behaviour change it has to absorb.
 - **Why:** ADR-4 §6 ruled "two parallel fortification systems must not ship", but Phase 8 as
   shipped kept M28 alive as the non-capital path (the M51 scoping note's explicit grandfather).
   The 2026-07-20 investigation showed the coexistence is now load-bearing confusion: castle defs
@@ -645,4 +750,41 @@ Amendment A1; scope recommendation pending ratification).**
 - **Risk impact:** removes a standing two-system design risk and the M28 balance surface.
   Adds a one-time save-behaviour snap for M28-era saves (walls become inert; ex-castles become
   occupiable) — accepted, same class as OQ-9's re-derivation snap. Goldens/corpus re-record
-  intentionally at M55/M56.
+  intentionally at M55/M56; M59's footprint change re-records too and should be folded into
+  M56's rather than paid twice. Under (C), re-keying the layer kingdom→village is subsystem-wide
+  and carries the phase's main regression risk; against it, (C) closes a pre-existing M51 gap
+  (no repair path exists — damaged structures persist at hp 0 forever) that (A) and (B) leave open.
+  M59 is a BALANCE change in a rendering change's clothes and needs the bench-balance matrix
+  re-run with it, not after: footprints are occupancy on the assault flow field, so a larger tower
+  blocks more approach and covers more ground with its `rangedArc`, a larger keep is reachable
+  from more directions, and hp-per-frontage re-scaling moves every breach cost. It also fixes two
+  pre-existing content faults surfaced on 2026-07-21 — a gatehouse strictly dominated by the wall,
+  and templates that build no gates at all — either of which is worth correcting independently.
+
+**R4 — two A1 predictions corrected by actually executing M56 (recorded 2026-07-22).**
+
+- **Change:** doc 15's ADR-4 Amendment A1 "Saves & determinism" paragraph amended in place
+  (struck claims kept visible, not silently rewritten) rather than reworded as if it had been
+  right the first time. M60's roadmap row (this doc) gains an explicit prerequisite it was
+  previously missing entirely.
+- **Why:** M56's own re-record was preceded by a verification pass (per its execution prompt's
+  discipline: explain every fixture change before recording, don't assume), which found two of
+  A1's predictions didn't hold. (1) "M28-era saves hydrate unchanged" is false — `restoreState`
+  throws a composition-mismatch invariant on a save naming a system that no longer exists
+  (`castle-defense-rebuild`), before any building-level grandfathering logic runs; M28-era saves
+  currently fail to load AT ALL, not "load with inert walls" as planned. (2) The stated REASON for
+  campaign-demo's re-record — "AI ring-building disappears from recorded histories" — was itself
+  wrong, though the re-record was correctly anticipated: a direct test (restoring only
+  `Fortification`'s old component-registration position, changing nothing else) reproduced the old
+  golden hashes exactly through tick 3000, proving the AI never built a single wall in that
+  scenario. The actual cause is that `World.hash()` folds components in registration order, and
+  re-homing `Fortification` from castles.ts into defence.ts moved where it registers — a
+  consequence A1's determinism paragraph assumed away when it said re-homing was free.
+- **Affected documents:** doc 15 (ADR-4 Amendment A1, "Saves & determinism"); this doc's M60 row.
+- **Affected milestones:** M56 (closed, unaffected — the correction describes what shipped
+  accurately, it doesn't reopen it); M60 gains a new blocking prerequisite (a stub system under
+  the dead name, or `restoreState` tolerance for unknown saved system names) that must land before
+  any M28-era-save grandfathering logic can be reached at all.
+- **Risk impact:** lowers risk going forward — M60 would otherwise have discovered this gate live,
+  mid-milestone, the same way M56 did. No behavioural change and no new re-record: this is a
+  documentation correction only, traceable to the M56 commit's own verification trail.

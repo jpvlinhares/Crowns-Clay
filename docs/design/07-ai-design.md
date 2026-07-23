@@ -277,6 +277,25 @@ units posted to the template's garrison anchors — with M51's draft rule releas
 army assembly when the military manager musters. Unlike the M30 ring this runs in PEACETIME too
 (fortification is preparation, not war conduct); `planCastleRing` remains the world-map
 behaviour for non-capital castles until the on-map defence graph retires.
+*Superseded at M55–M61 (Phase 8.1, ADR-4 Amendment A1) — see the delta immediately below;
+`planCastleRing` and the world-map path it describes are DELETED, not merely retired.*
+
+**M55–M61 delta (Phase 8.1, ADR-4 Amendment A1, closed 2026-07-23) — one fortification AI, keyed
+to any keep-bearing village:** `ai/military.ts`'s `planCastleRing` (the M30 fixed-ring fallback for
+non-capitals) is DELETED outright at M56, along with the world-map defence graph it targeted —
+`sim/ai/defence.ts`'s template-driven builder above is no longer capital-only, because the layer
+itself was re-keyed from kingdom/capital to VILLAGE (M57): the instant any village's Keep
+completes, its layer materialises and the same one-structure-per-day template AI defends it,
+capital or not. Templates gained a real gatehouse (toughness-aware `pickWallTarget` in
+`game/assault.ts` scores current-hp × armor PER FRONTAGE TILE alongside distance, so the wide,
+softer gate — not just the nearest wall — genuinely draws the attacker) and real multi-tile
+footprints as content values (Keep 7×7 on the layer, Tower 3×3, Gatehouse 3×2/2×3, Wall 1×1; hp
+re-scaled per frontage so a wider structure isn't proportionally weaker per tile it covers), both
+placement decisions (genesis's free core, the AI's template expansion, a player's click)
+centre-anchored to avoid a multi-tile structure colliding with its own ring (M59). Bench-balance
+recert at M61 confirmed cadence unregressed against the pre-Phase-8.1 war-cadence baseline (siege
+begun/captured counts at or above the prior floor) and `bench:assault`'s per-origin/garrison bands
+still hold at the new sizes — GDD §7 carries the full design-level rewrite.
 
 AI (and player UI) operate on **beliefs, not truth**:
 

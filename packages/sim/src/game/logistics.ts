@@ -27,7 +27,7 @@ import type { EntityId } from '@crowns/core';
 import type { DefinitionDatabase } from '@crowns/data';
 import { ObjectComponent, SoAComponent, World } from '../ecs.js';
 import type { Kernel, SimSystem, TickContext } from '../kernel.js';
-import type { VillageGameplay } from './villages.js';
+import type { VillageGameplay, VillageOwnershipGuard } from './villages.js';
 import type { PopulationGameplay } from './population.js';
 import type { EconomyGameplay } from './economy.js';
 
@@ -218,6 +218,12 @@ export interface LogisticsGameplay {
   totalOf(villageIndex: number, resourceCode: number): number;
   /** Shared road-building code path (commands, genesis, future AI). */
   buildRoad(ctx: TickContext, villageId: number, x: number, y: number): true | string;
+  /** Read-only dry run of the road rulebook (for the placement preview): null ⇒ pavable, else the
+   * reason. Shares buildRoad's exact validation, so the preview can't drift from the real command. */
+  roadReason(villageId: number, x: number, y: number): string | null;
+  /** 1.x: inject the ownership authority so `village.buildRoad` only paves the issuer's own village
+   * (mirrors villages/settlers). Un-set ⇒ allow (single-kingdom / Terra). */
+  setOwnershipGuard(guard: VillageOwnershipGuard): void;
 }
 
 // ---------------------------------------------------------------- registrar
@@ -265,29 +271,50 @@ export function registerLogisticsGameplay(
   // ---------------- roads: one rulebook for command, genesis, AI ----------------
   const stoneCode = game.ops.resourceCode('base:resource.stone') as number;
 
-  const buildRoad = (ctx: TickContext, villageId: number, x: number, y: number): true | string => {
+  // 1.x ownership guard (late-bound from kingdom.ts via campaign wiring; un-set ⇒ allow, i.e.
+  // single-kingdom / Terra sandbox). Mirrors villages.ts so a player can only pave their OWN
+  // village's tiles — the road command took a villageId but never checked it before the M-era tool.
+  let ownershipGuard: VillageOwnershipGuard | null = null;
+  const ownsVillage = (issuer: number, villageId: number): boolean =>
+    ownershipGuard === null || ownershipGuard(issuer, villageId);
+
+  // Pure, read-only validation shared by the real command AND the placement preview probe, so the
+  // green/red cursor can never structurally drift from what buildRoad actually enforces. Returns
+  // null when the tile is pavable, or the rejection reason otherwise. Mutates nothing.
+  const roadReason = (villageId: number, x: number, y: number): string | null => {
     const village = villageId as EntityId;
     if (!world.isAlive(village)) return 'no such village';
     if (x < 0 || y < 0 || x >= terrain.width || y >= terrain.height) return 'out of bounds';
     if (terrain.movementCostAt(x, y) <= 0 || terrain.riverAt(x, y)) return `tile (${x}, ${y}) is impassable`;
     if (game.ops.isOccupied(x, y)) return `tile (${x}, ${y}) occupied`;
-    const level = roads.levelAt(x, y);
-    if (level >= 1) return `road already present at (${x}, ${y})`; // levels 2–3 unlock later (research, M32)
-    const stock = world.writeObj(Stockpile).tryGet(index(villageId));
+    if (roads.levelAt(x, y) >= 1) return `road already present at (${x}, ${y})`; // levels 2–3 unlock later (research, M32)
+    const stock = world.readObj(Stockpile).tryGet(index(villageId));
     if (stock === undefined) return 'no such village';
     const have = stock.get(stoneCode) ?? 0;
     if (have < ROAD_COST_STONE) return `insufficient base:resource.stone (${have}/${ROAD_COST_STONE})`;
-    stock.set(stoneCode, have - ROAD_COST_STONE);
+    return null;
+  };
+
+  const buildRoad = (ctx: TickContext, villageId: number, x: number, y: number): true | string => {
+    const reason = roadReason(villageId, x, y);
+    if (reason !== null) return reason;
+    const stock = world.writeObj(Stockpile).tryGet(index(villageId));
+    if (stock === undefined) return 'no such village'; // unreachable after roadReason, but narrows the type
+    stock.set(stoneCode, (stock.get(stoneCode) ?? 0) - ROAD_COST_STONE);
     ledger.record(index(villageId), stoneCode, 'built', ROAD_COST_STONE);
     roads.set(x, y, 1);
     ctx.events.publish({ type: 'road.built', tick: ctx.tick, data: { x, y, level: 1, village: villageId } });
     return true;
   };
 
-  kernel.registerCommand<{ villageId: number; x: number; y: number }>('village.buildRoad', (ctx, p) => {
+  kernel.registerCommand<{ villageId: number; x: number; y: number }>('village.buildRoad', (ctx, p, command) => {
+    if (!ownsVillage(command.issuer, p.villageId | 0)) {
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.buildRoad', reason: 'not your village', issuer: command.issuer } });
+      return;
+    }
     const result = buildRoad(ctx, p.villageId | 0, p.x | 0, p.y | 0);
     if (typeof result === 'string') {
-      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.buildRoad', reason: result } });
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.buildRoad', reason: result, issuer: command.issuer } });
     }
   });
 
@@ -600,6 +627,8 @@ export function registerLogisticsGameplay(
     roads,
     paths,
     buildRoad,
+    roadReason,
+    setOwnershipGuard(guard: VillageOwnershipGuard): void { ownershipGuard = guard; },
     totalOf(vi: number, code: number): number {
       let total = econ.totalOf(vi, code);
       const h = world.read(Hauler);

@@ -370,14 +370,18 @@ rewritten at Phase 8 entry.
 
 ---
 
-## ADR-4 Amendment A1 — retirement of M28: one castle system (owner-directed 2026-07-20; scope recommendation pending ratification)
+## ADR-4 Amendment A1 — retirement of M28: one castle system (owner-directed 2026-07-20; scope RATIFIED 2026-07-21)
 
-**Status:** the RETIREMENT is DECIDED (owner directive, 2026-07-20): the M28 on-map castle
-mechanic (enclosure-derived `isCastle`, village-map wall/gate/tower/keep placement, the
-breach-gated legacy assault path) is retired entirely. There will be ONE castle/defence system —
-the M51 defence layer. No defensive structure is buildable on the village map by anyone, player
-or AI. The SCOPE question below (per-village vs. capital-only layers) carries a recommendation
-(B) awaiting owner ratification.
+**Status:** RATIFIED and implementable. The RETIREMENT was decided by owner directive on
+2026-07-20: the M28 on-map castle mechanic (enclosure-derived `isCastle`, village-map
+wall/gate/tower/keep placement, the breach-gated legacy assault path) is retired entirely. There
+will be ONE castle/defence system — the M51 defence layer. No WALL, GATEHOUSE or TOWER is
+buildable on the village map by anyone, player or AI. The SCOPE fork was resolved by owner
+ratification on **2026-07-21: option (C), keep-gated derived layers.** (A) and (B) are recorded
+below as considered-and-not-taken. Under (C) exactly ONE village-map building is load-bearing —
+the Keep, recategorised out of `castle` — which gates the defence layer without creating any
+defence geometry on the village map, so the rule above stands unqualified. Implementation is
+chartered as doc 12 Phase 8.1 (M55–M61).
 
 **What this amends.** ADR-4 §6 already ruled "two parallel fortification systems must not ship"
 and chartered retiring the on-map defence graph — but Phase 8 as shipped (M49–M54) implemented
@@ -390,7 +394,7 @@ A1 closes that deviation: the coexistence the M51 scoping note grandfathered is 
 GDD §7's "shipped delta" wording and doc 07 §5's fortification passage are affected and are
 rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1).
 
-**The scope fork — costed both ways:**
+**The scope fork — costed three ways; (C) ratified 2026-07-21:**
 
 - **(A) Every village gets its own defence layer.** Technically cheap where it looks expensive
   and expensive where it looks cheap. Maps: `defenceMapSeed(worldSeed, k)` becomes
@@ -409,7 +413,7 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   model: when capital death annexes the realm (M53), besieging hamlets one-by-one is dominated
   play — cost without depth. Estimate: 3–4 additional milestones plus a permanent balance
   surface, to buy texture the capital-centric design then makes irrelevant.
-- **(B) Capital-only (RECOMMENDED).** This is ADR-4 §6's ratified reading already — "the defence
+- **(B) Capital-only (NOT TAKEN — superseded by (C)).** This was ADR-4 §6's ratified reading — "the defence
   layer guards the CAPITAL only; non-capital villages keep the existing occupation/capture path."
   Nearly all work is deletion; no new systems. Non-capital villages remain individually takeable
   through M47.8 occupation (armies at an undefended village flip it by countdown, contested by
@@ -423,13 +427,82 @@ rewritten at the closing milestone of the retirement phase (doc 12 R3, Phase 8.1
   real costs for a purism the capital-death rule doesn't need. If the owner intends B2, that is
   a further amendment with its own victory-math workstream; this record recommends against it.
 
+- **(C) Keep-gated derived layers — RATIFIED 2026-07-21.** Defence
+  is gated on a BUILDING, not on capital status: a village with no Keep has no defence layer and
+  falls to occupation as open country; building the Keep materialises a layer whose layout is
+  DERIVED from a content template rather than hand-built; the template strengthens as the village
+  tier rises. The layer is uniform across capitals and non-capitals — a capital is simply a
+  village that usually has a better keep. Three properties make this cheaper than (A) while
+  keeping most of what (A) was reaching for:
+  - *It restores what the Keep def already is.* `base:building.keep` ships with
+    `requires: { villageTier: 2 }`, a 20 wood / 60 stone cost, 144 buildTicks,
+    `storage: { capacity: 200 }` and `military: { garrisonCap: 40 }`. It was authored as a
+    village building with economic function; M28 only ever used it as a node in an enclosure
+    graph. (C) needs no new mechanism to make it the gate — only a recategorisation from
+    `castle` to `military`, which lets A1's "no castle-category on the village map" rule stay
+    absolute with ZERO exceptions rather than carving out an allowlist.
+  - *The upgrade ladder is content, not code.* No building-level concept exists in the schema and
+    none is needed: `requires.villageTier` is already the gate and `village.upgrade` already the
+    command, so the ladder is additional defs (Keep @ tier 2, a heavier keep @ tier 3) riding an
+    axis the player already reads.
+  - *Materialisation reuses the shipped genesis pattern.* `defence-genesis` (defence.ts:184) is
+    already idempotent-by-presence — it queries existing structures, spawns only what is missing,
+    and exists as a SYSTEM precisely because the load path hydrates into an empty world.
+    Generalising it from "every kingdom has a keep" to "every keep-bearing village has its
+    template materialised" is the same shape; tier-up re-runs it and spawns only the new entries.
+    Provided templates are ADDITIVE by tier (validator-enforceable), damaged structures are
+    neither healed nor duplicated by a re-run — "villages grow their defences and scars persist"
+    falls out of presence-checking, with no reconciliation rules written.
+
+  **Repair (owner-proposed, and a pre-existing M51 gap independent of this fork).** Today
+  `assault.ts:469` writes damage into `Fortification.hp` and never despawns the structure — a
+  flattened wall persists at hp 0 through save/load, and nothing restores it. A capital that
+  survives three sieges is permanently a ruin. (C) closes it with a Repair action on the Keep's
+  panel costing `def.cost × (1 − hp/maxHp)` summed over the village's structures — no repair-cost
+  table, the def's own build cost IS the repair cost, self-balancing (towers hurt more than wall
+  segments). Three rules are load-bearing: repair is BLOCKED while a siege is active on that
+  village (otherwise a stone-rich defender out-repairs the bombardment and is unbreakable); the
+  VILLAGE's own stores pay (a sacked frontier hamlet genuinely struggles to rebuild while the
+  capital shrugs it off — asymmetry emerging from the economy, not from rules); and the M52 daily
+  manager repairs too, below its stone reserve, or AI castles decay permanently across a long
+  campaign while the player's do not. Recommended shape: the action commits stone immediately and
+  sets ONE field per village (`repairingUntil`), preserving the strike-again-before-they-recover
+  beat that instant repair deletes.
+
+  **What (C) costs.** The layer is kingdom-keyed throughout and must be re-keyed to village:
+  `defenceMapSeed(worldSeed, kingdomIndex)`, `DefenceStructure.kingdom`, `occupancyFor(k)`, the
+  `{ k, seed, version, tiles }[]` save section, `AiDefenceOptions.kingdomIndex`/`capitalOf`, and
+  `defence-genesis`'s `kingdomCount` loop. Mechanical, but it touches every file in the subsystem
+  and is the bulk of the added milestone — under (B) it never happens at all. The AI additionally
+  needs a defence need-evaluator proposing the Keep when a settlement is threatened: new, but one
+  more `SettlementNeed` in the shape of `foodNeed`/`housingNeed` feeding the existing
+  `chooseBuildTarget`, and it REPLACES `planCastleRing`, which A1 deletes regardless — net AI
+  effort is roughly zero. Estimate: ~1–2 milestones beyond (B), against (A)'s 3–4 plus a
+  permanent balance surface.
+
+  **What stays capital-specific is political, not military.** M53's annexation-on-capital-death
+  concerns the crown, not walls: same assault, same repair, different consequence — a non-capital
+  village whose keep falls changes hands; a capital's takes the realm with it. Keeping that split
+  clean is what permits the military layer to be fully uniform. One deliberate exception remains:
+  capitals keep the cost-free genesis keep (defence.ts:170) so shipped balance is preserved — the
+  MECHANISM is uniform, only the starting grant differs ("the crown's seat is fortified by
+  right"). Dropping the grant is maximally uniform but a real balance change; deferred to recert.
+
+  **Open item (C) must resolve.** Under (C) the Keep exists at two scales — a 2×2 village-map
+  building and a substantial central structure on the defence map — but `def.footprint` is one
+  field on one def. Resolve either as a separate defence-map def spawned by the derivation, or an
+  optional second footprint field. This directly gates the footprint work at M59 (doc 12 Phase 8.1).
+
 **Migration consequences (summary — the plan lives in doc 12 R3/Phase 8.1):** the four
 subsystems from the 2026-07-20 investigation — (1) village build path: castle-category defs
 rejected in `ops.place()` and dropped from the catalog, now as policy, not leak-patching;
-(2) AI: `planCastleRing` and `ai/military.ts`'s ring block deleted — AI defence is already the
-M52 template manager on the layer, per-capital, so under B NO new AI work is required;
-`AiWarTarget.isCastle` redefines to spatial-layer eligibility (capitals), everything else at
-contact range is occupation's business, which is already the shipped conduct split;
+(2) AI: `planCastleRing` and `ai/military.ts`'s ring block deleted; under the ratified (C) the M52
+template manager is re-keyed from capital to keep-bearing village and gains ONE new evaluator — a
+defence `SettlementNeed` proposing the Keep when a settlement is threatened, in the shape of
+`foodNeed`/`housingNeed`, feeding the existing `chooseBuildTarget`. Because it REPLACES
+`planCastleRing`, net AI effort is roughly zero. `AiWarTarget.isCastle` redefines to spatial-layer
+eligibility (now "has a Keep", not "is the capital"); an undefended keepless village at contact
+range remains occupation's business, which is already the shipped conduct split;
 (3) siege: single resolution path — `siege.begin` requires a standing defence layer;
 `siege.setTarget`, the bombard-vs-`Fortification` daily, `breaches`, `targetBuilding`, and the
 breach-gated assault branch are deleted; encirclement, starvation, sortie, and lift stay exactly
@@ -438,15 +511,104 @@ suite) is deleted with its mechanic; siege tests re-target layer-bearing capital
 castle-def rejection on village placement, occupation of ex-M28-castle villages, and an M28-era
 save fixture.
 
-**Saves & determinism.** No world-section format bump: `VillageCore.isCastle` stays in the
+**Saves & determinism.** Under the ratified (C) the DEFENCE section DOES bump: its
+`{ k, seed, version, tiles }[]` shape is keyed by kingdom and must be re-keyed to village, and
+`DefenceStructure.kingdom` becomes a village key — a section-format migration in its own right,
+which existing-save handling must map (a 1.0/Phase-8 save's per-kingdom layer becomes that
+kingdom's CAPITAL village's layer, and the capital's cost-free genesis keep is preserved so no
+shipped save loses its defences). Otherwise no world-section format bump: `VillageCore.isCastle` stays in the
 schema (deprecated, never set true again) and `Fortification` stays a registered component
-(re-homed from castles.ts to the defence module — the layer already reuses it), so M28-era saves
-hydrate unchanged. Their standing wall/gate/tower/keep buildings load as INERT ordinary
-buildings — occupancy-blocking, demolishable, no graph, no siege meaning ("grandfathered
-ruins") — and previously-enclosed villages become occupiable; both are accepted one-time
-behaviour snaps, same class as OQ-9's re-derivation snap. The siege save section bumps v2→v3
-(drop `targetBuilding`/`breaches`; a saved active siege of a layer-less castle is lifted by the
-migration — rare, logged). Golden `campaign-demo` and the campaign corpus entry re-record
-intentionally (AI ring-building disappears from recorded histories); terra fixtures are
-untouched. Determinism is unaffected in kind: pure deletions plus command-time gating; named
-PRNG forks mean surviving systems' draws don't shift (ADR-3's property).
+(re-homed from castles.ts to the defence module — the layer already reuses it). Their standing
+wall/gate/tower/keep buildings load as INERT ordinary buildings — occupancy-blocking,
+demolishable, no graph, no siege meaning ("grandfathered ruins") — and previously-enclosed
+villages become occupiable; both are accepted one-time behaviour snaps, same class as OQ-9's
+re-derivation snap. The siege save section bumps v2→v3 (drop `targetBuilding`/`breaches`; a saved
+active siege of a layer-less castle is lifted by the migration — rare, logged).
+
+**Correction (recorded at M56 execution, 2026-07-22) — two predictions above were WRONG, verified
+by actually running the milestone rather than assumed from the plan:**
+- ~~"M28-era saves hydrate unchanged"~~ is FALSE. Deleting castles.ts removes the
+  `castle-defense-rebuild` SYSTEM, not just its derived state — and a save's `systemRngs` names
+  every system that existed when it was recorded. `Kernel.restoreState` throws a
+  composition-mismatch invariant on an unknown saved system name BEFORE any grandfathering logic
+  for the buildings themselves ever runs. M28-era saves do not currently load at all. M60 (below)
+  is corrected to add the missing mechanism.
+- ~~"Golden campaign-demo and the campaign corpus entry re-record intentionally (AI ring-building
+  disappears from recorded histories)"~~ — the RE-RECORD was right, the REASON was not. Verified
+  directly at M56 (temporarily restoring only `Fortification`'s old component-registration
+  position, changing nothing else, reproduced the old golden hashes exactly through tick 3000):
+  the AI never built a single village-map wall in `campaign-demo` — `military.ts`'s ring only ever
+  actually closed at radius 1 (its own 1.x war-cadence fix note said so), so deleting
+  `planCastleRing` changed zero behaviour there. The entire cause is that `World.hash()` folds
+  components in REGISTRATION ORDER, and re-homing `Fortification` moved where it registers.
+  Re-homing a component is apparently not free the way this paragraph assumed.
+- ~~"terra fixtures are untouched"~~ — also not quite true, though harmlessly: both terra corpus
+  saves carry a one-field diff (a stale embedded mod-content hash, current since M55's cue
+  deletion and never refreshed) with `resumeHash` byte-identical, confirming no behavioural
+  change but contradicting the "untouched" claim as written.
+
+Determinism is unaffected IN KIND — pure deletions plus command-time gating; named PRNG forks
+mean surviving systems' draws don't shift (ADR-3's property, and empirically confirmed at M56: all
+53 systems surviving the `castle-defense-rebuild` deletion showed zero PRNG-state drift).
+
+**Correction (recorded at M60 execution, 2026-07-22) — the missing mechanism M56 flagged is now
+resolved; one further gap surfaced only by actually building the fixture:**
+- `Kernel.restoreState`'s composition-mismatch invariant now tolerates a saved system name IF it
+  is in a new `RETIRED_SYSTEM_NAMES` set (`kernel.ts`) — currently just `castle-defense-rebuild`.
+  The chosen mechanism is name-scoped tolerance, not a no-op stub system: a stub would have to
+  stay registered in EVERY future composition (dead weight forever, and a growing surface for
+  the exact composition-mismatch bugs this guard exists to catch), where a retired-name entry is
+  inert by construction — its saved RNG is discarded, never restored into anything, and provably
+  makes zero difference to the restored session (kernel.test.ts checks two identically-seeded
+  restores, with and without the retired entry, converge to the same hash after 30 ticks). Any
+  OTHER unregistered name still throws — the hard mismatch guard this correction does not weaken.
+- The footprint-reconciliation rule the M59 note deferred ("needs a load-time reconciliation
+  rule") is: a standing structure occupies the footprint it was PLACED with, not the current def's.
+  `BuildingCore` (village map) already persists per-instance `w`/`h` as hashed SoA fields — nothing
+  new to serialise — so `rebuildDerived`/`demolish`/`raze` read stored w/h, falling back to the
+  live def only for a pre-w/h save (stored 0, meaning none was ever recorded). `DefenceStructure`
+  (the M51 layer) was NOT extended to match: it deliberately serialises only def code + origin
+  (doc 12's M59 note: "the save FORMAT is untouched — footprints are not serialised"), so a layer
+  structure is always rebuilt at whatever footprint the CURRENT def declares, and a pre-M59 save
+  whose keep grew (2×2 → 7×7) can legitimately overlap a neighbour the old size left clear — an
+  accepted one-time behaviour snap, same class as the buildings-load-as-inert snap two paragraphs
+  up. Made safe for demolish/rebuild under that overlap by first-writer-wins occupy + an
+  owner-guarded vacate (only clear a tile if the vacating entity is the one that claimed it).
+- Building the M28-era corpus fixture surfaced what "M28-era" actually requires beyond the two
+  items above: current code cannot PRODUCE such a save (M56 deleted castle placement outright), so
+  `packages/tools/src/save-corpus.ts`'s new `recordLegacyM28CastleEntry` crafts one from a real
+  terra economy save — stamping grandfathered wall/gate/tower buildings at their M28 1×1
+  footprint (regardless of the defs' current, larger size — exactly the case the reconciliation
+  rule above exists for), setting the deprecated `isCastle` flag, and re-injecting the retired
+  system name into the saved `kernel` section. Both changes above are behaviour-neutral for every
+  save CURRENT code can produce (a freshly-placed instance's stored footprint always equals its
+  def's at placement time; genesis never overlaps), confirmed by all four goldens and the three
+  pre-existing corpus entries re-verifying byte-identical with zero re-record.
+
+**Closure (recorded at M61 execution, 2026-07-23) — the "shipped delta" wording lands, and the
+retirement is balance-recertified: Phase 8.1 is CLOSED.** GDD §7 is rewritten in place — no longer
+a primary M28 description with a Phase 8 delta bolted on, but a single-system description (the
+Keep-gated layer, real footprints, the gatehouse's role, siege as a spatial flow-field walk) with
+the M28/Phase-8/Phase-8.1 history compressed into one closing paragraph, matching how doc 15
+already narrates it; §8's two now-orphaned "defence graph" references were corrected alongside it
+for internal consistency. Doc 06 §4's `isCastle`/`DefenseGraph` block is similarly rewritten:
+`isCastle` marked deprecated in place (never removed — a format bump isn't worth it for a field
+nothing reads), the M28/A1 history kept as delta notes rather than deleted, and `BuildingDef`'s
+`category: castle` note (§2) corrected to say placement is REJECTED, not "implemented," now that
+ADR-4 A1 bars it from the village map entirely. Doc 07 §5 gained the M55–M61 delta the M52 note
+promised: `planCastleRing` is DELETED (not merely superseded) and the template AI is no longer
+capital-only, following the layer's M57 re-key to village. Balance re-run at M61 on the SAME
+methodology the war-cadence-part-7 baseline used (the flat `bench:balance` harness — the only
+place war cadence is actually observable; the unified `--real` composition never once declares a
+war in this matrix, a pre-existing prosperity-outpaces-war pacing gap unrelated to Phase 8.1 and
+explicitly not this milestone's to fix): 24 sieges begun / 23 captured across the 12-campaign
+matrix, comfortably above part-7's 8/6 floor, all campaigns still reach a victory before the year
+cap (SC-2 holds), zero peacetime starvation. `bench:assault`'s M54 bands — the ones actually
+sensitive to M59's footprint/hp-per-frontage rescale — hold unchanged: garrisoned templates repel
+raids, a keep-only village falls to a host, 0% max origin deviation over the reachable-origin
+configs. Perf budgets stay far under headroom (war-max 0.080 ms/tick, ai-8k 0.209, late-campaign
+0.448 — up modestly from Gate P8's 0.357 from the larger footprints' extra occupancy tiles, still
+≪ the 10 ms budget). **Gate P8.1 verified 2026-07-23** (doc 12 carries the formal record, matching
+Gate P8's format). Phase 8.1 — One Castle is closed; ADR-4 §6's "two parallel fortification
+systems must not ship" now holds structurally, not by convention — there is exactly one code path,
+`game/castles.ts` and the legacy assault branch are deleted, not merely unreachable.

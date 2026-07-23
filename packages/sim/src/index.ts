@@ -206,7 +206,6 @@ export {
 export {
   registerAiMilitaryManager,
   pickRosterRecruit,
-  planCastleRing,
   BARRACKS_DEF,
   RECRUIT_ORDER,
   RECRUIT_ROTATION,
@@ -214,8 +213,6 @@ export {
   AI_SIEGE_CAP,
   AI_SIEGE_MIN_UNITS,
   WAR_MIN_STRENGTH,
-  WALL_DEF,
-  CASTLE_RING_RADIUS,
   type AiWarTarget,
   type AiWarDiplomacy,
   type AiMilitaryOptions,
@@ -267,9 +264,7 @@ export {
   registerSiegeGameplay,
   SiegeState,
   SIEGE_RANGE,
-  BASE_BOMBARD_DAMAGE,
   SIEGE_BOMBARD_BONUS,
-  ASSAULT_CASUALTY_MULTIPLIER,
   STARVATION_THRESHOLD,
   STARVATION_SURRENDER_DAYS,
   type SiegeGameplay,
@@ -298,22 +293,17 @@ export {
   type SuccessionOptions,
 } from './game/succession.js';
 export {
-  registerCastleGameplay,
-  computeEnclosure,
-  CASTLE_SEARCH_PADDING,
-  type CastleGameplay,
-  type DefenseGraph,
-  type DefenseNode,
-  type FortificationComponent,
-} from './game/castles.js';
-export {
   registerDefenceGameplay,
   KEEP_DEF,
   DEFENCE_KEEP_CENTRE,
+  REPAIR_DURATION_DAYS,
+  defenceFootprintOf,
+  originFromCentre,
   type DefenceGameplay,
   type DefenceMapState,
   type DefenceStructureComponent,
   type DefencePostComponent,
+  type FortificationComponent,
 } from './game/defence.js';
 export { registerAiDefenceManager, expandTemplate, DEFENCE_STONE_RESERVE, type AiDefenceOptions } from './ai/defence.js';
 export {
@@ -325,6 +315,7 @@ export {
   TOWER_ATTACK,
   TOWER_RANGE,
   GARRISON_DEFENCE_BONUS,
+  WALL_TARGET_TOUGHNESS_WEIGHT,
   MAX_ASSAULT_ROUNDS,
   type AssaultOrigin,
   type AssaultResult,

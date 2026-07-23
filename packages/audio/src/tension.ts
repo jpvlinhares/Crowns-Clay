@@ -25,7 +25,6 @@ export const TENSION_EVENT_WEIGHTS: Readonly<Record<string, number>> = {
   'siege.begun': 0.5,
   'siege.assaultBegun': 0.4,
   'siege.sortieBegun': 0.3,
-  'siege.breached': 0.3,
   'battle.resolved': 0.35,
   'defeat.kingdom': 0.2,
   'village.starving': 0.15,

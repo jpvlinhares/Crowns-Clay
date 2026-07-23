@@ -185,36 +185,59 @@ snowball control — war exhaustion and supply strain limit blitzkrieg map-paint
 **Purpose.** Fortification as a designed artefact: player-built castles that mechanically shape
 sieges (Vision USP-4).
 
-**Player interactions.** Designate a castle site; place walls (wood→stone→reinforced), gatehouses,
-towers, keep, moat segments, and interior buildings (garrison quarters, armoury, granary, well) on
-the castle grid; upgrade wall segments individually; assign garrison.
+**Player interactions.** Build the Keep (an ordinary village building, `requires.villageTier: 2`) in
+any village; the instant it stands, that village gains a dedicated defence layer — a terrain-bearing
+grid generated once from `hash(worldSeed, villageId)` and persisted — with a free starter ring the
+village's tier already earned. From there: build wall/gatehouse/tower on the LAYER (never the
+village map) to extend or reshape the derived starting template; assign garrison by posting idle
+units to the layer; repair storm damage from the village's own stores once the strike-again window
+elapses.
 
-**Internal mechanics.** Castles are special `Village`-like entities with a **defence graph**: wall
-segments and gates are nodes with HP/armour; towers provide ranged coverage arcs; the enclosure
-algorithm computes protected area. Sieges (§8) attack the graph: breaches create assault paths.
-Granary + well determine siege endurance (days of autonomy). Construction consumes cut stone at
-scale — castles are the economy's largest sink.
+**Internal mechanics.** There is ONE castle/defence system (ADR-4 Amendment A1): the Keep — an
+ordinary `military`-category `BuildingDef`, not a `castle`-category one — is the sole gate. No
+wall, gatehouse, or tower is placeable on the village map by anyone, player or AI; `category:
+'castle'` is rejected in the one placement rulebook both share. Layouts are DERIVED, not hand-laid:
+content-defined archetype templates (motte / concentric / ridge-line, doc 07 §5) expand around the
+Keep, additive by village tier — a tier-up spawns only the template entries newly unlocked,
+healing nothing and duplicating nothing — with the tier-2 core free the moment the Keep completes
+and everything past it built like any other structure (stone/wood cost, one-per-day AI queue or a
+player order). Uniform across capitals and non-capitals alike: capital status stays POLITICAL
+(kingdom seat, succession), not military — any keep-bearing village is assault-resolved instead of
+occupation-flipped. Footprints are real CONTENT values, not always 1×1 (Keep 7×7 on the layer vs.
+2×2 on the village map — two deliberately different scales, `defenceFootprint` vs. `footprint`;
+Tower 3×3; Gatehouse 3×2 with a 2×3 orientation twin; Wall stays 1×1), with hp re-scaled per
+frontage tile (`max(w,h)`) so a wider structure isn't proportionally weaker per tile of wall it
+covers — except the gatehouse, whose hp/frontage is a DELIBERATE soft spot the siege AI's
+toughness-aware targeting actually exploits, giving it a real role instead of being strictly
+dominated by the wall. Siege (§8) resolves ASSAULTS spatially on the layer: a deterministic
+flow-field walk from the besieger's approach through walls/towers/garrison to the keep, replayable
+as a trace, not a wall-HP breach count.
 
-**Dependencies.** Economy (stone chain), Village system (shared placement), Military (garrison),
-Combat (siege resolution), Research (fortification tiers), AI construction planner builds castles
-too (AI Doc §5).
+**Dependencies.** Economy (stone/wood chain), Village system (the Keep is placed through the
+ordinary `village.build` path), Military (garrison, siege armies), Combat (assault resolution),
+Research (fortification tiers), AI construction/defence planner builds and defends layers too (AI
+Doc §5).
 
-**Balancing concerns.** Castles must be strong but crackable — defender advantage ~3:1, countered by
-siege tech and starvation; prevent turtle stalemates via victory conditions (§16) and siege
-attrition on defenders; cost tuned so a realm supports few great castles, not walls everywhere.
+**Balancing concerns.** Castles must be strong but crackable — defender advantage countered by a
+determined siege and starvation; prevent turtle stalemates via victory conditions (§16) and siege
+attrition on defenders; cost tuned (hp-per-frontage, garrison caps) so fortification is a real
+investment, not free; the gatehouse's engineered weak point must stay genuinely exploitable, not
+merely nominal.
 
-**Phase 8 delta (ADR-4, ratified 2026-07-15; entered 2026-07-16).** 1.0 shipped this section's
-world-map realization (walls on the village grid, enclosure-derived `isCastle`). Phase 8
-(M49–M54, doc 12 R2) moves the castle grid OFF the world map: each kingdom's CAPITAL gains a
-dedicated ~100×100 defence layer (keep at centre, terrain-bearing, generated once from
-`hash(worldSeed, kingdomId)` and persisted), where walls/towers are placed and garrisons
-posted; siege ASSAULTS resolve spatially on it (§8's other phases unchanged); the world-map
-defence graph and on-map wall placement retire when M50–M51 make the layer the fortification
-surface. Interactions and balancing above otherwise stand. Kingdom death becomes capital-death
-at M53 (doc 14 OQ-9/OQ-11: vassalage-first, permadeath under ironman).
-*Phase 8 shipped in full 2026-07-17 (M49–M54; doc 12's scoping notes are the record): the layer,
-its panel, spatial assaults, templated AI defence, the loss/loot/succession chain, and intel —
-enemy layouts as stale scouting snapshots, garrisons as beliefs, for player and AI symmetrically.*
+**History.** 1.0 shipped a world-map realization of this section instead (walls on the village
+grid, enclosure-derived `isCastle`, a flood-fill "defence graph"). Phase 8 (M49–M54, ADR-4, doc 12
+R2, shipped 2026-07-17) added the layer described above for CAPITALS only, deliberately keeping
+the 1.0 mechanic alive as the non-capital path — a designed but temporary coexistence (doc 15's
+M51 scoping note). Phase 8.1 (M55–M61, ADR-4 Amendment A1, chartered 2026-07-20/21, closed
+2026-07-23) retired that coexistence entirely: `game/castles.ts`, `isCastle`-as-derivation, the
+breach-gated legacy assault path, and all village-map fortification placement are DELETED, not
+merely superseded; the layer re-keyed from kingdom/capital to VILLAGE (M57) so any keep-bearing
+village gets one; a Repair action closed the pre-existing "damage never heals" gap (M58); real
+multi-tile footprints, hp-per-frontage, and the gatehouse's role landed (M59); and an M28-era save's
+grandfathered wall/gate/tower/keep buildings load as INERT ordinary buildings — occupancy-blocking,
+demolishable, no graph, no siege meaning — with `VillageCore.isCastle` staying in the save schema,
+deprecated, never set true again (M60, an accepted one-time behaviour snap, same class as OQ-9's
+re-derivation snap).
 
 ---
 
@@ -232,13 +255,14 @@ target priority, withdraw. Sieges add: assault / bombard / starve-out choices an
   hill, forest modifiers) in combat sub-ticks. Units fight by lines (front/flank/reserve); damage =
   attack vs. defence with morale as the true HP — most battles end in rout, not annihilation.
   Casualties split kill/wound/capture; wounded recover, captives feed diplomacy (ransom).
-- **Sieges:** phased — encircle → bombard/mine (vs. defence graph) → assault (breach paths) or
-  starve (granary countdown). Sorties possible for defenders.
+- **Sieges:** phased — encircle → assault, resolved as a deterministic flow-field walk across the
+  defender's castle layer (§7), or starve (no outside supply while besieged, a season-scale
+  countdown). Sorties possible for defenders.
 - **Auto-resolve** always available; must use the same math with a neutral commander policy so
   outcomes are consistent with manual play (critical for AI-vs-AI battles).
 
-**Dependencies.** Military (unit stats), Castles (defence graph), Terrain (modifiers), AI tactical
-layer (AI Doc §3), Events (battle aftermath), World sim (armies collide on the map).
+**Dependencies.** Military (unit stats), Castles (the defence layer, §7), Terrain (modifiers), AI
+tactical layer (AI Doc §3), Events (battle aftermath), World sim (armies collide on the map).
 
 **Balancing concerns.** Auto-resolve vs. manual outcome parity within ±10% expected casualties (else
 manual becomes mandatory grind); morale tuning so elite-small vs. cheap-mass are both viable; siege

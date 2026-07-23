@@ -178,8 +178,8 @@ export function registerSuccessionGameplay(
   const kingdomIndexOf = (id: number): number => kingdoms().indexOf(id as EntityId);
   const isAi = (k: number): boolean => k >= options.aiFromIndex;
 
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   const ownerOf = (castleVi: number): number => world.read(VillageOwner).kingdom[castleVi] as number;
@@ -217,15 +217,15 @@ export function registerSuccessionGameplay(
   });
 
   // ---------------- succession.destroy: the sack (unscoped command context) ----------------
-  kernel.registerCommand<{ castle: number }>('succession.destroy', (ctx, p) => {
+  kernel.registerCommand<{ castle: number }>('succession.destroy', (ctx, p, command) => {
     const castle = index(p.castle | 0);
     const s = siegeGame.state.siegeOfCastle(castle);
-    if (s === undefined || s.fallenDeadline === 0) return reject(ctx, 'succession.destroy', 'no fallen capital here');
+    if (s === undefined || s.fallenDeadline === 0) return reject(ctx, 'succession.destroy', 'no fallen capital here', command.issuer);
     const defenderId = ownerOf(castle);
     const defenderK = kingdomIndexOf(defenderId);
     const attackerId = s.attackerKingdom;
     const attackerK = kingdomIndexOf(attackerId);
-    if (defenderK < 0 || attackerK < 0) return reject(ctx, 'succession.destroy', 'no such kingdom');
+    if (defenderK < 0 || attackerK < 0) return reject(ctx, 'succession.destroy', 'no such kingdom', command.issuer);
     const name = world.readObj(game.comps.VillageName).tryGet(castle) ?? `village ${castle}`;
 
     // 1. gold: the treasury transfers WHOLE, ledger-explicit (ADR-4 §3 — M13's
@@ -317,10 +317,10 @@ export function registerSuccessionGameplay(
       world.despawn(army as EntityId);
     }
 
-    // 7. the castle burned with the realm — keep-only ground for whoever rises here
-    defenceGame.resetKingdom(defenderK);
-
-    // 8. the record: sack report, death mark, composition bookkeeping
+    // 7. the record: sack report, death mark, composition bookkeeping — the castle's
+    // defence layer burned with it too: M57 re-keyed the layer to the VILLAGE, so
+    // `game.ops.raze(ctx, castle)` at step 5 already cleared it (defence.ts subscribes to
+    // `village.razed` itself; no explicit reset call needed here any more).
     state.deaths.set(defenderK, state.deaths.get(defenderK) ?? ctx.tick);
     state.offered.delete(castle);
     options.onKingdomDeath(defenderK);
@@ -337,34 +337,34 @@ export function registerSuccessionGameplay(
   kernel.registerCommand<{ castle: number }>('siege.acceptCapitulation', (ctx, p, command) => {
     const castle = index(p.castle | 0);
     const s = siegeGame.state.siegeOfCastle(castle);
-    if (s === undefined || s.fallenDeadline === 0) return reject(ctx, 'siege.acceptCapitulation', 'no fallen capital here');
+    if (s === undefined || s.fallenDeadline === 0) return reject(ctx, 'siege.acceptCapitulation', 'no fallen capital here', command.issuer);
     const issuerKingdom = kingdoms()[command.issuer - 1] ?? kingdoms()[0];
     if (issuerKingdom === undefined || (issuerKingdom as number) !== s.attackerKingdom) {
-      return reject(ctx, 'siege.acceptCapitulation', 'not your siege');
+      return reject(ctx, 'siege.acceptCapitulation', 'not your siege', command.issuer);
     }
-    if (!state.offered.has(castle)) return reject(ctx, 'siege.acceptCapitulation', 'no homage has been offered');
+    if (!state.offered.has(castle)) return reject(ctx, 'siege.acceptCapitulation', 'no homage has been offered', command.issuer);
     capitulate(ctx, castle, ownerOf(castle), s.attackerKingdom);
   });
 
   // ---------------- succession.rise: a new banner on the vacant heartland ----------------
-  kernel.registerCommand<{ kingdomIndex: number }>('succession.rise', (ctx, p) => {
+  kernel.registerCommand<{ kingdomIndex: number }>('succession.rise', (ctx, p, command) => {
     const kIdx = p.kingdomIndex | 0;
     const deathTick = state.deaths.get(kIdx);
-    if (deathTick === undefined) return reject(ctx, 'succession.rise', 'that kingdom is not vacant');
+    if (deathTick === undefined) return reject(ctx, 'succession.rise', 'that kingdom is not vacant', command.issuer);
     if (ctx.tick < deathTick + NEW_LORD_COOLDOWN_DAYS * TICKS_PER_DAY) {
-      return reject(ctx, 'succession.rise', 'the land still mourns — cooldown not elapsed');
+      return reject(ctx, 'succession.rise', 'the land still mourns — cooldown not elapsed', command.issuer);
     }
-    if (victoryGame.winner() !== null) return reject(ctx, 'succession.rise', 'the campaign is decided');
+    if (victoryGame.winner() !== null) return reject(ctx, 'succession.rise', 'the campaign is decided', command.issuer);
     const kingdomId = kingdoms()[kIdx];
-    if (kingdomId === undefined) return reject(ctx, 'succession.rise', 'no such kingdom slot');
+    if (kingdomId === undefined) return reject(ctx, 'succession.rise', 'no such kingdom slot', command.issuer);
     const home = options.homeSiteOf(kIdx);
     const site = bestSiteNear(game, db, home.x, home.y, NEW_LORD_SEARCH_RADIUS);
-    if (site === null) return reject(ctx, 'succession.rise', 'no valid founding site near the old heartland');
+    if (site === null) return reject(ctx, 'succession.rise', 'no valid founding site near the old heartland', command.issuer);
     const result = game.ops.found(ctx, site.x, site.y, options.newLordNameOf(kIdx), options.startingStock, undefined, {
       component: VillageOwner,
       kingdomId,
     });
-    if (typeof result === 'string') return reject(ctx, 'succession.rise', result);
+    if (typeof result === 'string') return reject(ctx, 'succession.rise', result, command.issuer);
     // a clean slate: no inherited wars, grudges, fealty, or defeat mark — and the
     // modest founding treasury every genesis lord started with
     diplomacy.resetKingdom(kingdomId as number);

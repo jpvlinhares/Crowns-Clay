@@ -10,7 +10,7 @@
 import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelEnemyIntelRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
-  DEFENCE_MAP_SIZE, KEEP_DEF, STANCES, TickDriver, composeCampaign, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  DEFENCE_MAP_SIZE, STANCES, TickDriver, composeCampaign, defenceFootprintOf, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
@@ -66,6 +66,15 @@ export interface SimSession {
    * def's footprint so the client can draw the outline straight from the reply. Unknown
    * def → not placeable, 1×1 (a harmless default the renderer can still outline). */
   previewPlacement(villageId: number, defId: string, x: number, y: number): { ok: boolean; w: number; h: number };
+  /** M62: the defence-layer counterpart — runs the sim's OWN `defence.build` bounds/terrain/
+   * occupancy rulebook read-only (no command, no mutation) so the Castle panel's footprint
+   * preview honours the identical rule the command will. `x`/`y` are the structure origin.
+   * `{ ok: false }` on the terra composition (no defence layer) or an unknown def. */
+  previewDefenceBuild(villageId: number, defId: string, x: number, y: number): { ok: boolean };
+  /** M-era: read-only dry run of logistics' road rulebook (the exact validation `village.buildRoad`
+   * enforces) so the road tool's green/red cursor can't drift from placement. `{ ok: false }` when
+   * no village is under the cursor (villageId < 0). */
+  previewBuildRoad(villageId: number, x: number, y: number): { ok: boolean };
 }
 
 /**
@@ -202,15 +211,20 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
     };
 
     // ---- defence layer (M50): the PLAYER's own castle map, structures, and garrison posts ----
+    // M57: village-keyed — the player's OPERATED village (capital, or its rebind target),
+    // not kingdom 0 directly.
+    const playerVillage = cc.villageOf(0);
     const defence = ((): PanelDefenceState | null => {
-      const map = cc.defenceGame.mapOf(0);
+      if (playerVillage === null) return null;
+      const map = cc.defenceGame.mapOf(playerVillage);
       if (map === undefined) return null;
       const s = world.read(cc.defenceGame.DefenceStructure);
-      const fort = world.read(cc.castleGame.Fortification);
+      const fort = world.read(cc.defenceGame.Fortification);
       const structures: PanelDefenceStructureRec[] = [];
       world.query([cc.defenceGame.DefenceStructure]).forEach((si, entity) => {
-        if ((s.kingdom[si] as number) !== 0) return;
+        if (((s.village[si] as number) & 0x3fffff) !== playerVillage) return;
         const def = game.ops.buildingDef(s.def[si] as number);
+        const fp = defenceFootprintOf(def);
         structures.push({
           id: entity as number,
           defId: def.id,
@@ -218,8 +232,8 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
           kind: def.defense?.kind ?? 'wall',
           x: s.x[si] as number,
           y: s.y[si] as number,
-          w: def.footprint.w,
-          h: def.footprint.h,
+          w: fp.w,
+          h: fp.h,
           hp: fort.hp[idx(entity as number)] as number,
           maxHp: fort.maxHp[idx(entity as number)] as number,
         });
@@ -231,7 +245,8 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
         posts.push({ unitId: entity as number, x: post.x[pi] as number, y: post.y[pi] as number });
       });
       const buildable = [...db.buildings.values()]
-        .filter((def) => def.defense !== undefined && def.id !== KEEP_DEF)
+        // M59: kind-based, not id-based — the keep-core scale is genesis-only.
+        .filter((def) => def.defense !== undefined && def.defense.kind !== 'keep')
         .map((def) => ({
           defId: def.id,
           name: def.name,
@@ -240,7 +255,15 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
           h: def.footprint.h,
           cost: Object.entries(def.cost).map(([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount]),
         }));
-      return { size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles), structures, posts, buildable };
+      // M58: repair — cost display-ready like `buildable[].cost`, and the in-flight window.
+      const repairCost = [...cc.defenceGame.repairCostOf(playerVillage)].map(
+        ([resId, amount]): [string, number] => [db.resources.get(resId)?.name ?? resId, amount],
+      );
+      const repairingUntil = cc.defenceGame.repairingUntil(playerVillage) ?? null;
+      return {
+        villageId: playerVillage, size: DEFENCE_MAP_SIZE, tiles: encodeDefenceMap(map.tiles),
+        structures, posts, buildable, repairCost, repairingUntil,
+      };
     })();
 
     // ---- enemy intel (M54, ADR-4 §4): the player's STALE snapshot of each rival capital —
@@ -250,9 +273,10 @@ function buildPanelsProjection(cc: CampaignComposition): () => PlayerPanels {
     if (cc.intelGame !== null) {
       for (let k = 1; k < kingdomIds.length; k++) {
         const snap = cc.intelGame.state.get(0, k);
-        const map = cc.defenceGame.mapOf(k);
-        if (snap === undefined || map === undefined) continue;
         const vi = cc.villageOf(k);
+        // M57: intel stays capital-scoped (doc 07 §4) — the rival's CAPITAL village's layer.
+        const map = vi === null ? undefined : cc.defenceGame.mapOf(vi);
+        if (snap === undefined || map === undefined) continue;
         const believed = cc.believedGarrisonOf(0, k);
         enemyIntel.push({
           kingdom: k,
@@ -309,6 +333,10 @@ function buildCatalogs(db: DefinitionDatabase, locale: Locale, includeUnits: boo
       : {}),
     buildings: [...db.buildings.values()]
       .filter((def) => !def.tags.includes('center')) // centres come from settlers, not the palette
+      // M56 (ADR-4 Amendment A1): castle-category defs belong to the defence-map palette
+      // (buildable, above), not this village-map one — village.ops.place() rejects them too
+      // (belt-and-braces, matching the earlier 2026-07-20 investigation's approach).
+      .filter((def) => def.category !== 'castle')
       .map((def) => ({
         id: def.id,
         name: def.name,
@@ -429,6 +457,18 @@ export function createSession(
       if (def === undefined) return { ok: false, w: 1, h: 1 };
       const verdict = c.game.ops.validatePlacement(def, x | 0, y | 0, villageId as EntityId);
       return { ok: verdict.ok, w: def.footprint.w, h: def.footprint.h };
+    },
+    previewDefenceBuild(villageId, defId, x, y) {
+      if (!('defenceGame' in c)) return { ok: false }; // terra composition has no layer
+      const def = c.db.buildings.get(defId);
+      if (def === undefined) return { ok: false };
+      // `villageId` is the player-village index the panel projection carries; the real command
+      // masks it the same way, so masking here keeps the probe and the command in lock-step.
+      return { ok: c.defenceGame.placementReason(villageId & 0x3fffff, def, x | 0, y | 0) === null };
+    },
+    previewBuildRoad(villageId, x, y) {
+      if (villageId < 0) return { ok: false }; // no village under the cursor → not pavable
+      return { ok: c.logiGame.roadReason(villageId, x | 0, y | 0) === null };
     },
     kernel: c.kernel,
     driver: new TickDriver(c.kernel, { maxTicksPerAdvance: 32 }),
@@ -591,8 +631,8 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
     const territory = session.territoryEmitter.delta();
     if (
       spawned.length > 0 || moved.length > 0 || despawned.length > 0 || villageStats.length > 0 ||
-      b.added.length > 0 || b.progress.length > 0 || b.removed.length > 0 || roadsAdded.length > 0 ||
-      territory.territoryAdded.length > 0 || territory.fogRevealedAdded.length > 0
+      b.added.length > 0 || b.progress.length > 0 || b.paused.length > 0 || b.removed.length > 0 ||
+      roadsAdded.length > 0 || territory.territoryAdded.length > 0 || territory.fogRevealedAdded.length > 0
     ) {
       send({
         kind: 'snapshotDelta',
@@ -603,6 +643,7 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
         villageStats,
         buildingsAdded: b.added,
         buildingProgress: b.progress,
+        buildingPaused: b.paused,
         buildingsRemoved: b.removed,
         roadsAdded,
         territoryAdded: territory.territoryAdded,
@@ -736,6 +777,18 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
           if (session === null) return;
           const { ok, w, h } = session.previewPlacement(message.villageId, message.def, message.x, message.y);
           send({ kind: 'buildPreview', seq: message.seq, x: message.x, y: message.y, w, h, ok });
+          return;
+        }
+        case 'previewDefenceBuild': {
+          if (session === null) return;
+          const { ok } = session.previewDefenceBuild(message.villageId, message.def, message.x, message.y);
+          send({ kind: 'defenceBuildPreview', seq: message.seq, ok });
+          return;
+        }
+        case 'previewBuildRoad': {
+          if (session === null) return;
+          const { ok } = session.previewBuildRoad(message.villageId, message.x, message.y);
+          send({ kind: 'buildRoadPreview', seq: message.seq, x: message.x, y: message.y, ok });
           return;
         }
         case 'requestHash':

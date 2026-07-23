@@ -158,6 +158,36 @@ test('chain: a starved recipe consumes nothing — no inputs vanish without outp
   assert.equal(flows.get(v.code('base:resource.stone'))?.consumed ?? 0, 0);
 });
 
+test('production: pausing a completed producer halts its recipe outright; resuming restores it (M-era)', () => {
+  const v = makeEconomy({ food: 200, buildings: ['base:building.farm'] });
+  const farmCode = v.game.ops.defCode('base:building.farm');
+  const bc = v.world.read(v.game.comps.BuildingCore);
+  let farmId = -1;
+  v.world.query([v.game.comps.BuildingCore]).forEach((i, entity) => {
+    if ((bc.def[i] as number) === farmCode) farmId = entity as number;
+  });
+  assert.ok(farmId >= 0, 'the farm exists (founding also placed a village-center — filter it out by def)');
+  v.days(4); // farm (72 ticks) completes; 30 adults ≫ its 4 required
+  const foodCode = v.code('base:resource.food');
+
+  v.econ.ledger.drain();
+  v.days(1);
+  const producedBefore = v.econ.ledger.of(v.vi).get(foodCode)?.produced ?? 0;
+  assert.ok(Math.abs(producedBefore - 8) < 0.05, `unpaused farm should yield ~8/day, got ${producedBefore.toFixed(2)}`);
+
+  assert.equal(v.game.ops.setPaused(farmId, true), true);
+  v.econ.ledger.drain();
+  v.days(1);
+  const producedPaused = v.econ.ledger.of(v.vi).get(foodCode)?.produced ?? 0;
+  assert.equal(producedPaused, 0, 'a paused farm produces nothing, even with adults available and stock room to spare');
+
+  assert.equal(v.game.ops.setPaused(farmId, false), true);
+  v.econ.ledger.drain();
+  v.days(1);
+  const producedResumed = v.econ.ledger.of(v.vi).get(foodCode)?.produced ?? 0;
+  assert.ok(Math.abs(producedResumed - 8) < 0.05, `resumed farm should yield ~8/day again, got ${producedResumed.toFixed(2)}`);
+});
+
 // ---------------- conservation property (the M13 test objective) ----------------
 
 test('conservation: fuzzed compositions and commands reconcile over every window', () => {

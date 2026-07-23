@@ -263,10 +263,10 @@ export function registerSettlerGameplay(
 
   kernel.registerCommand<{ villageId: number; x: number; y: number; name: string }>(
     'village.sendSettlers',
-    (ctx, p) => {
+    (ctx, p, command) => {
       const result = dispatch(ctx, p.villageId | 0, p.x | 0, p.y | 0, String(p.name ?? 'Newholm'));
       if (typeof result === 'string') {
-        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.sendSettlers', reason: result } });
+        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.sendSettlers', reason: result, issuer: command.issuer } });
       }
     },
   );
@@ -430,12 +430,12 @@ export function registerSettlerGameplay(
 
   kernel.registerCommand<{ villageId: number }>('village.upgrade', (ctx, p, command) => {
     if (ownershipGuard !== null && !ownershipGuard(command.issuer, p.villageId | 0)) {
-      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: 'not your village' } });
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: 'not your village', issuer: command.issuer } });
       return;
     }
     const result = upgrade(ctx, p.villageId | 0);
     if (typeof result === 'string') {
-      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: result } });
+      ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.upgrade', reason: result, issuer: command.issuer } });
     }
   });
 

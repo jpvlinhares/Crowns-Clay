@@ -147,8 +147,8 @@ export function registerCombatGameplay(
   const state = new CombatState();
   kernel.addHashSource('combat', (fold) => state.fold(fold));
 
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   const kingdomForIssuer = (issuer: number): EntityId | undefined => {
@@ -312,14 +312,14 @@ export function registerCombatGameplay(
   kernel.registerCommand<{ armyId: number }>('army.withdraw', (ctx, p, command) => {
     const armyId = p.armyId | 0;
     if (!world.isAlive(armyId as EntityId) || !world.has(armyId as EntityId, Army)) {
-      return reject(ctx, 'army.withdraw', 'no such army');
+      return reject(ctx, 'army.withdraw', 'no such army', command.issuer);
     }
     const kingdomId = kingdomForIssuer(command.issuer);
     if (kingdomId === undefined || (world.read(Army).kingdomId[index(armyId)] as number) !== (kingdomId as number)) {
-      return reject(ctx, 'army.withdraw', 'not your army');
+      return reject(ctx, 'army.withdraw', 'not your army', command.issuer);
     }
     const e = state.engagementOf(armyId);
-    if (e === undefined) return reject(ctx, 'army.withdraw', 'not engaged in a battle');
+    if (e === undefined) return reject(ctx, 'army.withdraw', 'not engaged in a battle', command.issuer);
     state.end(e);
     ctx.events.publish({ type: 'battle.withdrawn', tick: ctx.tick, data: { army: armyId } });
   });
@@ -327,13 +327,13 @@ export function registerCombatGameplay(
   kernel.registerCommand<{ armyId: number }>('battle.autoResolve', (ctx, p, command) => {
     const armyId = p.armyId | 0;
     const e = state.engagementOf(armyId);
-    if (e === undefined) return reject(ctx, 'battle.autoResolve', 'not engaged in a battle');
+    if (e === undefined) return reject(ctx, 'battle.autoResolve', 'not engaged in a battle', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
     const a = world.read(Army);
     const belongsToIssuer =
       kingdomId !== undefined &&
       ((a.kingdomId[index(e.armyA)] as number) === (kingdomId as number) || (a.kingdomId[index(e.armyB)] as number) === (kingdomId as number));
-    if (!belongsToIssuer) return reject(ctx, 'battle.autoResolve', 'not your battle');
+    if (!belongsToIssuer) return reject(ctx, 'battle.autoResolve', 'not your battle', command.issuer);
     let rounds = 0;
     while (!isResolved(e) && rounds < MAX_ENGAGEMENT_TICKS * SUBROUNDS_PER_TICK) {
       resolveSubRound(e, ctx.rng);

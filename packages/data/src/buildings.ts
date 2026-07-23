@@ -34,6 +34,13 @@ export interface BuildingDef {
   readonly name: string;
   readonly category: 'civic' | 'housing' | 'service' | 'storage' | 'production' | 'military' | 'castle';
   readonly footprint: { readonly w: number; readonly h: number };
+  /** M59 (ADR-4 A1 open item): the Keep exists at TWO scales — `footprint` prices the
+   * village-map investment (2×2, where `cost`/`requires.villageTier` live); this optional
+   * field is the SEPARATE defence-map occupancy (7×7) the assault flow field actually
+   * consumes. Absent for every other def (wall/tower/gatehouse live on the defence map
+   * only, so their one `footprint` already IS their defence footprint). Read through
+   * `defenceFootprintOf` (game/defence.ts) — never `.footprint` directly on the layer. */
+  readonly defenceFootprint?: { readonly w: number; readonly h: number };
   readonly cost: Readonly<Record<string, number>>;
   readonly buildTicks: number;
   readonly terrainTags: readonly string[];
@@ -117,6 +124,7 @@ export const buildingValidator: Validator<BuildingDef> = v.object(
     name: v.string({ minLength: 1 }),
     category: v.literal('civic', 'housing', 'service', 'storage', 'production', 'military', 'castle'),
     footprint: v.object({ w: v.number({ min: 1, max: 8, integer: true }), h: v.number({ min: 1, max: 8, integer: true }) }),
+    defenceFootprint: v.object({ w: v.number({ min: 1, max: 8, integer: true }), h: v.number({ min: 1, max: 8, integer: true }) }),
     cost: costValidator,
     buildTicks: v.number({ min: 1, integer: true }),
     terrainTags: v.array(v.string({ minLength: 1 }), { minItems: 1 }),
@@ -134,5 +142,5 @@ export const buildingValidator: Validator<BuildingDef> = v.object(
     research: v.object({ pointsPerDay: v.number({ min: 0 }) }),
     tags: v.array(v.string({ minLength: 1 })),
   },
-  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'workers', 'military', 'defense', 'research'] },
+  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'workers', 'military', 'defense', 'research', 'defenceFootprint'] },
 ) as Validator<BuildingDef>;

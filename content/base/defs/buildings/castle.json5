@@ -1,6 +1,18 @@
-// Castles v1 (M28: castle grid, GDD §7). A single wall tier for v1 (stone);
-// wood/reinforced progression deferred. Gates count as wall segments for the
-// enclosure algorithm (game/castles.ts) — a real chokepoint, not a hole.
+// Castle defence-layer structures (M28 origin; M59 real multi-tile footprints, roadmap
+// Phase 8.1). hp is re-scaled per frontage tile (the wall-facing width — `max(w,h)` for
+// every def here) whenever a footprint grows: a multi-tile structure is ONE entity with
+// ONE hp pool, so simply enlarging the footprint without rescaling hp would make every
+// structure dramatically weaker per tile of frontage it actually covers.
+//
+//   |          | Footprint | Frontage | hp   | hp/frontage | Cost              |
+//   |----------|-----------|----------|------|-------------|-------------------|
+//   | Wall     | 1×1       | 1        | 200  | 200         | 8 stone           |
+//   | Gatehouse| 3×2 / 2×3 | 3        | 450  | 150 (soft)  | 20 wood, 35 stone |
+//   | Tower    | 3×3       | 3        | 750  | 250         | 70 stone          |
+//   | Keep     | 7×7       | 7        | 1400 | 200         | unchanged         |
+//
+// The gatehouse is the DELIBERATE soft spot (150 hp/frontage vs the wall's 200) — its
+// role comes from `assault.ts`'s toughness-aware `pickWallTarget`, not raw stats.
 [
   {
     "id": "base:building.wall",
@@ -14,38 +26,68 @@
     "tags": [],
   },
   {
+    // M59: the horizontal-frontage twin — 3 wide (runs ALONG a wall face), 2 deep. Sits
+    // on a wall's north/south face. Rotation is two defs with swapped footprints (the
+    // schema has no orientation field); the palette surfaces one button with a rotate
+    // toggle so the twin (base:building.gatehouse-v) stays an implementation detail.
     "id": "base:building.gatehouse",
     "name": "Gatehouse",
     "category": "castle",
-    "footprint": { "w": 1, "h": 1 },
-    "cost": { "base:resource.wood": 15, "base:resource.stone": 10 },
-    "buildTicks": 36,
+    "footprint": { "w": 3, "h": 2 },
+    "cost": { "base:resource.wood": 20, "base:resource.stone": 35 },
+    "buildTicks": 48,
     "terrainTags": ["open"],
-    "defense": { "hp": 150, "armor": 3, "kind": "gate" },
+    "defense": { "hp": 450, "armor": 3, "kind": "gate" },
+    "military": { "garrisonCap": 8 },
+    "tags": [],
+  },
+  {
+    // M59: the vertical-frontage twin — 2 wide, 3 deep (runs ALONG a wall face on the
+    // east/west sides). Same stats as the horizontal orientation; see that def's comment.
+    "id": "base:building.gatehouse-v",
+    "name": "Gatehouse",
+    "category": "castle",
+    "footprint": { "w": 2, "h": 3 },
+    "cost": { "base:resource.wood": 20, "base:resource.stone": 35 },
+    "buildTicks": 48,
+    "terrainTags": ["open"],
+    "defense": { "hp": 450, "armor": 3, "kind": "gate" },
+    "military": { "garrisonCap": 8 },
     "tags": [],
   },
   {
     "id": "base:building.tower",
     "name": "Tower",
     "category": "castle",
-    "footprint": { "w": 1, "h": 1 },
-    "cost": { "base:resource.stone": 25 },
+    "footprint": { "w": 3, "h": 3 },
+    "cost": { "base:resource.stone": 70 },
     "buildTicks": 60,
     "terrainTags": ["open"],
-    "defense": { "hp": 250, "armor": 6, "kind": "tower", "rangedArc": { "range": 6, "damage": 8 } },
+    "defense": { "hp": 750, "armor": 6, "kind": "tower", "rangedArc": { "range": 6, "damage": 8 } },
     "military": { "garrisonCap": 10 },
     "tags": [],
   },
   {
+    // M57 (ADR-4 A1 option (C)): recategorised out of 'castle' into 'military' — the
+    // Keep is an ordinary village-map building again (its `requires.villageTier`, cost,
+    // storage and garrisonCap are unchanged), so `village.build`'s "no castle-category
+    // structures, ever" guard (M56) needs no allowlist carve-out. It gates the M51
+    // defence layer by its own presence, not by any village-map fortification role.
+    // M59 (ADR-4 A1 open item, resolved): the Keep exists at TWO scales — `footprint`
+    // (2×2) prices the village-map investment; `defenceFootprint` (7×7) is the SEPARATE
+    // defence-map occupancy the assault flow field actually consumes. `defense.hp` is
+    // the LAYER structure's hp pool (1400, rescaled to 200/frontage like everything
+    // else) — dormant on the village-map building, same as armor/holdStrength already are.
     "id": "base:building.keep",
     "name": "Keep",
-    "category": "castle",
+    "category": "military",
     "footprint": { "w": 2, "h": 2 },
+    "defenceFootprint": { "w": 7, "h": 7 },
     "cost": { "base:resource.wood": 20, "base:resource.stone": 60 },
     "buildTicks": 144,
     "terrainTags": ["open"],
     "requires": { "villageTier": 2 },
-    "defense": { "hp": 400, "armor": 8, "kind": "keep", "holdStrength": 60 },
+    "defense": { "hp": 1400, "armor": 8, "kind": "keep", "holdStrength": 60 },
     "military": { "garrisonCap": 40 },
     "storage": { "capacity": 200 },
     "tags": [],

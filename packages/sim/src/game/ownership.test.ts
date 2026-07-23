@@ -61,3 +61,19 @@ test('ownership: the player cannot build on or upgrade an AI-owned village', () 
   assert.ok(rejections.includes('village.build'), 'the cross-kingdom build was rejected');
   assert.ok(rejections.includes('village.upgrade'), 'the cross-kingdom upgrade was rejected');
 });
+
+test('ownership: the player cannot pause a production building on an AI-owned village (M-era)', () => {
+  const { c, aiVi, rejections } = setup();
+  // any building belonging to the AI capital — the ownership guard fires before the
+  // complete/worker-slots checks, so it doesn't matter whether this one even finished
+  const bc = c.world.read(c.game.comps.BuildingCore);
+  let aiBuildingId = -1;
+  c.world.query([c.game.comps.BuildingCore]).forEach((i, entity) => {
+    if (aiBuildingId < 0 && ((bc.village[i] as number) & 0x3fffff) === aiVi) aiBuildingId = entity as number;
+  });
+  assert.ok(aiBuildingId >= 0, 'the AI capital has at least one building after genesis');
+
+  c.kernel.submit({ type: 'village.setBuildingPaused', issuer: PLAYER_ISSUER, payload: { buildingId: aiBuildingId, paused: true } });
+  c.kernel.step();
+  assert.ok(rejections.includes('village.setBuildingPaused'), 'the cross-kingdom pause order was rejected');
+});

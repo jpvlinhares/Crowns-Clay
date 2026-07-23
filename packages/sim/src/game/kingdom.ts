@@ -334,17 +334,17 @@ export function registerKingdomGameplay(
   };
 
   // ---------------- commands ----------------
-  const reject = (ctx: TickContext, what: string, reason: string): void => {
-    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason } });
+  const reject = (ctx: TickContext, what: string, reason: string, issuer: number): void => {
+    ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what, reason, issuer } });
   };
 
   kernel.registerCommand<{ villageId: number; rate: number }>('village.setTaxRate', (ctx, p, command) => {
     const village = p.villageId as EntityId;
-    if (!world.isAlive(village)) return reject(ctx, 'village.setTaxRate', 'no such village');
-    if (!ownsVillage(command.issuer, p.villageId)) return reject(ctx, 'village.setTaxRate', 'not your village');
+    if (!world.isAlive(village)) return reject(ctx, 'village.setTaxRate', 'no such village', command.issuer);
+    if (!ownsVillage(command.issuer, p.villageId)) return reject(ctx, 'village.setTaxRate', 'not your village', command.issuer);
     const rate = p.rate | 0;
     if (rate < 0 || rate >= TAX_RATES.length) {
-      return reject(ctx, 'village.setTaxRate', `rate must be 0..${TAX_RATES.length - 1} (none/low/normal/high/punitive)`);
+      return reject(ctx, 'village.setTaxRate', `rate must be 0..${TAX_RATES.length - 1} (none/low/normal/high/punitive)`, command.issuer);
     }
     const core = world.write(VillageCore);
     core.taxRate[index(p.villageId)] = rate;
@@ -352,18 +352,18 @@ export function registerKingdomGameplay(
 
   kernel.registerCommand<{ edict: string }>('kingdom.enactEdict', (ctx, p, command) => {
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === null) return reject(ctx, 'kingdom.enactEdict', 'no kingdom');
+    if (kingdomId === null) return reject(ctx, 'kingdom.enactEdict', 'no kingdom', command.issuer);
     const code = edictCode.get(String(p.edict));
-    if (code === undefined) return reject(ctx, 'kingdom.enactEdict', `unknown edict '${String(p.edict)}'`);
+    if (code === undefined) return reject(ctx, 'kingdom.enactEdict', `unknown edict '${String(p.edict)}'`, command.issuer);
     const ki = index(kingdomId as number);
     const active = world.writeObj(ActiveEdicts).tryGet(ki);
-    if (active === undefined) return reject(ctx, 'kingdom.enactEdict', 'no kingdom');
-    if (active.has(code)) return reject(ctx, 'kingdom.enactEdict', 'already enacted');
-    if (active.size >= EDICT_CAP) return reject(ctx, 'kingdom.enactEdict', `edict cap reached (${EDICT_CAP})`);
+    if (active === undefined) return reject(ctx, 'kingdom.enactEdict', 'no kingdom', command.issuer);
+    if (active.has(code)) return reject(ctx, 'kingdom.enactEdict', 'already enacted', command.issuer);
+    if (active.size >= EDICT_CAP) return reject(ctx, 'kingdom.enactEdict', `edict cap reached (${EDICT_CAP})`, command.issuer);
     const k = world.write(Kingdom);
     const upkeep = edictById(code).upkeep;
     if ((k.treasury[ki] as number) < upkeep) {
-      return reject(ctx, 'kingdom.enactEdict', `treasury cannot cover upkeep (${(k.treasury[ki] as number).toFixed(0)}/${upkeep})`);
+      return reject(ctx, 'kingdom.enactEdict', `treasury cannot cover upkeep (${(k.treasury[ki] as number).toFixed(0)}/${upkeep})`, command.issuer);
     }
     active.set(code, ctx.tick);
     rebuildModifiers();
@@ -372,11 +372,11 @@ export function registerKingdomGameplay(
 
   kernel.registerCommand<{ edict: string }>('kingdom.repealEdict', (ctx, p, command) => {
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === null) return reject(ctx, 'kingdom.repealEdict', 'no kingdom');
+    if (kingdomId === null) return reject(ctx, 'kingdom.repealEdict', 'no kingdom', command.issuer);
     const code = edictCode.get(String(p.edict));
-    if (code === undefined) return reject(ctx, 'kingdom.repealEdict', `unknown edict '${String(p.edict)}'`);
+    if (code === undefined) return reject(ctx, 'kingdom.repealEdict', `unknown edict '${String(p.edict)}'`, command.issuer);
     const active = world.writeObj(ActiveEdicts).tryGet(index(kingdomId as number));
-    if (active === undefined || !active.has(code)) return reject(ctx, 'kingdom.repealEdict', 'not active');
+    if (active === undefined || !active.has(code)) return reject(ctx, 'kingdom.repealEdict', 'not active', command.issuer);
     active.delete(code);
     rebuildModifiers();
     ctx.events.publish({ type: 'kingdom.edictRepealed', tick: ctx.tick, data: { edict: String(p.edict) } });
@@ -384,15 +384,15 @@ export function registerKingdomGameplay(
 
   kernel.registerCommand<{ office: string; characterId: number }>('kingdom.appoint', (ctx, p, command) => {
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === null) return reject(ctx, 'kingdom.appoint', 'no kingdom');
+    if (kingdomId === null) return reject(ctx, 'kingdom.appoint', 'no kingdom', command.issuer);
     const office = String(p.office) as Office;
-    if (!OFFICES.includes(office)) return reject(ctx, 'kingdom.appoint', `unknown office '${String(p.office)}' (${OFFICES.join('/')})`);
+    if (!OFFICES.includes(office)) return reject(ctx, 'kingdom.appoint', `unknown office '${String(p.office)}' (${OFFICES.join('/')})`, command.issuer);
     const character = p.characterId as EntityId;
     if (!world.isAlive(character) || !world.has(character, Character)) {
-      return reject(ctx, 'kingdom.appoint', 'no such character');
+      return reject(ctx, 'kingdom.appoint', 'no such character', command.issuer);
     }
     const age = world.read(Character).age[index(character)] as number;
-    if (age < MIN_OFFICE_AGE) return reject(ctx, 'kingdom.appoint', `too young for office (age ${age} < ${MIN_OFFICE_AGE})`);
+    if (age < MIN_OFFICE_AGE) return reject(ctx, 'kingdom.appoint', `too young for office (age ${age} < ${MIN_OFFICE_AGE})`, command.issuer);
     const k = world.write(Kingdom);
     const ki = index(kingdomId as number);
     // one office per person: vacate any seat they already hold
@@ -406,11 +406,11 @@ export function registerKingdomGameplay(
 
   // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
   kernel.registerCommand<{ amount: number }>('sandbox.setTreasury', (ctx, p, command) => {
-    if (!sandboxEnabled) return reject(ctx, 'sandbox.setTreasury', 'sandbox mode is not enabled');
+    if (!sandboxEnabled) return reject(ctx, 'sandbox.setTreasury', 'sandbox mode is not enabled', command.issuer);
     const kingdomId = kingdomForIssuer(command.issuer);
-    if (kingdomId === null) return reject(ctx, 'sandbox.setTreasury', 'no kingdom');
+    if (kingdomId === null) return reject(ctx, 'sandbox.setTreasury', 'no kingdom', command.issuer);
     const amount = Number(p.amount);
-    if (!Number.isFinite(amount) || amount < 0) return reject(ctx, 'sandbox.setTreasury', 'amount must be a non-negative number');
+    if (!Number.isFinite(amount) || amount < 0) return reject(ctx, 'sandbox.setTreasury', 'amount must be a non-negative number', command.issuer);
     const ki = index(kingdomId as number);
     world.write(Kingdom).treasury[ki] = amount;
     ctx.events.publish({ type: 'sandbox.treasurySet', tick: ctx.tick, data: { kingdom: kingdomId as number, amount } });

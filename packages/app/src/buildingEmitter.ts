@@ -15,7 +15,7 @@ const vindex = (id: number): number => id & 0x3fffff;
 const TERRITORY_RADIUS = 32;
 
 export class BuildingEmitter {
-  private readonly known = new Map<number, number>(); // id → last progress sent
+  private readonly known = new Map<number, { progress: number; paused: boolean }>();
 
   constructor(
     private readonly world: World,
@@ -26,6 +26,7 @@ export class BuildingEmitter {
     const b = this.world.read(this.game.comps.BuildingCore);
     this.world.query([this.game.comps.BuildingCore]).forEach((i, entity) => {
       const def = this.game.ops.buildingDef(b.def[i] as number);
+      const pausable = (def.workers?.required ?? 0) > 0;
       cb({
         id: entity as number,
         name: def.name,
@@ -39,6 +40,8 @@ export class BuildingEmitter {
         // capacity straight from the def — generic, so modded buildings surface it too
         storageCapacity: def.storage?.capacity ?? 0,
         housingCapacity: def.housing?.capacity ?? 0,
+        pausable,
+        paused: pausable && this.world.has(entity, this.game.comps.BuildingPaused),
       });
     });
   }
@@ -47,31 +50,35 @@ export class BuildingEmitter {
     this.known.clear();
     const out: BuildingRec[] = [];
     this.scan((rec) => {
-      this.known.set(rec.id, rec.progress);
+      this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
       out.push(rec);
     });
     return out;
   }
 
-  delta(): { added: BuildingRec[]; progress: number[]; removed: number[] } {
+  delta(): { added: BuildingRec[]; progress: number[]; paused: number[]; removed: number[] } {
     const added: BuildingRec[] = [];
     const progress: number[] = [];
+    const paused: number[] = [];
     const seen = new Set<number>();
     this.scan((rec) => {
       seen.add(rec.id);
       const last = this.known.get(rec.id);
       if (last === undefined) {
-        this.known.set(rec.id, rec.progress);
+        this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
         added.push(rec);
-      } else if (last !== rec.progress) {
-        this.known.set(rec.id, rec.progress);
-        progress.push(rec.id, rec.progress);
+      } else {
+        if (last.progress !== rec.progress) progress.push(rec.id, rec.progress);
+        if (last.paused !== (rec.paused ?? false)) paused.push(rec.id, rec.paused ? 1 : 0);
+        if (last.progress !== rec.progress || last.paused !== (rec.paused ?? false)) {
+          this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
+        }
       }
     });
     const removed: number[] = [];
     for (const id of this.known.keys()) if (!seen.has(id)) removed.push(id);
     for (const id of removed) this.known.delete(id);
-    return { added, progress, removed };
+    return { added, progress, paused, removed };
   }
 }
 
@@ -145,12 +152,14 @@ export class VillageStatsEmitter {
     const housingByV = new Map<number, number>();
     const storageByV = new Map<number, number>();
     const serviceJoyByV = new Map<number, number>(); // Σ joy service auras, capped (needs system)
+    const workingByV = new Map<number, number>(); // Σ workers on completed buildings (jobs solver)
     this.world.query([this.game.comps.BuildingCore]).forEach((i) => {
       if ((bc.complete[i] as number) !== 1) return;
       const vi = vindex(bc.village[i] as number);
       const def = this.game.ops.buildingDef(bc.def[i] as number);
       housingByV.set(vi, (housingByV.get(vi) ?? 0) + (def.housing?.capacity ?? 0));
       storageByV.set(vi, (storageByV.get(vi) ?? 0) + (def.storage?.capacity ?? 0));
+      workingByV.set(vi, (workingByV.get(vi) ?? 0) + (bc.workers[i] as number));
       if (def.serviceAura?.need === 'joy') {
         serviceJoyByV.set(vi, Math.min(SERVICE_JOY_CAP, (serviceJoyByV.get(vi) ?? 0) + def.serviceAura.strength));
       }
@@ -188,10 +197,18 @@ export class VillageStatsEmitter {
         migrationPerDay: round(joyMigration(happiness, total, housingCap), 2),
         fertility: round(joyFertility(happiness), 2),
       };
+      // workforce split (M-era labour legibility): mirrors the jobs solver's own bookkeeping —
+      // floor(adults) is the pool it distributes, haulers and Σworkers are what it claimed, and
+      // the remainder is idle. Uses the SAME floor(adults) the solver uses, so idle never goes
+      // negative and the three always sum to the shown pool.
+      const working = Math.round(workingByV.get(vi) ?? 0);
+      const hauling = Math.round(pop.haulers[vi] as number);
+      const idle = Math.max(0, Math.floor(pop.adults[vi] as number) - working - hauling);
       const stat = {
         id: entity as number,
         name: names.tryGet(vi) ?? `village ${vi}`,
         population: Math.floor(total),
+        workforce: { working, hauling, idle },
         food: Math.floor(stock?.get(foodCode) ?? 0),
         happiness: Math.round(happiness),
         goods,
@@ -205,7 +222,7 @@ export class VillageStatsEmitter {
         cy: core.centerY[vi] as number,
         owned: ownerCol === null || playerKingdom === undefined || (ownerCol.kingdom[vi] as number) === (playerKingdom as number),
       };
-      const key = `${stat.population}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}|${joy.target}|${joy.migrationPerDay}|${joy.fertility}|${factors.map((f) => f.value).join(',')}|${stat.owned ? 1 : 0}`;
+      const key = `${stat.population}|${working},${hauling},${idle}|${stat.food}|${stat.happiness}|${stat.tier}|${stat.taxRate}|${stat.housing}|${stat.stockCap}|${Object.entries(goods).flat().join(',')}|${joy.target}|${joy.migrationPerDay}|${joy.fertility}|${factors.map((f) => f.value).join(',')}|${stat.owned ? 1 : 0}`;
       if (this.last.get(stat.id) !== key) {
         this.last.set(stat.id, key);
         out.push(stat);
