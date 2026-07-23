@@ -360,6 +360,14 @@ function renderVillagePanel(): void {
     'Joy (happiness) drives tax yield and population growth — low joy risks unrest.\n' +
       'Food must stay positive daily, or the village starves.',
   ));
+  if (v.workforce !== undefined) {
+    const w = v.workforce;
+    body.append(tip(
+      el('div', `⚒ ${w.working} working · 🛒 ${w.hauling} hauling · 💤 ${w.idle} idle`, 'row hint'),
+      'How the adult workforce split at the last hourly jobs solve: staffing completed buildings,\n' +
+        'carrying goods to the stockpile, and idle. Updates on the hour, not the instant you act.',
+    ));
+  }
   const goods = Object.entries(v.goods).map(([name, amount]) => `${name} ${String(amount)}`).join(' · ');
   if (goods.length > 0) {
     body.append(tip(el('div', goods, 'row'), 'Stockpiled resources — spent on construction, upkeep, and edicts.'));
@@ -424,6 +432,18 @@ function renderBuildPalette(): void {
     return;
   }
   body.append(el('div', 'Pick a building, then click map tiles to place copies. Right-click or Esc exits. While paused, placements are planned as blueprints — click one to cancel it before resuming.', 'hint'));
+  // Road tool (M-era): a peer of the building buttons, but paves 1 stone/tile dirt roads instead of
+  // placing a building. Mutually exclusive with building placement (setRoadTool disarms the other).
+  {
+    const row = el('div', undefined, 'row');
+    const b = document.createElement('button');
+    b.textContent = '🛤 Road — 1 stone/tile';
+    tip(b, 'Pave a dirt road on your own village\'s tiles (speeds haulers). Click tiles one at a time;\nright-click or Esc exits. Green = pavable, red = blocked (water, occupied, already roaded, or no stone).');
+    if (roadToolArmed) b.classList.add('armed');
+    b.addEventListener('click', () => setRoadTool(!roadToolArmed));
+    row.append(b);
+    body.append(row);
+  }
   for (const building of catalog.buildings) {
     const row = el('div', undefined, 'row');
     const b = document.createElement('button');
@@ -440,6 +460,7 @@ function renderBuildPalette(): void {
     if (store.state.armedBuild === building.id) b.classList.add('armed');
     b.addEventListener('click', () => {
       if (locked) return;
+      if (roadToolArmed) setRoadTool(false); // one map tool at a time
       store.armBuild(store.state.armedBuild === building.id ? null : building.id);
     });
     row.append(b);
@@ -591,6 +612,43 @@ function updateFootprintPreview(): void {
   renderer.showFootprintPreview(t.x, t.y, def.w, def.h, previewValid);
   const target = store.villageNear(t.x, t.y);
   send({ kind: 'previewBuild', seq: ++previewSeq, villageId: target?.id ?? -1, def: armed, x: t.x, y: t.y });
+}
+
+// ---------- road tool (M-era): click-per-tile dirt-road paving ----------
+// A client-only armed mode (like armedArmyAction), mutually exclusive with the Build palette. Each
+// click issues one `village.buildRoad` for its OWN village; the tool stays armed for rapid clicking
+// (continuous mode, matching Build). The 1-tile cursor is coloured by the SAME sim rulebook the
+// command enforces (`roadReason`, probed read-only), so it can never say green then reject.
+let roadToolArmed = false;
+let roadPreviewSeq = 0; // monotonic; stale buildRoadPreview replies are ignored
+let roadPreviewValid = false; // last authoritative verdict (default red until the first reply)
+let lastRoadPreviewKey: string | null = null; // `${x}:${y}` — dedupe per-pixel moves to per-tile probes
+
+function setRoadTool(on: boolean): void {
+  if (on === roadToolArmed) return;
+  roadToolArmed = on;
+  if (on && store.state.armedBuild !== null) store.armBuild(null); // one map tool at a time
+  if (!on) {
+    renderer?.hideFootprintPreview();
+    lastRoadPreviewKey = null;
+  }
+  renderBuildPalette(); // reflect the toggle's armed state
+  if (on) updateRoadPreview();
+}
+
+function updateRoadPreview(): void {
+  if (renderer === null || !roadToolArmed || lastPointer === null) {
+    if (roadToolArmed) renderer?.hideFootprintPreview();
+    lastRoadPreviewKey = null;
+    return;
+  }
+  const t = renderer.tileAt(lastPointer.sx, lastPointer.sy);
+  const key = `${t.x}:${t.y}`;
+  if (key === lastRoadPreviewKey) return; // same tile → outstanding probe still stands
+  lastRoadPreviewKey = key;
+  renderer.showFootprintPreview(t.x, t.y, 1, 1, roadPreviewValid); // instant draw with last verdict
+  const target = store.villageNear(t.x, t.y);
+  send({ kind: 'previewBuildRoad', seq: ++roadPreviewSeq, villageId: target?.id ?? -1, x: t.x, y: t.y });
 }
 
 function renderKingdomPanel(): void {
@@ -966,6 +1024,7 @@ function renderMilitaryPanel(): void {
     tip(move, 'Then click a map tile — the army paths there (HPA*, M26). Esc cancels.');
     move.addEventListener('click', () => {
       if (store.state.armedBuild !== null) store.armBuild(null); // switching tools exits build mode
+      if (roadToolArmed) setRoadTool(false);
       armedArmyAction = { kind: 'move', armyId: army.id };
       renderMilitaryPanel();
     });
@@ -976,6 +1035,7 @@ function renderMilitaryPanel(): void {
       tip(besiege, 'Then click an enemy CASTLE\'s buildings — the army must already stand at its gates (M29). Esc cancels.');
       besiege.addEventListener('click', () => {
         if (store.state.armedBuild !== null) store.armBuild(null); // switching tools exits build mode
+        if (roadToolArmed) setRoadTool(false);
         armedArmyAction = { kind: 'siege', armyId: army.id };
         renderMilitaryPanel();
       });
@@ -1999,6 +2059,13 @@ worker.onmessage = (event: MessageEvent) => {
         redrawCastlePreview?.();
       }
       return;
+    case 'buildRoadPreview':
+      // authoritative road verdict — apply only if newest and the road tool is still armed
+      if (message.seq === roadPreviewSeq && roadToolArmed && renderer !== null) {
+        roadPreviewValid = message.ok;
+        renderer.showFootprintPreview(message.x, message.y, 1, 1, message.ok);
+      }
+      return;
     case 'hash':
     case 'rejected':
       return;
@@ -2092,21 +2159,24 @@ function wireInput(canvas: HTMLCanvasElement): void {
     const rect = canvas.getBoundingClientRect();
     lastPointer = { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
     if (store.state.armedBuild !== null) updateFootprintPreview();
+    else if (roadToolArmed) updateRoadPreview();
   });
   canvas.addEventListener('pointerleave', () => {
     lastPointer = null;
     renderer?.hideFootprintPreview();
     lastPreviewKey = null;
+    lastRoadPreviewKey = null;
   });
   let downAt: { x: number; y: number } | null = null;
   canvas.addEventListener('pointerdown', (e) => (downAt = { x: e.clientX, y: e.clientY }));
   // right-click cancels an armed build or army order (and suppresses the browser menu) — the
   // familiar RTS "right-click to deselect the tool" gesture
   canvas.addEventListener('contextmenu', (e) => {
-    if (store.state.armedBuild !== null || armedArmyAction !== null) {
+    if (store.state.armedBuild !== null || armedArmyAction !== null || roadToolArmed) {
       e.preventDefault();
       armedArmyAction = null;
       if (store.state.armedBuild !== null) store.armBuild(null);
+      else if (roadToolArmed) setRoadTool(false);
       else renderer?.hideFootprintPreview();
       renderMilitaryPanel();
     }
@@ -2170,6 +2240,16 @@ function wireInput(canvas: HTMLCanvasElement): void {
         // outline recolours immediately.
         lastPreviewKey = null;
         updateFootprintPreview();
+      } else if (roadToolArmed) {
+        // pave one dirt-road tile on the village under the cursor. Presentation-free: the sim gates
+        // and mutates; the tool only issues the command and stays armed for the next click. A failed
+        // tile (water, occupied, already roaded, no stone) surfaces a rejection toast like any order.
+        const t = renderer.tileAt(sx, sy);
+        const target = store.villageNear(t.x, t.y);
+        if (target !== null) command('village.buildRoad', { villageId: target.id, x: t.x, y: t.y });
+        // continuous mode: stay armed, re-probe the tile so its outline recolours (now roaded ⇒ red)
+        lastRoadPreviewKey = null;
+        updateRoadPreview();
       } else if (e.shiftKey) {
         const t = renderer.tileAt(sx, sy);
         const name = renderer.terrainNameAt(t.x, t.y);
@@ -2249,6 +2329,7 @@ const KEYBINDS: readonly Keybind[] = [
       renderCastlePanel();
     } else if (castleView.isOpen()) castleView.close();
     else if (store.state.armedBuild !== null) store.armBuild(null);
+    else if (roadToolArmed) setRoadTool(false);
     else if (demolishArmed) { demolishArmed = false; renderBuildingPanel(); }
     else if (helpPanel.isOpen()) helpPanel.close();
   } },

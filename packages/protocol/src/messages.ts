@@ -356,7 +356,11 @@ export type ToSimMessage =
   // occupancy check) rather than the village-map validator. `x`/`y` are the structure ORIGIN
   // (top-left), already centre-anchored + clamped by the client — the exact tile `defence.build`
   // would receive — so preview validity equals placement validity by construction. ----
-  | { kind: 'previewDefenceBuild'; seq: number; villageId: number; def: string; x: number; y: number };
+  | { kind: 'previewDefenceBuild'; seq: number; villageId: number; def: string; x: number; y: number }
+  // ---- road placement preview: the same read-only probe again, answered by logistics'
+  // `roadReason` (the exact validation `village.buildRoad` enforces). `x`/`y` are the single tile
+  // under the cursor, so preview validity equals placement validity by construction. ----
+  | { kind: 'previewBuildRoad'; seq: number; villageId: number; x: number; y: number };
 
 // ---- from sim ----
 export type FromSimMessage =
@@ -414,6 +418,10 @@ export type FromSimMessage =
         id: number;
         name: string;
         population: number;
+        /** workforce split from the last hourly jobs solve (M-era labour legibility): adults
+         * staffing completed buildings, adults hauling, and the idle remainder. Optional for
+         * back-compat; absent ⇒ the panel simply omits the breakdown line. */
+        workforce?: { working: number; hauling: number; idle: number };
         food: number;
         happiness: number;
         /** other stocked goods (M13 chains): display name → floored amount */
@@ -488,6 +496,9 @@ export type FromSimMessage =
   // (it armed the structure from the buildable palette), so this carries only the validity
   // and `seq` to discard replies the cursor has moved past. ----
   | { kind: 'defenceBuildPreview'; seq: number; ok: boolean }
+  // ---- road placement preview verdict: validity for the single cursor tile, plus `seq`+(x,y)
+  // so the client discards replies it has moved past (mirrors buildPreview, w/h fixed at 1). ----
+  | { kind: 'buildRoadPreview'; seq: number; x: number; y: number; ok: boolean }
   | { kind: 'fatal'; message: string }
   // ---- storage quota (roadmap M44; doc 11 §3/§4; Risk R6) ----
   // Sent when the tripwire fires (quota estimate < 2× current usage) — a real advisory, not a

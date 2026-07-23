@@ -10,6 +10,9 @@ export interface VillageInfo {
   readonly id: number;
   readonly name: string;
   readonly population: number;
+  /** workforce split from the last hourly jobs solve: adults working completed buildings,
+   * adults hauling, and the idle remainder. Optional ⇒ panel omits the breakdown line. */
+  readonly workforce?: { readonly working: number; readonly hauling: number; readonly idle: number };
   readonly food: number;
   readonly happiness: number;
   readonly goods: Record<string, number>;

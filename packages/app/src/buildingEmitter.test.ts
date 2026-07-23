@@ -115,6 +115,18 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.equal(v.stockCap, BASE_STORAGE + 400, 'village stock cap = BASE_STORAGE + Σ completed storage capacity');
   assert.equal(v.foodCap, KEEP_FOOD_BUFFER + 400, 'food cap = keep buffer + granary capacity (smaller base than other goods)');
 
+  // workforce split (M-era labour legibility): the three parts are non-negative and always sum to
+  // the adult pool the jobs solver distributes — working + hauling + idle == floor(adults). (Uses
+  // the live adult count, which drifts from the initial 20 over the simulated days above.)
+  assert.ok(v.workforce, 'workforce breakdown emitted');
+  const wf = v.workforce;
+  assert.ok(wf.working >= 0 && wf.hauling >= 0 && wf.idle >= 0, 'no negative workforce buckets');
+  const popView = world.read(popGame.Population);
+  let adults = 0;
+  world.query([popGame.Population]).forEach((vpi) => (adults = popView.adults[vpi] as number));
+  assert.equal(wf.working + wf.hauling + wf.idle, Math.floor(adults), 'buckets sum to floor(adults); idle is the remainder');
+  assert.equal(wf.working, 0, 'a house + granary have no worker slots → nobody "working"');
+
   // Joy breakdown is projected from live state (M-era): food + shelter factors present,
   // level in range, neutral pivot exposed, and the population effect surfaced.
   assert.ok(v.joy, 'joy breakdown emitted');

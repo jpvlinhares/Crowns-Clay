@@ -71,6 +71,10 @@ export interface SimSession {
    * preview honours the identical rule the command will. `x`/`y` are the structure origin.
    * `{ ok: false }` on the terra composition (no defence layer) or an unknown def. */
   previewDefenceBuild(villageId: number, defId: string, x: number, y: number): { ok: boolean };
+  /** M-era: read-only dry run of logistics' road rulebook (the exact validation `village.buildRoad`
+   * enforces) so the road tool's green/red cursor can't drift from placement. `{ ok: false }` when
+   * no village is under the cursor (villageId < 0). */
+  previewBuildRoad(villageId: number, x: number, y: number): { ok: boolean };
 }
 
 /**
@@ -462,6 +466,10 @@ export function createSession(
       // masks it the same way, so masking here keeps the probe and the command in lock-step.
       return { ok: c.defenceGame.placementReason(villageId & 0x3fffff, def, x | 0, y | 0) === null };
     },
+    previewBuildRoad(villageId, x, y) {
+      if (villageId < 0) return { ok: false }; // no village under the cursor → not pavable
+      return { ok: c.logiGame.roadReason(villageId, x | 0, y | 0) === null };
+    },
     kernel: c.kernel,
     driver: new TickDriver(c.kernel, { maxTicksPerAdvance: 32 }),
     emitter: new SnapshotEmitter(c.world, c.Position),
@@ -774,6 +782,12 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
           if (session === null) return;
           const { ok } = session.previewDefenceBuild(message.villageId, message.def, message.x, message.y);
           send({ kind: 'defenceBuildPreview', seq: message.seq, ok });
+          return;
+        }
+        case 'previewBuildRoad': {
+          if (session === null) return;
+          const { ok } = session.previewBuildRoad(message.villageId, message.x, message.y);
+          send({ kind: 'buildRoadPreview', seq: message.seq, x: message.x, y: message.y, ok });
           return;
         }
         case 'requestHash':

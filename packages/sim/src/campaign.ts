@@ -864,6 +864,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // true when there's no VillageOwner, so single-kingdom / Terra compositions are unrestricted.
   game.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
   settlerGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
+  logiGame.setOwnershipGuard((issuer, villageId) => kingdomGame.ownsVillage(issuer, villageId));
 
   // ---- M52's template assignment, HOISTED above the defence layer (M57): defence-genesis
   // needs "this village's owning kingdom's archetype" to materialise the free tiered core

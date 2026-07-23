@@ -183,6 +183,43 @@ test('roads: paving costs stone through the ledger; bad tiles are rejected by na
   assert.ok(v.rejections.some((r) => r.includes('occupied')), 'building footprints refuse pavement');
 });
 
+test('roads: roadReason is a read-only dry run that tracks buildRoad accept/reject exactly (M-era preview)', () => {
+  const v = makeVillage();
+  const stoneCode = v.code('base:resource.stone');
+
+  // pavable tile → null, and probing it mutates NOTHING (no stone spent, tile stays unpaved)
+  const stoneBefore = v.stockOf(stoneCode);
+  assert.equal(v.logi.roadReason(v.villageId, 36, 30), null, 'open plain is pavable');
+  assert.equal(v.stockOf(stoneCode), stoneBefore, 'the probe spends no stone');
+  assert.equal(v.logi.roads.levelAt(36, 30), 0, 'the probe lays no road');
+
+  // reasons match the command's rejections by name (same validation, one rulebook)
+  assert.ok(v.logi.roadReason(v.villageId, 45, 30)?.includes('impassable'), 'rivers → impassable');
+  assert.ok(v.logi.roadReason(v.villageId, 30, 30)?.includes('occupied'), 'building tiles → occupied');
+
+  // once actually paved, the probe flips to "already present" — preview can't say green then reject
+  v.submit('village.buildRoad', { villageId: v.villageId, x: 36, y: 30 });
+  assert.equal(v.logi.roads.levelAt(36, 30), 1, 'the real command paved it');
+  assert.ok(v.logi.roadReason(v.villageId, 36, 30)?.includes('road already present'), 'now rejects a repave');
+});
+
+test('roads: village.buildRoad respects the ownership guard (M-era player tool)', () => {
+  const v = makeVillage();
+  const stoneCode = v.code('base:resource.stone');
+  // reject everything (as if the issuer owned no village here)
+  v.logi.setOwnershipGuard(() => false);
+  const before = v.stockOf(stoneCode);
+  v.submit('village.buildRoad', { villageId: v.villageId, x: 37, y: 30 });
+  assert.ok(v.rejections.some((r) => r.includes('not your village')), 'a foreign paving order is refused');
+  assert.equal(v.stockOf(stoneCode), before, 'a guarded rejection spends no stone');
+  assert.equal(v.logi.roads.levelAt(37, 30), 0, 'a guarded rejection lays no road');
+
+  // restore ownership → the same order now succeeds
+  v.logi.setOwnershipGuard(() => true);
+  v.submit('village.buildRoad', { villageId: v.villageId, x: 37, y: 30 });
+  assert.equal(v.logi.roads.levelAt(37, 30), 1, 'once owned, the tile paves');
+});
+
 // ---------------- path service & route cache ----------------
 
 test('paths: roads cut travel cost and the route cache invalidates on change', () => {
