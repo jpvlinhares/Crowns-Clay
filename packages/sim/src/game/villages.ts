@@ -57,6 +57,13 @@ export interface VillageComponents {
     complete: 'bool';
     workers: 'u16'; // assigned by the jobs solver (M12); builders for sites
   }>;
+  // M-era: pause a COMPLETED production building — the jobs solver skips it (its worker slots
+  // flow to later buildings in the same pass) and its recipes halt. Sparse SoA, ONE UNUSED FIELD:
+  // presence on the entity IS the flag, so old saves (which never mention this component) hydrate
+  // with it empty = nobody paused, no migration needed (ecs.ts loadState only errors when a SAVE
+  // names a component the live world lacks, never the reverse — see ecs.test.ts). Construction
+  // SITES are never pausable — building.ts/population.ts never check this for incomplete buildings.
+  readonly BuildingPaused: SoAComponent<{ v: 'bool' }>;
 }
 
 export function defineVillageComponents(world: World): VillageComponents {
@@ -76,6 +83,9 @@ export function defineVillageComponents(world: World): VillageComponents {
     BuildingCore: world.defineSoA('buildingCore', {
       def: 'u32', x: 'i32', y: 'i32', w: 'u8', h: 'u8', village: 'eid', progress: 'f64', complete: 'bool', workers: 'u16',
     }),
+    // registered AFTER every other component — append-only, so old saves that never mention it
+    // hydrate empty rather than tripping the composition-mismatch invariant.
+    BuildingPaused: world.defineSoA('buildingPaused', { v: 'bool' }),
   };
 }
 
@@ -375,6 +385,32 @@ export class VillageOps {
     return true;
   }
 
+  /** M-era: pause/resume a COMPLETED building that actually claims worker slots. Presence of
+   * BuildingPaused IS the flag (no payload beyond the required schema field). Two deliberate
+   * boundaries:
+   *  - construction SITES can't be paused — pausing a site would strand its footprint in
+   *    permanent limbo, and "prioritise goods over building" is already served by simply not
+   *    queuing the site;
+   *  - buildings with no worker slots (`workers.required === 0` or absent, e.g. housing) can't be
+   *    paused either — pausing is entirely about freeing a worker slot for the jobs solver to hand
+   *    to someone else, so a building the solver never staffs has nothing for pause to affect.
+   * The jobs solver (population.ts) and economy.ts both read this component; this method only
+   * flips it. */
+  setPaused(buildingId: number, paused: boolean): true | string {
+    const building = buildingId as EntityId;
+    if (!this.world.isAlive(building)) return 'no such building';
+    const index = buildingId & 0x3fffff;
+    const core = this.world.read(this.comps.BuildingCore);
+    if ((core.complete[index] as number) !== 1) return 'cannot pause a building under construction';
+    const def = this.buildingDef(core.def[index] as number);
+    if ((def.workers?.required ?? 0) === 0) return 'this building has no worker slots to pause';
+    const already = this.world.has(building, this.comps.BuildingPaused);
+    if (paused === already) return true; // idempotent — no-op, not an error
+    if (paused) this.world.attach(building, this.comps.BuildingPaused);
+    else this.world.detach(building, this.comps.BuildingPaused);
+    return true;
+  }
+
   /**
    * M53 (ADR-4 §3): remove a village from the world entirely — every building
    * despawned (occupancy vacated), the centre entry dropped, the village entity
@@ -523,6 +559,12 @@ export function registerVillageGameplay(
     if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.demolish', 'not your village', command.issuer);
     const result = ops.demolish(ctx, p.buildingId | 0);
     if (typeof result === 'string') rejected(ctx, 'village.demolish', result, command.issuer);
+  });
+  kernel.registerCommand<{ buildingId: number; paused: boolean }>('village.setBuildingPaused', (ctx, p, command) => {
+    const village = ops.villageOfBuilding(p.buildingId | 0);
+    if (village !== null && !ownsVillage(command.issuer, village)) return rejected(ctx, 'village.setBuildingPaused', 'not your village', command.issuer);
+    const result = ops.setPaused(p.buildingId | 0, Boolean(p.paused));
+    if (typeof result === 'string') rejected(ctx, 'village.setBuildingPaused', result, command.issuer);
   });
 
   // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------

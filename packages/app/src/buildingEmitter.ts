@@ -15,7 +15,7 @@ const vindex = (id: number): number => id & 0x3fffff;
 const TERRITORY_RADIUS = 32;
 
 export class BuildingEmitter {
-  private readonly known = new Map<number, number>(); // id → last progress sent
+  private readonly known = new Map<number, { progress: number; paused: boolean }>();
 
   constructor(
     private readonly world: World,
@@ -26,6 +26,7 @@ export class BuildingEmitter {
     const b = this.world.read(this.game.comps.BuildingCore);
     this.world.query([this.game.comps.BuildingCore]).forEach((i, entity) => {
       const def = this.game.ops.buildingDef(b.def[i] as number);
+      const pausable = (def.workers?.required ?? 0) > 0;
       cb({
         id: entity as number,
         name: def.name,
@@ -39,6 +40,8 @@ export class BuildingEmitter {
         // capacity straight from the def — generic, so modded buildings surface it too
         storageCapacity: def.storage?.capacity ?? 0,
         housingCapacity: def.housing?.capacity ?? 0,
+        pausable,
+        paused: pausable && this.world.has(entity, this.game.comps.BuildingPaused),
       });
     });
   }
@@ -47,31 +50,35 @@ export class BuildingEmitter {
     this.known.clear();
     const out: BuildingRec[] = [];
     this.scan((rec) => {
-      this.known.set(rec.id, rec.progress);
+      this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
       out.push(rec);
     });
     return out;
   }
 
-  delta(): { added: BuildingRec[]; progress: number[]; removed: number[] } {
+  delta(): { added: BuildingRec[]; progress: number[]; paused: number[]; removed: number[] } {
     const added: BuildingRec[] = [];
     const progress: number[] = [];
+    const paused: number[] = [];
     const seen = new Set<number>();
     this.scan((rec) => {
       seen.add(rec.id);
       const last = this.known.get(rec.id);
       if (last === undefined) {
-        this.known.set(rec.id, rec.progress);
+        this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
         added.push(rec);
-      } else if (last !== rec.progress) {
-        this.known.set(rec.id, rec.progress);
-        progress.push(rec.id, rec.progress);
+      } else {
+        if (last.progress !== rec.progress) progress.push(rec.id, rec.progress);
+        if (last.paused !== (rec.paused ?? false)) paused.push(rec.id, rec.paused ? 1 : 0);
+        if (last.progress !== rec.progress || last.paused !== (rec.paused ?? false)) {
+          this.known.set(rec.id, { progress: rec.progress, paused: rec.paused ?? false });
+        }
       }
     });
     const removed: number[] = [];
     for (const id of this.known.keys()) if (!seen.has(id)) removed.push(id);
     for (const id of removed) this.known.delete(id);
-    return { added, progress, removed };
+    return { added, progress, paused, removed };
   }
 }
 

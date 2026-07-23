@@ -134,6 +134,51 @@ test('jobs: understaffed production scales by workforce efficiency', () => {
   assert.ok(Math.abs(produced - 4) < 0.05, `2/4 workers should yield ~4/day, got ${produced.toFixed(2)}`);
 });
 
+test('jobs: pausing a completed producer frees its slots to a later building in the same pass (M-era)', () => {
+  const v = makeVillage({ food: 200 }); // no pre-placed farms — place two manually to capture their ids
+  const placedFarms: number[] = [];
+  v.kernel.subscribe<{ building: number; def: string }>('building.placed', (e) => {
+    if (e.data.def === 'base:building.farm') placedFarms.push(e.data.building);
+  });
+  v.game.settings.haulerTarget = 0; // isolate the production pass from hauler claims
+  v.placeNear('base:building.farm');
+  v.placeNear('base:building.farm');
+  assert.equal(placedFarms.length, 2);
+  v.days(4); // both farms (72 ticks = 3 days) complete
+  const b = v.world.read(v.game.comps.BuildingCore);
+  const idxOf = (id: number): number => id & 0x3fffff;
+  const [farmA, farmB] = placedFarms as [number, number];
+  assert.equal(b.complete[idxOf(farmA)], 1);
+  assert.equal(b.complete[idxOf(farmB)], 1);
+
+  // strand the village with EXACTLY one farm's worth of adults (4 required each, 8 total)
+  const p = v.world.write(v.popGame.Population);
+  p.adults[v.vi] = 4;
+  p.children[v.vi] = 0;
+  p.elders[v.vi] = 0;
+  v.kernel.step(); // let the jobs solver settle on the new pool
+
+  const beforeA = b.workers[idxOf(farmA)] as number;
+  const beforeB = b.workers[idxOf(farmB)] as number;
+  assert.equal(beforeA + beforeB, 4, 'exactly one farm claims the whole 4-adult pool');
+  const staffed = beforeA === 4 ? farmA : farmB;
+  const idle = staffed === farmA ? farmB : farmA;
+  assert.equal(b.workers[idxOf(idle)], 0, 'the other farm gets nothing — pool exhausted, ascending entity order');
+
+  // pause the STAFFED farm — its 4 slots must flow to the previously-idle one in the SAME pass
+  assert.equal(v.game.ops.setPaused(staffed, true), true);
+  v.kernel.step();
+  assert.equal(b.workers[idxOf(staffed)], 0, 'a paused farm takes zero hands, even with adults available');
+  assert.equal(b.workers[idxOf(idle)], 4, 'the freed slots flow to the next building the solver reaches');
+
+  // resume — the pool re-settles back onto the (now unpaused) original farm, ascending order
+  assert.equal(v.game.ops.setPaused(staffed, false), true);
+  v.kernel.step();
+  const afterA = b.workers[idxOf(farmA)] as number;
+  const afterB = b.workers[idxOf(farmB)] as number;
+  assert.equal(afterA + afterB, 4, 'still exactly one farm\'s worth of hands to go around');
+});
+
 test('construction: labor-gated sites stall with no adults and resume with them', () => {
   const v = makeVillage({ food: 500 });
   const p = v.world.write(v.popGame.Population);

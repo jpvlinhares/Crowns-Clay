@@ -156,6 +156,14 @@ export class PixiRenderer {
     this.drawBuilding(entry.g, entry.rec);
   }
 
+  /** M-era: keeps the cached rec's `paused` flag current so the inspector (buildingRec) reflects
+   * it. No sprite redraw — pausing has no map-visual today, only inspector/panel state. */
+  updateBuildingPaused(id: number, paused: boolean): void {
+    const entry = this.buildingSprites.get(id);
+    if (entry === undefined) return;
+    entry.rec = { ...entry.rec, paused };
+  }
+
   removeBuilding(id: number): void {
     const entry = this.buildingSprites.get(id);
     if (entry === undefined) return;

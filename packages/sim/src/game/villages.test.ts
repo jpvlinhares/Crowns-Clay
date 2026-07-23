@@ -302,6 +302,58 @@ test('demolish: frees occupancy for rebuilding; centers are protected', () => {
   void village;
 });
 
+// ---------------- pause / resume (M-era) ----------------
+
+test('setBuildingPaused: refuses incomplete or worker-less buildings, idempotent, round-trips through save', () => {
+  const g = makeGame();
+  const village = foundedVillage(g);
+
+  g.submit('village.build', { villageId: village, def: 'base:building.farm', x: 16, y: 18 });
+  const farmPlaced = g.events.find((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.farm');
+  assert.ok(farmPlaced, g.lastRejection());
+  const farmId = (farmPlaced?.data as { building: number }).building;
+
+  g.submit('village.build', { villageId: village, def: 'base:building.house', x: 9, y: 12 });
+  const housePlaced = g.events.find((e) => e.type === 'building.placed' && (e.data as { def: string }).def === 'base:building.house');
+  assert.ok(housePlaced, g.lastRejection());
+  const houseId = (housePlaced?.data as { building: number }).building;
+
+  // refuses a freshly-placed (incomplete) building
+  g.submit('village.setBuildingPaused', { buildingId: farmId, paused: true });
+  assert.match(g.lastRejection(), /cannot pause a building under construction/);
+
+  // refuses a nonexistent building
+  g.submit('village.setBuildingPaused', { buildingId: 999999, paused: true });
+  assert.match(g.lastRejection(), /no such building/);
+
+  for (let t = 0; t < 72; t++) g.kernel.step(); // farm (72 ticks) and house (48) both complete, ungated
+  const b = g.world.read(g.game.comps.BuildingCore);
+  assert.equal(b.complete[farmId & 0x3fffff], 1, 'farm finished');
+  assert.equal(b.complete[houseId & 0x3fffff], 1, 'house finished');
+
+  // a COMPLETED building with no worker slots (housing has none) still refuses — pausing only
+  // makes sense for buildings the jobs solver actually staffs
+  g.submit('village.setBuildingPaused', { buildingId: houseId, paused: true });
+  assert.match(g.lastRejection(), /no worker slots/);
+
+  // the farm (workers.required 4) pauses, is idempotent, and un-pauses
+  const paused = (): boolean => g.world.has(farmId as EntityId, g.game.comps.BuildingPaused);
+  assert.equal(paused(), false, 'unpaused by default');
+  assert.equal(g.game.ops.setPaused(farmId, true), true);
+  assert.equal(paused(), true);
+  assert.equal(g.game.ops.setPaused(farmId, true), true, 'pausing an already-paused building is a no-op, not an error');
+  assert.equal(paused(), true);
+  assert.equal(g.game.ops.setPaused(farmId, false), true);
+  assert.equal(paused(), false);
+
+  // save round-trip: paused survives loadState into a fresh (same-composition) world
+  g.game.ops.setPaused(farmId, true);
+  const saved = g.world.saveState();
+  const g2 = makeGame();
+  g2.world.loadState(saved);
+  assert.ok(g2.world.has(farmId as EntityId, g2.game.comps.BuildingPaused), 'paused state survives a save/load round-trip');
+});
+
 // ---------------- sandbox editor (roadmap M40; GDD §17) ----------------
 
 test('sandbox.grantResource: rejected outside a sandboxed session', () => {

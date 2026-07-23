@@ -40,6 +40,13 @@ export interface BuildingRec {
    * the inspector pairs these with the owning village's live totals. */
   readonly storageCapacity?: number; // per-resource stockpile headroom added
   readonly housingCapacity?: number; // occupant slots added
+  /** M-era: does this building have worker slots at all (def.workers.required > 0)? Gates whether
+   * the inspector offers a pause toggle — pausing a building the jobs solver never staffs (e.g.
+   * housing) would be a no-op. Absent/false = not pausable. */
+  readonly pausable?: boolean;
+  /** M-era: is this building currently paused (village.setBuildingPaused)? Only meaningful when
+   * `pausable` is true; a paused COMPLETED building takes zero workers and its recipes halt. */
+  readonly paused?: boolean;
 }
 
 // ---- player-facing content catalog (M18): defs the UI may offer ----
@@ -456,6 +463,9 @@ export type FromSimMessage =
       buildingsAdded?: BuildingRec[];
       /** flat pairs: [id, progress, ...] for buildings under construction */
       buildingProgress?: number[];
+      /** M-era: flat pairs [id, 0|1, ...] — buildings whose paused state changed since last delta
+       * (a rare, player-initiated event; unrelated to construction progress). */
+      buildingPaused?: number[];
       buildingsRemoved?: number[];
       /** flat [x, y, level] triples for road tiles added since last delta (M14) */
       roadsAdded?: number[];

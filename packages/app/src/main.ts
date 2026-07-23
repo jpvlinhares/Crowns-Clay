@@ -570,6 +570,23 @@ function renderBuildingPanel(): void {
     });
     actions.append(demolish);
   }
+  // Pause/resume (M-era): only for COMPLETED buildings that actually claim worker slots — the sim
+  // refuses both a construction site and a worker-less building (e.g. housing), so the toggle
+  // mirrors that exactly rather than offering a control that would just come back rejected.
+  if (rec.pausable === true && rec.progress >= 1) {
+    const pauseBtn = document.createElement('button');
+    pauseBtn.textContent = rec.paused === true ? '▶ Resume' : '⏸ Pause';
+    tip(
+      pauseBtn,
+      rec.paused === true
+        ? 'Resume this building — the jobs solver will staff it again as adults become available.'
+        : 'Pause this building — it takes zero workers (freeing them for other buildings this hour) and its recipes halt. No effect on stock already produced.',
+    );
+    pauseBtn.addEventListener('click', () => {
+      command('village.setBuildingPaused', { buildingId: rec.id, paused: rec.paused !== true });
+    });
+    actions.append(pauseBtn);
+  }
   if (village !== undefined) {
     const toVillage = el('button', '🏘 Village');
     tip(toVillage, 'Open this building\'s village panel.');
@@ -1840,6 +1857,10 @@ worker.onmessage = (event: MessageEvent) => {
         const bp = message.buildingProgress ?? [];
         for (let i = 0; i + 1 < bp.length; i += 2) {
           renderer.updateBuildingProgress(bp[i] as number, bp[i + 1] as number);
+        }
+        const bPaused = message.buildingPaused ?? [];
+        for (let i = 0; i + 1 < bPaused.length; i += 2) {
+          renderer.updateBuildingPaused(bPaused[i] as number, bPaused[i + 1] === 1);
         }
         for (const id of message.buildingsRemoved ?? []) renderer.removeBuilding(id);
         // first delta after a resume: the queued placements have now committed (they land in this

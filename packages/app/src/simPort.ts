@@ -631,8 +631,8 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
     const territory = session.territoryEmitter.delta();
     if (
       spawned.length > 0 || moved.length > 0 || despawned.length > 0 || villageStats.length > 0 ||
-      b.added.length > 0 || b.progress.length > 0 || b.removed.length > 0 || roadsAdded.length > 0 ||
-      territory.territoryAdded.length > 0 || territory.fogRevealedAdded.length > 0
+      b.added.length > 0 || b.progress.length > 0 || b.paused.length > 0 || b.removed.length > 0 ||
+      roadsAdded.length > 0 || territory.territoryAdded.length > 0 || territory.fogRevealedAdded.length > 0
     ) {
       send({
         kind: 'snapshotDelta',
@@ -643,6 +643,7 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
         villageStats,
         buildingsAdded: b.added,
         buildingProgress: b.progress,
+        buildingPaused: b.paused,
         buildingsRemoved: b.removed,
         roadsAdded,
         territoryAdded: territory.territoryAdded,

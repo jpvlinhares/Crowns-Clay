@@ -279,3 +279,50 @@ test('ecs: world hash reflects structure and values, stable across identical his
   c.write(PosC).y[3] = 123; // one value change
   assert.notEqual(hashOf(a), hashOf(c), 'value change must change the hash');
 });
+
+// ---------------- loadState: composition growth by a NEW component (M-era) ----------------
+// Verifies the save-migration story a "pause a building" feature depends on: a brand-new SPARSE
+// component (attached to nobody by default) can be added to the live composition WITHOUT any
+// migration code, because loadState only errors when the SAVE names a component the live world
+// lacks (ecs.ts: 'unknown component' at load) — never the reverse. An old save simply never
+// mentions the new component, so it hydrates with zero entries = the correct default.
+
+test('loadState: an OLD save (missing a component the LIVE world newly has) still loads, empty', () => {
+  const old = makeWorld(); // component set at "save time": Position, Health, Name
+  const e = old.world.spawn();
+  old.world.attach(e, old.Position, { x: 5, y: 9 });
+  old.world.attach(e, old.Health, { current: 10, max: 10, regenerating: false });
+  const saved = old.world.saveState();
+
+  // "current" composition: the same components PLUS one the save predates — e.g. a per-building
+  // BuildingPaused-shaped flag (SoA, one 'bool' field — presence IS the flag; the field itself is
+  // unused padding, same shape as every other real component in this codebase), registered AFTER
+  // the others (append-only, same discipline as every other M-era addition in this repo).
+  const fresh = new World(64);
+  const Position = fresh.defineSoA('position', POS);
+  fresh.defineSoA('health', HP);
+  fresh.defineObject<string>('name', (v, fold) => {
+    for (let i = 0; i < v.length; i++) fold(v.charCodeAt(i));
+  });
+  const Paused = fresh.defineSoA('paused', { v: 'bool' });
+
+  assert.doesNotThrow(() => fresh.loadState(saved), 'a save that predates a new component must still load');
+  assert.equal(fresh.read(Position).x[0], 5, 'existing component data survives the load');
+  assert.equal(fresh.liveCount, 1);
+  assert.equal(fresh.has(0 as EntityId, Paused), false, 'the new component starts empty — nobody paused by default');
+
+  // and the new component works normally going forward, post-load
+  fresh.attach(0 as EntityId, Paused);
+  assert.ok(fresh.has(0 as EntityId, Paused));
+
+  // the REVERSE direction still refuses, exactly as documented: a save naming a component the
+  // live world lacks is a real composition mismatch, not tolerated.
+  const savedWithExtra = fresh.saveState();
+  const bare = new World(64);
+  bare.defineSoA('position', POS);
+  bare.defineSoA('health', HP);
+  bare.defineObject<string>('name', (v, fold) => {
+    for (let i = 0; i < v.length; i++) fold(v.charCodeAt(i));
+  }); // no 'paused' component registered
+  assert.throws(() => bare.loadState(savedWithExtra), /unknown component 'paused'/);
+});

@@ -166,7 +166,7 @@ export function registerPopulationGameplay(
   const jobs: SimSystem = {
     name: 'jobs',
     period: 1,
-    access: { writes: [BuildingCore, Population], reads: [VillageCore] },
+    access: { writes: [BuildingCore, Population], reads: [VillageCore, game.comps.BuildingPaused] },
     update(): void {
       const pop = world.write(Population);
       const b = world.write(BuildingCore);
@@ -189,7 +189,7 @@ export function registerPopulationGameplay(
             available.set(vi, pool - claimed);
           });
         }
-        world.query([BuildingCore]).forEach((i) => {
+        world.query([BuildingCore]).forEach((i, entity) => {
           const vi = index(b.village[i] as number);
           const pool = available.get(vi);
           if (pool === undefined) {
@@ -202,6 +202,13 @@ export function registerPopulationGameplay(
           } else if (!complete) {
             return;
           } else if ((pass === 'food') !== isFoodProducer(b.def[i] as number)) {
+            return;
+          }
+          // M-era: a paused COMPLETED building takes zero hands — its slots flow to whatever
+          // the solver reaches next in this pass. Sites can never carry BuildingPaused (setPaused
+          // refuses incomplete buildings), so this only ever fires in the food/production passes.
+          if (complete && world.has(entity, game.comps.BuildingPaused)) {
+            b.workers[i] = 0;
             return;
           }
           const required = complete ? (defOf(b, i).workers?.required ?? 0) : BUILDERS_PER_SITE;

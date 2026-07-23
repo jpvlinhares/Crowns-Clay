@@ -140,6 +140,61 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.ok(v.joy.fertility >= 0 && v.joy.fertility <= 2, 'fertility multiplier in 0..2');
 });
 
+test('BuildingEmitter: pausable/paused flags, and the pause-state delta channel is independent of progress (M-era)', () => {
+  const kernel = new Kernel(5);
+  const world = new World(128);
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const game = registerVillageGameplay(kernel, world, db, plain, {
+    'base:resource.wood': 500, 'base:resource.stone': 200, 'base:resource.food': 100,
+  });
+  const popGame = registerPopulationGameplay(kernel, world, db, game, { children: 0, adults: 20, elders: 0 });
+  registerEconomyGameplay(kernel, world, db, game);
+  kernel.attachGuard(world);
+
+  const submit = (type: string, payload: unknown): void => { kernel.submit({ type, issuer: 1, payload }); kernel.step(); };
+  submit('village.found', { x: 40, y: 40, name: 'Pauseville' });
+  let vid = -1;
+  world.query([popGame.Population]).forEach((_i, e) => (vid = e as number));
+
+  let farmId = -1;
+  kernel.subscribe<{ building: number; def: string }>('building.placed', (e) => {
+    if (e.data.def === 'base:building.farm') farmId = e.data.building;
+  });
+  const def = db.buildings.get('base:building.farm');
+  assert.ok(def);
+  outer: for (let r = 2; r <= 10; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    if (!game.ops.validatePlacement(def, 40 + dx, 40 + dy, vid as never).ok) continue;
+    submit('village.build', { villageId: vid, def: 'base:building.farm', x: 40 + dx, y: 40 + dy });
+    break outer;
+  }
+  assert.ok(farmId >= 0, 'farm placed');
+  for (let t = 0; t < 6 * TICKS_PER_DAY; t++) kernel.step(); // completes (72 ticks)
+
+  const emitter = new BuildingEmitter(world, game);
+  const full = emitter.full();
+  const house = full.find((r) => r.name === 'House'); // none placed here — just a shape sanity check
+  assert.equal(house, undefined);
+  const farmRec = full.find((r) => r.id === farmId);
+  assert.ok(farmRec, 'farm present in full()');
+  assert.equal(farmRec.pausable, true, 'a farm has worker slots → pausable');
+  assert.equal(farmRec.paused, false, 'unpaused by default');
+
+  // pausing shows up on its OWN delta channel — never conflated with construction progress
+  game.ops.setPaused(farmId, true);
+  const d = emitter.delta();
+  assert.deepEqual(d.progress, [], 'no construction progress changed');
+  assert.deepEqual(d.paused, [farmId, 1], 'paused-state delta: [id, 1]');
+  assert.equal(d.added.length, 0, 'not re-announced as a new building');
+
+  // a quiet delta (nothing changed) reports nothing on the paused channel
+  assert.deepEqual(emitter.delta().paused, []);
+
+  // resuming reports [id, 0]
+  game.ops.setPaused(farmId, false);
+  assert.deepEqual(emitter.delta().paused, [farmId, 0]);
+});
+
 test('TerritoryEmitter: single-kingdom composition emits nothing (VillageOwner undefined)', () => {
   const kernel = new Kernel(1);
   const world = new World(64);
