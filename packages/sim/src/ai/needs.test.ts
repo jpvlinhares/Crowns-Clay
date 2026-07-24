@@ -17,10 +17,12 @@ import { registerEconomyGameplay } from '../game/economy.js';
 import { registerLogisticsGameplay } from '../game/logistics.js';
 import {
   storageNeed,
+  woodNeed,
   stoneNeed,
   serviceNeed,
   STONE_MIN_POP,
   STONE_NEED_RATIO,
+  WOOD_NEED_RATIO,
   SERVICE_MIN_POP,
   STORAGE_MIN_POP,
   type NeedContext,
@@ -61,8 +63,10 @@ function makeVillage(starting: StartingPopulation) {
 
   const vi = 0;
   const ctx: NeedContext = { world, comps: game.comps, ops: game.ops, popGame, db, villageIndex: vi };
+  let slot = 0; // spread successive buildings apart so footprints never collide
   const buildComplete = (defId: string): void => {
-    kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: 0, def: defId, x: 32, y: 32 } });
+    const x = 26 + (slot++ % 5) * 3;
+    kernel.submit({ type: 'village.build', issuer: 1, payload: { villageId: 0, def: defId, x, y: 32 } });
     kernel.step();
     const b = world.write(game.comps.BuildingCore);
     world.query([game.comps.BuildingCore]).forEach((i) => {
@@ -80,18 +84,47 @@ function makeVillage(starting: StartingPopulation) {
   return { kernel, world, db, game, popGame, ctx, buildComplete, setStock, setHappiness };
 }
 
+// ---------------------------------------------------------------- woodNeed
+
+test('woodNeed: a woodless village wants a lumber camp at the fixed early ratio', () => {
+  const v = makeVillage({ children: 4, adults: 6, elders: 0 });
+  const need = woodNeed(v.ctx);
+  assert.ok(need !== null);
+  assert.equal(need.ratio, WOOD_NEED_RATIO);
+  assert.deepEqual(need.candidates, ['base:building.lumber-camp']);
+});
+
+test('woodNeed: outranks stoneNeed so wood income is secured before stone', () => {
+  assert.ok(WOOD_NEED_RATIO < STONE_NEED_RATIO);
+});
+
+test('woodNeed: silent once a lumber camp produces wood', () => {
+  const v = makeVillage({ children: 4, adults: 6, elders: 0 });
+  v.buildComplete('base:building.lumber-camp');
+  assert.equal(woodNeed(v.ctx), null, 'already produces wood');
+});
+
 // ---------------------------------------------------------------- stoneNeed
 
-test('stoneNeed: a stoneless village wants a quarry at the fixed early ratio', () => {
+test('stoneNeed: a stoneless village with wood income wants a quarry at the fixed early ratio', () => {
   const v = makeVillage({ children: 4, adults: STONE_MIN_POP, elders: 0 });
+  v.buildComplete('base:building.lumber-camp'); // wood lifeline in place — stone may now follow
   const need = stoneNeed(v.ctx);
   assert.ok(need !== null);
   assert.equal(need.ratio, STONE_NEED_RATIO);
   assert.deepEqual(need.candidates, ['base:building.quarry']);
 });
 
+test('stoneNeed: defers until the village has a wood source', () => {
+  const v = makeVillage({ children: 4, adults: STONE_MIN_POP, elders: 0 });
+  assert.equal(stoneNeed(v.ctx), null, 'no wood income yet — secure the lifeline first');
+  v.buildComplete('base:building.lumber-camp');
+  assert.ok(stoneNeed(v.ctx) !== null, 'wood income exists — quarry wanted');
+});
+
 test('stoneNeed: fires regardless of how much stone is stockpiled (income, not reserve)', () => {
   const v = makeVillage({ children: 4, adults: STONE_MIN_POP, elders: 0 });
+  v.buildComplete('base:building.lumber-camp');
   v.setStock('base:resource.stone', 9999); // a fat pile does NOT satisfy the need — it never refills
   const need = stoneNeed(v.ctx);
   assert.ok(need !== null && need.ratio === STONE_NEED_RATIO);
@@ -102,6 +135,7 @@ test('stoneNeed: silent below the population floor and once a quarry exists', ()
   assert.equal(stoneNeed(tiny.ctx), null, 'below population floor');
 
   const v = makeVillage({ children: 4, adults: STONE_MIN_POP, elders: 0 });
+  v.buildComplete('base:building.lumber-camp');
   v.buildComplete('base:building.quarry');
   assert.equal(stoneNeed(v.ctx), null, 'already mines stone');
 });

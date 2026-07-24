@@ -61,7 +61,7 @@ import { registerLogisticsGameplay } from './game/logistics.js';
 import { registerSettlerGameplay } from './game/settlers.js';
 import { registerKingdomGameplay, StatModifiers } from './game/kingdom.js';
 import { registerDiplomacyGameplay, diplomacySection, effectiveMemoryWeight, type DiplomacyPersonality } from './game/diplomacy.js';
-import { foodNeed, housingNeed, industryNeed, storageNeed, stoneNeed, serviceNeed } from './ai/needs.js';
+import { foodNeed, housingNeed, industryNeed, woodNeed, storageNeed, stoneNeed, serviceNeed } from './ai/needs.js';
 import { registerMilitaryGameplay } from './game/military.js';
 import { registerArmyGameplay } from './game/armies.js';
 import { registerCombatGameplay } from './game/combat.js';
@@ -756,7 +756,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       // M-era: campaigns also get the economy-depth needs (storage/stone/services), so an AI
       // capital raises a granary, quarry, well and tavern instead of going silent after farms.
       ...(options.industry ?? true
-        ? { needs: [foodNeed, housingNeed, industryNeed, storageNeed, stoneNeed, serviceNeed] }
+        ? { needs: [foodNeed, housingNeed, industryNeed, woodNeed, storageNeed, stoneNeed, serviceNeed] }
         : {}),
       get villageId(): EntityId {
         return (villageIndexByKingdom.get(k) ?? 0) as EntityId;

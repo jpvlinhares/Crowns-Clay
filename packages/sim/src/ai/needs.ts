@@ -178,6 +178,24 @@ export const storageNeed: NeedEvaluator = (ctx) => {
   return { kind: 'storage', ratio: 1 - Math.min(1, maxUtil), candidates: ['base:building.granary'] };
 };
 
+/** Fixed urgency for a woodless village's first lumber camp — MORE urgent than stone (0.4). */
+export const WOOD_NEED_RATIO = 0.25;
+
+/**
+ * M-era: the first lumber camp, built as early as possible — the wood LIFELINE. The lumber camp is
+ * the only renewable wood source, and EVERY building costs wood (the quarry itself costs 25), so a
+ * village that spends its finite starting wood on farms/houses/quarry before raising one wood-starves
+ * permanently: it can no longer afford even the lumber camp that would save it (you need wood to build
+ * the wood producer). Fires the moment the village produces no wood at all, at a ratio (0.25) below
+ * stoneNeed's (0.4) — wood income is secured before any stone is — yet still above a starving
+ * food/housing need (ratio→0). Fires at most once (productionCapacity > 0 afterwards).
+ */
+export const woodNeed: NeedEvaluator = (ctx) => {
+  if (ctx.popGame.totalOf(ctx.villageIndex) <= 0) return null;
+  if (productionCapacity(ctx, 'base:resource.wood') > 0) return null; // already produces wood
+  return { kind: 'wood', ratio: WOOD_NEED_RATIO, candidates: ['base:building.lumber-camp'] };
+};
+
 export const STONE_MIN_POP = 12;
 /** Fixed urgency for a stoneless village's first quarry — moderate, so famine (ratio→0) still wins. */
 export const STONE_NEED_RATIO = 0.4;
@@ -185,16 +203,18 @@ export const STONE_NEED_RATIO = 0.4;
 /**
  * M-era: the first quarry, built early — the quarry is the ONLY stone source, so an AI that never
  * built one could never regenerate stone and eventually stalled every stone-costing build (barracks,
- * tier upgrade, defence). It fires the moment the village has no stone source at all (regardless of
- * how fat the starting pile is), because that starting stone is finite and never refills. The ratio
- * is a fixed, moderate 0.4: urgent enough to secure permanent stone income near genesis, but still
- * above a starving food/housing need (ratio→0) so it never rushes a quarry ahead of survival. Fires
- * at most once (productionCapacity > 0 afterwards).
+ * tier upgrade, defence). It fires once the village has no stone source (regardless of how fat the
+ * starting pile is — that starting stone is finite and never refills) AND already has a wood income:
+ * the quarry costs 25 wood, so building it before a lumber camp exists would spend the very wood the
+ * village needs for its wood lifeline (see woodNeed). The ratio is a fixed, moderate 0.4 — urgent
+ * enough to secure permanent stone income early, but below woodNeed (0.25) and above a starving
+ * food/housing need (ratio→0). Fires at most once (productionCapacity > 0 afterwards).
  */
 export const stoneNeed: NeedEvaluator = (ctx) => {
   const population = ctx.popGame.totalOf(ctx.villageIndex);
   if (population < STONE_MIN_POP) return null;
   if (productionCapacity(ctx, 'base:resource.stone') > 0) return null; // already mines stone
+  if (productionCapacity(ctx, 'base:resource.wood') === 0) return null; // secure the wood lifeline first
   return { kind: 'stone', ratio: STONE_NEED_RATIO, candidates: ['base:building.quarry'] };
 };
 
