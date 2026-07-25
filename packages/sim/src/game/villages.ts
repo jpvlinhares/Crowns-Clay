@@ -153,6 +153,13 @@ export class VillageOps {
     return this.occupancy.has(this.tileIndex(x, y));
   }
 
+  /** Terrain tags at a tile — the SAME set `validatePlacement` matches building `terrainTags`
+   * against. The AI placement search (ai/placement.ts) reads these to leave scarce harvester
+   * ground (mineable/woodland) free for the quarry and lumber camp instead of squatting it. */
+  tagsAt(x: number, y: number): readonly string[] {
+    return this.terrain.tagsAt(x, y);
+  }
+
   /**
    * Rebuild derived indices (occupancy, centers) from ECS state — the ECS is
    * authoritative; these maps are caches. Called after save hydration (M17).

@@ -61,7 +61,7 @@ import { registerLogisticsGameplay } from './game/logistics.js';
 import { registerSettlerGameplay } from './game/settlers.js';
 import { registerKingdomGameplay, StatModifiers } from './game/kingdom.js';
 import { registerDiplomacyGameplay, diplomacySection, effectiveMemoryWeight, type DiplomacyPersonality } from './game/diplomacy.js';
-import { foodNeed, housingNeed, industryNeed } from './ai/needs.js';
+import { foodNeed, housingNeed, industryNeed, woodNeed, storageNeed, stoneNeed, serviceNeed } from './ai/needs.js';
 import { registerMilitaryGameplay } from './game/military.js';
 import { registerArmyGameplay } from './game/armies.js';
 import { registerCombatGameplay } from './game/combat.js';
@@ -89,6 +89,7 @@ import {
 import { registerAiMilitaryManager, type AiWarTarget } from './ai/military.js';
 import { registerAiDefenceManager } from './ai/defence.js';
 import { registerAiResearchManager } from './ai/research.js';
+import { registerAiEconomyManager } from './ai/economy.js';
 import { registerAiEventAnswering } from './ai/events.js';
 import { FogRegistry } from './ai/fogQuery.js';
 import { registerScoutingSystem, SCOUT_REVEAL_RADIUS, type ScoutingKingdom } from './ai/scouting.js';
@@ -752,7 +753,11 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
       id: String(k),
       // M47.8: campaigns build the toolmaking chain themselves (no genesis tools crutch);
       // the harness wrapper opts out (its tests pinned M20's two-evaluator manager).
-      ...(options.industry ?? true ? { needs: [foodNeed, housingNeed, industryNeed] } : {}),
+      // M-era: campaigns also get the economy-depth needs (storage/stone/services), so an AI
+      // capital raises a granary, quarry, well and tavern instead of going silent after farms.
+      ...(options.industry ?? true
+        ? { needs: [foodNeed, housingNeed, industryNeed, woodNeed, storageNeed, stoneNeed, serviceNeed] }
+        : {}),
       get villageId(): EntityId {
         return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
       },
@@ -795,6 +800,23 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
         return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
       },
     });
+    // M-era (doc 07 §5, "Tier A #3"): plan-driven fiscal policy — tax, edicts, tier-2 upgrade.
+    // Campaign-only (gated on the same `industry` flag as the economy-depth needs), so the
+    // harness wrapper keeps its pinned pre-M behaviour.
+    if (options.industry ?? true) {
+      registerAiEconomyManager(kernel, world, db, game, popGame, kingdomGame, {
+        issuer: k + 1,
+        id: String(k),
+        getPlan: () => planner.currentPlan(),
+        extraReads: [planner.AiPlanState],
+        get villageId(): EntityId {
+          return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
+        },
+        get kingdomId(): EntityId {
+          return (kingdomGame.kingdomEntities()[k] ?? 0) as EntityId;
+        },
+      });
+    }
     registerAiMilitaryManager(kernel, world, db, game, popGame, militaryGame, armiesGame, siegeGame, {
       issuer: k + 1,
       id: String(k),
