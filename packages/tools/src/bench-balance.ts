@@ -61,6 +61,17 @@ const REAL = process.argv.includes('--real');
 const WEIGHTS_A: PersonalityWeights = { expansion: 0.3, economy: 0.6, riskTolerance: 0.7, diplomacyTrust: 0.2, aggression: 0.9 };
 const WEIGHTS_B: PersonalityWeights = { expansion: 0.2, economy: 0.9, riskTolerance: 0.3, diplomacyTrust: 0.5, aggression: 0 };
 
+// Entity-index mask, same convention as campaign.ts/victory.ts's own `index()`.
+const index = (id: number): number => id & 0x3fffff;
+
+/** M62 (doc 12 Phase 9, ADR-ratified 2026-07-27): one measurement per village, taken at the
+ * run's final tick — age in years since `village.founded`, and the adult share of its cohorts.
+ * Feeds the adult-cohort band below; not itself a pass/fail record. */
+interface VillageBand {
+  readonly ageYears: number;
+  readonly adultFraction: number;
+}
+
 interface RunResult {
   readonly seed: number;
   readonly difficulty: DifficultyLevel;
@@ -89,6 +100,8 @@ interface RunResult {
    * the first breach (no `siege.assaultBegun` fires — that's only for a defended garrison fight),
    * so this is the outcome counter that reveals sieges actually RESOLVING, not just beginning. */
   readonly siegesCaptured: number;
+  /** M62: per-village age/adult-fraction snapshot at the run's final tick. */
+  readonly villageBands: readonly VillageBand[];
 }
 
 function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): RunResult {
@@ -155,6 +168,13 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
     composed.kernel.subscribe('siege.begun', () => siegesBegun++);
     composed.kernel.subscribe('siege.assaultBegun', () => assaultsBegun++);
     composed.kernel.subscribe('siege.captured', () => siegesCaptured++);
+    // M62: every village's founding tick, capital or settled — `ops.found` is the ONE path
+    // both take (villages.ts), so this single subscription covers both without a genesis vs.
+    // settler-founded distinction.
+    const foundedTick = new Map<number, number>();
+    composed.kernel.subscribe<{ village: number }>('village.founded', (e) => {
+      foundedTick.set(index(e.data.village), e.tick);
+    });
 
     composed.kernel.step(); // genesis
     const totalTicks = YEARS * TICKS_PER_YEAR;
@@ -175,6 +195,22 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       finalTreasuries.push(kid === undefined ? 0 : (treasuryCol[(kid as number) & 0x3fffff] as number));
     }
 
+    // M62: one age/adult-fraction sample per extant village at the run's final tick — every
+    // village any kingdom still holds, not just capitals (a settled hamlet is exactly the
+    // village the adult-cohort band exists to catch).
+    const currentTick = composed.kernel.currentTick;
+    const villageBands: VillageBand[] = [];
+    const popCols = composed.world.read(composed.popGame.Population);
+    composed.world.query([composed.game.comps.VillageCore, composed.popGame.Population]).forEach((vi) => {
+      const children = popCols.children[vi] as number;
+      const adults = popCols.adults[vi] as number;
+      const elders = popCols.elders[vi] as number;
+      const total = children + adults + elders;
+      if (total < 1) return; // razed/never-populated slot — nothing to measure
+      const founded = foundedTick.get(vi) ?? 0;
+      villageBands.push({ ageYears: (currentTick - founded) / TICKS_PER_YEAR, adultFraction: adults / total });
+    });
+
     return {
       seed,
       difficulty: level,
@@ -192,6 +228,7 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       siegesBegun,
       assaultsBegun,
       siegesCaptured,
+      villageBands,
     };
   } catch (error) {
     return {
@@ -212,8 +249,17 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       siegesBegun: 0,
       assaultsBegun: 0,
       siegesCaptured: 0,
+      villageBands: [],
     };
   }
+}
+
+/** Nearest-rank percentile over an ALREADY-SORTED ascending array (deterministic; no
+ * interpolation — the bands below are spaced widely enough that the distinction never matters). */
+function percentile(sorted: readonly number[], p: number): number {
+  if (sorted.length === 0) return NaN;
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.floor((p / 100) * (sorted.length - 1))));
+  return sorted[i] as number;
 }
 
 // Load once, up front, purely to fail loudly (Mod Zero gate) before burning minutes on campaigns.
@@ -278,5 +324,64 @@ if (REAL) {
     process.exitCode = 1;
   } else {
     console.log('R1 T objectives hold: no peacetime starvation · wars start AND end · ≥2 victory types organically');
+  }
+
+  // ---- M62 (doc 12 Phase 9): outcome bands, ratified 2026-07-27, written BEFORE the fixes
+  // they gate — a band reshaped after the fact to match whatever the fixes produced would
+  // defeat the entire point of measuring the composed game instead of its functions. ----
+  const allBands = clean.flatMap((r) => r.villageBands);
+  const fractions = allBands.map((b) => b.adultFraction).sort((a, b) => a - b);
+  const p10AdultFraction = percentile(fractions, 10);
+  const oldVillages = allBands.filter((b) => b.ageYears > 10);
+  const minOldFraction = oldVillages.length > 0 ? Math.min(...oldVillages.map((b) => b.adultFraction)) : null;
+
+  const changedHandsRuns = clean.filter((r) => r.occupations + r.siegesCaptured > 0).length;
+  const changedHandsShare = clean.length > 0 ? changedHandsRuns / clean.length : 0;
+  const totalChanges = clean.reduce((n, r) => n + r.occupations + r.siegesCaptured, 0);
+
+  const winners = clean.filter((r): r is RunResult & { winner: NonNullable<RunResult['winner']> } => r.winner !== null);
+  const winnerYears = winners.map((r) => r.winner.year).sort((a, b) => a - b);
+  const minWinYear = winnerYears.length > 0 ? (winnerYears[0] as number) : null;
+  const medianWinYear = winnerYears.length > 0 ? percentile(winnerYears, 50) : null;
+
+  const typeCounts = new Map<string, number>();
+  for (const r of winners) typeCounts.set(r.winner.type, (typeCounts.get(r.winner.type) ?? 0) + 1);
+  let maxTypeShare = 0;
+  let maxTypeLabel = 'none';
+  for (const [type, count] of typeCounts) {
+    const share = winners.length > 0 ? count / winners.length : 0;
+    if (share > maxTypeShare) { maxTypeShare = share; maxTypeLabel = type; }
+  }
+
+  console.log(
+    `\nM62 bands — adult cohort: p10 ${(p10AdultFraction * 100).toFixed(1)}% ` +
+      `(oldest-village floor ${minOldFraction === null ? 'n/a, no village >10y' : `${(minOldFraction * 100).toFixed(1)}%`}) · ` +
+      `war: ${changedHandsRuns}/${clean.length} campaign(s) saw a village change hands ` +
+      `(${totalChanges} total changes — reported, not gated) · ` +
+      `victory timing: earliest year ${minWinYear ?? 'n/a'}, median ${medianWinYear ?? 'n/a'} (reported) · ` +
+      `monoculture: ${maxTypeLabel} at ${(maxTypeShare * 100).toFixed(0)}% of wins`,
+  );
+
+  const m62Failures: string[] = [];
+  if (p10AdultFraction < 0.30) {
+    m62Failures.push(`adult-cohort p10 ${(p10AdultFraction * 100).toFixed(1)}% < 30% floor`);
+  }
+  if (minOldFraction !== null && minOldFraction < 0.15) {
+    m62Failures.push(`a village older than 10y has adult fraction ${(minOldFraction * 100).toFixed(1)}% < 15% hard floor`);
+  }
+  if (changedHandsShare < 0.5) {
+    m62Failures.push(`only ${(changedHandsShare * 100).toFixed(0)}% of campaigns saw a village change hands (need ≥50%)`);
+  }
+  if (minWinYear !== null && minWinYear < 30) {
+    m62Failures.push(`a victory fired in year ${minWinYear} (need ≥30)`);
+  }
+  if (maxTypeShare > 0.6) {
+    m62Failures.push(`${maxTypeLabel} won ${(maxTypeShare * 100).toFixed(0)}% of campaigns (need ≤60% for any single type)`);
+  }
+  if (m62Failures.length > 0) {
+    console.error(`M62 BAND FAIL: ${m62Failures.join(' · ')}`);
+    process.exitCode = 1;
+  } else {
+    console.log('M62 bands hold: adult cohorts staffed, war changes hands, no early runaway, no victory monoculture');
   }
 }

@@ -664,6 +664,81 @@ M60 (saves & corpus) deliberately follows M59 so it absorbs the footprint change
 
 ---
 
+## Phase 9 — The Game (M61.5–M67, post-1.0 — added by revision R5, CHARTERED)
+
+Chartered by the **M61.5 release review** (2026-07-27) with ADR-5 and ADR-6 (doc 15). The verdict was
+**Not Ready for Release**, on the same shape of finding as M47.5's: the letter of the roadmap is
+satisfied and its substance is not. M47.5 found every Phase 3–5 system verified only in a standalone
+harness. M61.5 found the successor failure one level up — systems verified only as FUNCTIONS. The
+496-test suite, four byte-stable golden replays, four corpus saves and three benchmark scenes
+between them never ask whether the COMPOSED GAME produces a good outcome, and the one tool that does
+(`bench:balance --real`) was never a gate.
+
+What that hid, measured on the shipping composition (16 campaigns × 60 years, 4 difficulties, 2
+seeds): **11 wars declared, 4 sieges begun, 0 assaults resolved, 0 castles captured, 0 villages
+occupied in 14 of 16 runs, 0 kingdoms eliminated, 0 capitulations, 0 new lords risen.** 13 of 16
+campaigns end in a Prosperity victory in year 18–20 at EVERY difficulty. Villages stabilise around
+~20:1 children-to-adults (measured: 374 children to 18 adults at year 40), so the adult workforce —
+and with it food security, recruitment and war — never reaches scale. And `village.sendSettlers` has
+no player surface at all, so the player is a permanent one-village kingdom while AI realms expand.
+
+Consequence: Phases 4, 8 and 8.1 — the whole military/siege/castle investment, thirteen milestones —
+are complete, tested, and never reached to a conclusion in the shipping game.
+
+**Phase 9 adds NO new systems.** Every milestone repairs, surfaces, or measures something already
+built. The M12 playability rule and ADR-3's composition rule bind as everywhere else.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M61.5 | Release review (M1–M61) | formal internal review of the shipped game against the design set; four SIMULATION blockers named (no player expansion verb · inverted demographic pyramid · war that never concludes · victory monoculture); the art gap closed by repositioning rather than by work (ADR-6); Conquest's share rule ruled a defect (ADR-5) | review delivered; R5 ratified; ADR-5 and ADR-6 recorded |
+| M62 | Balance instrumentation as a gate | `bench:balance --real` asserts outcome BANDS and exits non-zero; added to CI. Bands ratified 2026-07-27: (1) adult cohort — 10th-percentile village ≥30%, hard floor 15% on any village older than 10y; (2) war — ≥1 village changes hands in ≥50% of campaigns (GATED), aggregate rate REPORTED not gated; (3) victory timing — no victory before year 30 (GATED), median REPORTED; (4) monoculture — no single victory type in >60% of campaigns | the tool fails against HEAD on all four bands, and its failure report names which band broke — a gate written before the fixes cannot be reshaped to match them |
+| M63 | The player's missing verbs | settler dispatch from the Village panel (target picker reusing the road-tool/footprint-preview pattern), surfacing `sendSettlers`' existing rejection vocabulary; **the missing ownership guard on `village.sendSettlers`** (`village.upgrade` has one, settlers.ts:264 does not — without it a player could dispatch settlers out of a rival's village); named save slots + a plain slot list (map thumbnails and mod metadata drop to post-release under ADR-6) | injector-free walkthrough: found a second village, save to a named slot, reload, resume · goldens and corpus verify BYTE-IDENTICAL (the guard is inert for AI issuers — verify, do not assume) |
+| M64a | Demographic diagnosis | instrument the daily population update's per-village births / matured / senesced / deaths / migration / dispatch deltas and reconcile them against observed cohort change over 40 years. **Output is a written cause, not a fix** — nothing committed but a finding. Chartered separately because the review could NOT close the causal chain: the model's own constants imply a stable child:adult ratio of 1.3–2.5, not 20, and with 374 children maturation alone should feed ~27 adults/year into a cohort sitting at 18. Something removes adults that has not been found, and only two code paths write `pop.adults[]` | the observed cohort trajectory is fully explained by named terms; recalibrate-vs-redesign is DETERMINED, not guessed |
+| M64b | Population & economy repair | whatever M64a found. Also in scope regardless: `SETTLER_PARTY`'s age mix (20 adults / 8 children / 2 elders — 67% adults drawn from villages holding 15–25) and `FAMINE_MORTALITY`'s slope at mild hunger. Scope and model assignment set AFTER M64a | 50-year age-structure property test green · M62's adult-cohort band green · food security ≥0.95 sustained in a developed village |
+| M65 | War that concludes | levers, in order: the recruit gates (`RECRUIT_MIN_ADULTS_REMAINING` 12, `RECRUIT_MIN_FOOD_SECURITY` 0.95 — both likely re-open on their own once M64b lands), `WAR_MIN_STRENGTH` (20, against ~2–4 stacks actually fielded), seasonal upkeep desertion (eats ~half of every recruit cohort), the planner's `MilitaryBuildup` monoculture (81% of all plan-choices, against `DevelopHeartland`'s 4 in 30 years), and garrison-hold (war-cadence backlog part 6's named-but-unbuilt option) | M62's capture/elimination band green. Named baselines to beat: flat harness 24 sieges begun / 23 captured (Gate P8.1); `--real` 4 begun / **0 captured** (M61.5) |
+| M66 | Victory semantics & pacing | Conquest re-based on TAKEN villages per ADR-5 (share of villages acquired by capture or occupation; founded and vassal-held villages excluded; the "all rivals defeated" clause retained) — an additive event-fed counter in the victory tracker's OWN save section, mirroring `wondersCompleted`, so no ECS component change and no world-section migration; Prosperity re-paced off year 18–20 toward doc 08 §1's 40–120 year band | M62's monoculture and year-30 bands green · Conquest unreachable without territorial change · victory section migrates v1→v2 |
+| M67 | Onboarding, docs & Gate P9 | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9 | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
+
+**Phase 9 sequencing note — ordered by FIXTURE COST, not by importance.** M62, M63 and M64a are
+hash-inert (tooling, app/UI, and a throwaway probe), so the whole first wave costs zero fixture
+walks and no Opus fixture session. M64b, M65 and M66 each move behaviour and each carries ONE
+re-record. Those three are deliberately **not batched**: folding them into a single re-record would
+save two diff walks and cost single-cause attribution on every moved hash — and a wrong balance
+change hiding behind a right one inside a green re-recorded fixture is precisely the silent-failure
+mode this project's hard-stop-before-record rule exists to catch. Predicted per-milestone scope:
+M64b moves `terra-demo` + `campaign-demo` and all four corpus resume hashes (constants and formula
+only — **no schema change, no migration**); M65 and M66 move `campaign-demo` +
+`campaign-tick500-v1` only, and if a terra fixture moves under either, that is a signal to stop, not
+a nuisance to record.
+
+**M62 scoping note (shipped 2026-07-27):** shipped exactly as chartered — `bench-balance.ts` gains
+a `VillageBand` sample (age since `village.founded`, adult fraction of cohorts) taken at each run's
+final tick over every extant village, not just capitals, plus the four band computations and a
+`balance-matrix` CI job (`--real --years 60 --seeds 2`, matching the figures this note records).
+Both halves are TOOLING ONLY — no sim/app behaviour changed, so no golden or corpus re-record was
+needed or attempted. Run against HEAD at the exact CI invocation:
+
+```
+M62 bands — adult cohort: p10 6.8% (oldest-village floor 5.1%) · war: 0/16 campaign(s) saw a
+village change hands (0 total changes) · victory timing: earliest year 9, median 20 · monoculture:
+prosperity at 88% of wins
+M62 BAND FAIL: adult-cohort p10 6.8% < 30% floor · a village older than 10y has adult fraction 5.1%
+< 15% hard floor · only 0% of campaigns saw a village change hands (need ≥50%) · a victory fired in
+year 9 (need ≥30) · prosperity won 88% of campaigns (need ≤60% for any single type)
+```
+
+All four bands fail, exactly as the review predicted and sharper than its own estimates (88%
+Prosperity monoculture measured here vs. ~81% estimated in the M61.5 review; 0% of campaigns saw a
+village change hands, vs. the review's qualitative "0 captures/0 occupations in 14 of 16 runs" —
+this run's larger per-campaign year count, 60 vs. the review's mixed sample, converts that to a
+clean zero). The "earliest year 9" figure is itself Conquest's SHARE defect (a 2-kingdom campaign
+out-settling its rival, ADR-5) — expect this specific number to move at M66 for a different reason
+than the other three bands. **CI job added and EXPECTED RED** on this branch until M64b/M65/M66
+land — recorded here so a future reader finds the explanation in the same place as the number,
+not just in the job's own comment.
+
+---
+
 ## Dependency & Risk Notes
 
 - Long-pole chains: ECS/determinism (M2–M5) → everything; AI harness (M24) is deliberately early —
@@ -788,3 +863,33 @@ Amendment A1; scope option (C) RATIFIED 2026-07-21).**
 - **Risk impact:** lowers risk going forward — M60 would otherwise have discovered this gate live,
   mid-milestone, the same way M56 did. No behavioural change and no new re-record: this is a
   documentation correction only, traceable to the M56 commit's own verification trail.
+
+**R5 — Phase 9 ("The Game") chartered from the M61.5 release review (ratified 2026-07-27).**
+
+- **Change:** an audit milestone (M61.5) and seven repair milestones (M62, M63, M64a, M64b, M65,
+  M66, M67 — "Phase 9 — The Game") appended as post-1.0 scope. No new systems: every milestone
+  repairs, surfaces, or measures something already built. M62's outcome BANDS are ratified inside
+  its own row and are binding — a gate written before the fixes so it cannot be reshaped to match
+  them.
+- **Why:** the M61.5 review found the M47.5 failure recurring one level up. R1 unified the
+  composition; it never gated the composition's OUTCOMES. So a green 496-test suite, four
+  byte-stable goldens, four clean corpus saves and three benchmark scenes at 3% of budget coexisted
+  with a shipping game in which nothing is ever conquered (0 assaults, 0 captures, 0 eliminations
+  across 16 × 60-year campaigns), 81% of campaigns end the same way in year 18–20, villages run at
+  ~20:1 children-to-adults, and the player has no expansion verb at all. Freezing here would ship
+  Phases 4, 8 and 8.1 — thirteen milestones of military, siege and castle work — as code the game
+  never reaches.
+- **Affected documents:** this doc (12); doc 15 (ADR-5 Conquest semantics, ADR-6 release
+  positioning); GDD §16 rewrite lands inside M66, GDD §5's settler surface inside M63, and doc 07
+  §3's stale roster-adoption note inside M67 — no design-doc change before those milestones.
+  Doc 11's unmeasured-target admissions (render fps, memory, save size) are unchanged by this
+  revision and remain open.
+- **Affected milestones:** none reopened. Phase 8.1 stays closed — its castle system is not
+  defective, it is unreachable, which is M65's problem and not a reopening of M55–M61.
+- **Risk impact:** reduces the four release-blocking simulation risks the review named, and closes
+  the art blocker by decision rather than by work (ADR-6) — which also trims M63's save browser and
+  M67's tutorial to reachability-only. Adds three intentional re-records (M64b, M65, M66),
+  deliberately unbatched so each moved hash has a single attributable cause. The one-time behaviour
+  snap is Conquest's meaning changing under ADR-5: a save mid-campaign with a share-based Conquest
+  in progress re-evaluates under the taken-village rule on first load — accepted, same class as
+  OQ-9's re-derivation snap and A1's inert-walls snap.

@@ -612,3 +612,86 @@ configs. Perf budgets stay far under headroom (war-max 0.080 ms/tick, ai-8k 0.20
 Gate P8's format). Phase 8.1 — One Castle is closed; ADR-4 §6's "two parallel fortification
 systems must not ship" now holds structurally, not by convention — there is exactly one code path,
 `game/castles.ts` and the legacy assault branch are deleted, not merely unreachable.
+
+---
+
+## ADR-5 — ACCEPTED (2026-07-27): Conquest victory is re-based on TAKEN villages
+
+**Context.** `game/victory.ts`'s Conquest track fires on SHARE of all currently-existing villages
+(`DEFAULT_CONQUEST_SHARE = 0.6`) or on every rival being defeated. The M61.5 review measured the
+consequence directly: a 2-kingdom campaign declared `conquest in year 9` with **0 captures, 0
+occupations, 0 eliminations** — one realm founded a second village while the other stayed at one,
+and two of three villages is 67%. The war-victory track was won by peaceful settlement, in year
+nine, without an army. This is not a tuning miss; the track measures the wrong quantity.
+
+The defect gets STRICTLY WORSE at M63. Once the player can dispatch settlers (GDD §5's surface,
+missing until then), share-based Conquest becomes the player's cheapest win: out-settle three AI
+realms that plateau near 93 souls and take the conquest crown without recruiting a soldier. M66 is
+therefore not independent polish — it is the mandatory counterpart to M63 and must not lag it by
+more than a milestone.
+
+**Options.** (a) Conquest = elimination only — delete the share clause; one line, cleanest fiction,
+but OQ-9 deliberately avoided mop-up endgames. (b) Conquest = share of villages ACQUIRED by capture
+or occupation, never founded — keeps a mid-length military track. (c) Split: Conquest becomes
+elimination-only and the share rule survives as a separate, honestly-named `domination` track.
+
+**Decision.** **(b), with (a)'s clause retained.** The share threshold stays but counts only taken
+villages; "all rivals defeated" remains an independent way to win. Vassal-held villages are
+EXCLUDED — they are not taken, and letting them feed Conquest re-blurs it into Hegemony, which is
+the same conflation that produced the original defect. (c) is rejected as new scope inside a phase
+whose entire premise is that no new systems are added.
+
+**Why (b) is cheap.** The victory tracker already maintains event-fed counters inside its own save
+section — `wondersCompleted` is driven off `building.completed` and persisted there. A
+`villagesTaken` counter fed off `siege.captured` / `village.occupied` is structurally identical:
+an additive field on the victory section, **no ECS component change and no world-section
+migration**. Victory section bumps v1→v2.
+
+**Consequences.** GDD §16's Conquest wording is rewritten at M66. A mid-campaign save carrying
+share-based Conquest progress re-evaluates under the taken-village rule on first load — a one-time
+behaviour snap, accepted and recorded here, same class as OQ-9's re-derivation snap. If M65's war
+tuning leaves the taken-share threshold untunable, falling back to option (a) is a one-line
+deletion — this decision does not foreclose that. OQ-9's mop-up concern is weaker than it was in
+2026-07: M53's annexation-on-capital-death seizes an entire realm in one strike and capitulation
+converts hopeless rivals to counted vassals, so elimination no longer implies sixty sieges.
+
+---
+
+## ADR-6 — ACCEPTED (2026-07-27): 1.x ships as a technical / open-development build, not a
+commercial release
+
+**Context.** The M61.5 review found the repository contains **zero art**: no sprites, no textures,
+no audio files. The only raster/vector asset anywhere is `icon.svg`. Everything renders as Pixi
+`Graphics` primitives with category glyphs (doc 10 §1's polish delta) and all audio is synthesised
+at runtime. This is not a discovery — doc 10's placeholder-first doctrine planned for it, TDD §11
+records the Asset Manager as unbuilt, and M45's own README note says plainly that "art integration
+has zero infrastructure to integrate into… there's no artist producing sprites in this process."
+What was never decided is what that means for RELEASE. M45 is nevertheless marked ✅ in the README
+status table against a roadmap line reading "final art integration waves," which is the one place
+the project's otherwise-scrupulous honesty does not hold.
+
+**Options.** (a) Commission a sprite set against doc 10's pipeline and keep a commercial release on
+the table — integration is genuinely a file swap thanks to logical-id indirection, but it adds a
+dependency Phase 9 cannot resolve and a cost this roadmap cannot estimate. (b) Release with no
+commercial framing: a technical / open-development build, art as a post-release track. (c) Defer
+the decision until Phase 9 closes.
+
+**Decision.** **(b).** The build ships and is described as what it is. (c) is rejected because the
+positioning determines how much UX work Phase 9 owes, so deferring it leaves M63 and M67
+unscopeable.
+
+**Consequences.** Two deliberate scope trims follow, both recorded in doc 12's Phase 9 rows:
+M63's save surface becomes named slots plus a plain slot list (GDD §18's map thumbnails and mod
+metadata drop to post-release), and M67's tutorial becomes REACHABILITY rather than teaching — one
+event per major system naming the panel and its gate, not a guided onboarding. What does NOT trim
+is the documentation obligation, and it arguably tightens: an open-development build is read by
+developers, so the docs ARE the product surface, which is why M67's ADR sweep over the five
+unrecorded cuts (markets, village tiers 3–4, specialisation, battle orders, advisor UI) stays in
+scope at full size. The README status table's M45 row is corrected at M67. Marketing-adjacent
+copy must not claim the deeper character promises ADR-1 cut, the belief surface ADR-2 scoped down,
+espionage (OQ-6), or the trade economy — none of which exist.
+
+**What this does NOT change.** The M61.5 verdict. Repositioning removes ONE of five release
+blockers; the remaining four — no player expansion verb, the inverted demographic pyramid, war that
+never concludes, and the victory monoculture — are simulation defects, not presentation ones, and
+are unaffected by how the build is framed. Phase 9 is still required.
