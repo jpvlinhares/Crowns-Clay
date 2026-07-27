@@ -711,6 +711,57 @@ only — **no schema change, no migration**); M65 and M66 move `campaign-demo` +
 `campaign-tick500-v1` only, and if a terra fixture moves under either, that is a signal to stop, not
 a nuisance to record.
 
+**M64a FINDING (2026-07-27) — the population model is NOT the defect; AI recruiting is. The
+M61.5 review attributed the symptom to the wrong subsystem.** M64a was chartered because the
+review measured a ~20:1 child-to-adult ratio but could not close the causal chain — its own
+arithmetic said the model's constants imply a stable ratio of 1.3–2.5, and that ~27 adults/year
+of maturation should be refilling a cohort sitting at 18. That instinct was right: **nothing is
+wrong with `population.ts`.**
+
+*Method.* No source was edited. Every tick of a 20-year 4-kingdom campaign (seed 9000, medium map,
+`aiFromIndex: 0`) was sampled for changes to `pop.adults[]`, bucketed by `tick % TICKS_PER_DAY`,
+and each bucket matched to the system or command that owns that phase. Four writers appeared, and
+every one is accounted for. Per-village, over 20 years:
+
+| village | start | `population` (ph 3) | `army.recruitUnit` (ph 8) | `military-upkeep` (ph 5) | settler dispatch (ph 1) | = predicted | actual | children |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 28 | 15 | **+372.9** | **−834** | +695 | −60 | 188.89 | **188.89** | 389 |
+| 30 | 15 | **+368.5** | **−314** | +20 | 0 | 89.51 | **89.51** | 431 |
+| 32 | 15 | **+331.2** | **−306** | 0 | −20 | 20.21 | **20.21** | 340 |
+| 34 | 15 | **+309.2** | **−290** | 0 | −20 | 14.21 | **14.21** | 294 |
+
+Predicted equals actual to the decimal in all four cases — the trajectory is fully explained, which
+is M64a's T objective.
+
+*The cause.* `population.ts`'s daily update is a NET CONTRIBUTOR of +309 to +373 adults per village
+over 20 years. What removes them is the AI military manager recruiting at `UnitDef.popCost` = **10
+adults per unit** (militia/spearman/swordsman/archer/crossbowman all 10), gated only by
+`RECRUIT_MIN_ADULTS_REMAINING = 12` — with **no cap on standing army size relative to workforce**.
+The moment a village's adult cohort reaches ~22 and the food gates pass, 10 adults become a soldier;
+the manager retries daily, so the cohort is clamped into a permanent 12–22 band. 190 units were
+recruited across 4 kingdoms in 20 years. Children accumulate to 294–431 as the mechanical
+consequence: births continue off the surviving adults (joy-scaled), maturation feeds adults, and
+recruiting removes them again — the child cohort is a permanent waiting room.
+
+*This also explains the "bimodality" the review flagged.* Villages 28/30 kept a workforce only
+because their soldiers DESERTED BACK (`military-upkeep` returning +695 / +20 adults); 32/34 got
+nothing back and were bled to 14–20 adults. The difference was never demographic — it was whether
+the army an unaffordable upkeep dissolved happened to return its men.
+
+*Counterfactual, already proven by the accounting:* with recruiting removed, the population system
+alone takes a 15-adult village to ~324–388 adults against 294–431 children — an adult fraction of
+**43–57%**, comfortably inside M62's ≥30% band. **M62's adult-cohort band is therefore not a
+population-model gate at all; it is an AI-recruiting gate.**
+
+*What remains genuinely in `population.ts`/`settlers.ts` scope,* both smaller than chartered and
+neither responsible for the inversion: `SETTLER_PARTY`'s 67%-adult composition (visible above as the
+−60/−20 columns) and `FAMINE_MORTALITY`'s slope at mild hunger (untested here — it was not a
+material term in these runs, since these villages were rarely hungry).
+
+*Consequence for the plan:* M64b and M65 now share one root cause, so their scopes overlap
+substantially — see the M64b/M65 rows and the note below. **Nothing was committed but this
+finding, per M64a's charter.**
+
 **M63 scoping note (shipped 2026-07-27):** both halves shipped as chartered, both TOOLING/APP-LAYER
 only — no golden or corpus re-record needed, confirmed (all four goldens, all four corpus saves,
 byte-identical). *Settle tool:* `village.sendSettlers` never had an ownership guard —
