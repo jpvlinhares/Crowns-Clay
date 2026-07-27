@@ -711,6 +711,41 @@ only — **no schema change, no migration**); M65 and M66 move `campaign-demo` +
 `campaign-tick500-v1` only, and if a terra fixture moves under either, that is a signal to stop, not
 a nuisance to record.
 
+**M63 scoping note (shipped 2026-07-27):** both halves shipped as chartered, both TOOLING/APP-LAYER
+only — no golden or corpus re-record needed, confirmed (all four goldens, all four corpus saves,
+byte-identical). *Settle tool:* `village.sendSettlers` never had an ownership guard —
+`village.upgrade` (settlers.ts:431) already checked one, this command (settlers.ts:264) did not,
+despite `campaign.ts:888` already wiring `settlerGame.setOwnershipGuard` for it — a gap that only
+mattered once a player-facing dispatch surface could reach it. Fixed by mirroring
+`village.upgrade`'s exact check; confirmed inert for the AI issuer (`ai/planner.ts`'s
+`ExpandSettle` always dispatches with its own kingdom as issuer, from a village it owns). The
+Village panel gained a "Found Village" armed-click tool (`main.ts`, mirroring the existing
+`armedArmyAction`/`armedBuild` pattern exactly — same arm/disarm, same right-click/Escape cancel,
+same mutual exclusion with Build/Road). **No live valid/invalid preview**: reusing the existing
+`previewBuild` RPC was considered and rejected — it validates placement RELATIVE TO an owning
+village's radius (`ops.validatePlacement(def, x, y, villageId)`), while founding validates a
+GLOBAL site rule with no owning village (`dispatch`'s own call passes `null`) — building an
+accurate live preview needs new sim surface, out of scope for "surface an existing verb." The
+armed tool instead shows a neutral footprint outline (village-center's def size) and the founding
+verdict itself surfaces through the pre-existing `village.rejected` toast, in the sim's own
+words. Verified: build/lint/typecheck clean, full suite 496/496 unchanged, all fixtures
+byte-identical, and a live walkthrough in the browser confirmed the arm→click→disarm cycle
+resolves (the button correctly reverts to "Found Village" only after the click handler's settle
+branch runs) — the sandboxed browser used for this session cannot compose/screenshot the canvas,
+so the exact rejection toast text was not visually re-confirmed this session; `settlers.test.ts`
+(unmodified, still green) is the authority for `dispatch`'s rejection-message behaviour.
+
+*Named save slots:* the IndexedDB slot store (`saveStore.ts`) always supported arbitrary names —
+only the toolbar hardcoded `'manual'`. Per ADR-6's trim, this ships as a plain list, not GDD §18's
+full save browser: a text input names the slot `Save` writes to, and a new `listSlots` protocol
+message (+ `slotsList` response) lets the worker peek at each stored slot's OWN header — `tick`
+(via the already-exported `calendarFromTick`) and `campaign.kingdomCount` — to label the list
+`{slot} — Year N · season · day D · K kingdom(s)`, falling back to a byte count if a slot's
+payload doesn't parse. No new persisted state and no schema change: this is a read-only peek at
+what saves already write. Confirmed live: the autosave that fires at the first season boundary
+appeared in the list automatically with the correct detail line, and the save-result handler
+refreshes the list after every save.
+
 **M62 scoping note (shipped 2026-07-27):** shipped exactly as chartered — `bench-balance.ts` gains
 a `VillageBand` sample (age since `village.founded`, adult fraction of cohorts) taken at each run's
 final tick over every extant village, not just capitals, plus the four band computations and a

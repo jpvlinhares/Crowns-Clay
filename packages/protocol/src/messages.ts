@@ -345,6 +345,10 @@ export type ToSimMessage =
   | { kind: 'load'; slot: string }
   | { kind: 'exportSave' }
   | { kind: 'importSave'; payload: string }
+  // M63 (doc 12 Phase 9): the slot store (saveStore.ts) always supported arbitrary named
+  // slots — only the UI hardcoded 'manual'. This lists what's actually in IndexedDB so a
+  // save browser (even a plain one, per ADR-6) can populate itself.
+  | { kind: 'listSlots' }
   // ---- modding (M39): recompose the current campaign with a new mod set/order ----
   | { kind: 'setMods'; enabled: string[]; order: string[] }
   // ---- debug channel (M9; becomes the sandbox editor transport, GDD §17) ----
@@ -479,6 +483,11 @@ export type FromSimMessage =
   | { kind: 'saveResult'; slot: string; ok: boolean; bytes: number; error?: string }
   | { kind: 'loadResult'; ok: boolean; tick: number; migrations?: string[]; modReport?: ModReconciliation; error?: string }
   | { kind: 'exportResult'; payload: string }
+  /** M63 (doc 12 Phase 9): a plain slot list (ADR-6 — thumbnails/mod metadata are the
+   * post-release save-browser scope this trims). `date`/`kingdomCount` come from a peek at
+   * each slot's own header — reused, not new state — and are absent if that slot's payload
+   * doesn't parse (corrupt or foreign; the slot still lists by name and size). */
+  | { kind: 'slotsList'; slots: readonly { slot: string; bytes: number; date?: string; kingdomCount?: number }[] }
   | {
       kind: 'debugTelemetry';
       tick: number;
