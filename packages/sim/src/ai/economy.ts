@@ -42,7 +42,7 @@ import type { Kernel, SimSystem } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
 import type { VillageGameplay } from '../game/villages.js';
 import type { PopulationGameplay } from '../game/population.js';
-import { EDICT_CAP, TAX_RATES, type KingdomGameplay } from '../game/kingdom.js';
+import { EDICT_CAP, type KingdomGameplay } from '../game/kingdom.js';
 import { TIER2_REQUIREMENTS } from '../game/settlers.js';
 
 const index = (id: number): number => id & 0x3fffff;
