@@ -86,7 +86,7 @@ import {
   type AiStrategicPlannerOptions,
   type PersonalityWeights,
 } from './ai/planner.js';
-import { registerAiMilitaryManager, type AiWarTarget } from './ai/military.js';
+import { registerAiMilitaryManager, MAX_ARMY_WORKFORCE_FRACTION, UPKEEP_SEASONS_BUFFER, type AiWarTarget } from './ai/military.js';
 import { registerAiDefenceManager } from './ai/defence.js';
 import { registerAiResearchManager } from './ai/research.js';
 import { registerAiEconomyManager } from './ai/economy.js';
@@ -180,6 +180,15 @@ export interface ComposeCampaignOptions {
    * warfare techs unlock it, instead of the pinned single-unit order. Default true; the
    * harness wrapper opts out to keep its M22–M46 recruit outcomes byte-identical. */
   readonly rosterAdoption?: boolean;
+  /** M65 (doc 12 Phase 9; M64a finding): recruiting gains a WORKFORCE ceiling (fraction of a
+   * village's potential adults, `ai/military.ts`'s `MAX_ARMY_WORKFORCE_FRACTION`) and an
+   * AFFORDABILITY ceiling (`UPKEEP_SEASONS_BUFFER` seasons of upkeep already sustainable,
+   * kingdom treasury + village food) — every pre-M65 recruit gate was a floor with no notion
+   * of army size, so a village recruited until it hit the floor and stayed clamped there
+   * (M64a: this, not the population model, was the cause of the measured ~20:1
+   * children-to-adults inversion). Default true; the harness wrapper opts out (its M22-M46
+   * war-cycle tests were recorded against unbounded floor-only recruiting). */
+  readonly recruitCeilings?: boolean;
   /** GDD §13 "history seeding": kingdoms start mutually AWARE of each other's capitals
    * (medieval realms knew their neighbours) — later villages stay fog-hidden until scouted.
    * Without it, start sites sit beyond scout range and no kingdom ever discovers another —
@@ -746,6 +755,7 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   // ---- per-kingdom AI (M19-M33), kingdoms aiFromIndex..n-1 ----
   const sharedPlanState = defineAiPlanState(world);
   const rosterAdoption = options.rosterAdoption ?? true; // 1.0: AI recruits the full roster (wrapper opts out)
+  const recruitCeilings = options.recruitCeilings ?? true; // M65: workforce/affordability ceilings (wrapper opts out)
   for (let k = aiFromIndex; k < options.kingdomCount; k++) {
     const dctx = diplomacyContextFor(k);
     const managerOptions: AiConstructionOptions = {
@@ -836,6 +846,24 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
           }
         : {}),
       assaultAdvice: (castleVi) => intelAdvice.counsel?.(k, castleVi) ?? 'assault', // M54: fog-symmetric counsel
+      // M65 (doc 12 Phase 9; M64a finding): workforce/affordability ceilings on recruiting.
+      // Gated on the flag so the harness wrapper (recruitCeilings: false) keeps pinned
+      // unbounded-floor-only behaviour byte-identical.
+      ...(recruitCeilings
+        ? {
+            maxArmyWorkforceFraction: MAX_ARMY_WORKFORCE_FRACTION,
+            canSustain: (gold: number, food: number): boolean => {
+              const kid = kingdomGame.kingdomEntities()[k];
+              if (kid === undefined) return true; // no kingdom entity yet — don't block
+              const treasury = world.read(kingdomGame.Kingdom).treasury[index(kid as number)] as number;
+              const vi = index(villageIndexByKingdom.get(k) ?? 0);
+              const stock = world.readObj(game.comps.Stockpile).tryGet(vi);
+              const foodCode = game.ops.resourceCode('base:resource.food') as number;
+              const haveFood = stock?.get(foodCode) ?? 0;
+              return treasury >= gold * UPKEEP_SEASONS_BUFFER && haveFood >= food * UPKEEP_SEASONS_BUFFER;
+            },
+          }
+        : {}),
       diplomacy: {
         isAtWar(target: EntityId): boolean {
           const myId = kingdomGame.kingdomEntities()[k];
@@ -852,7 +880,11 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
           kernel.submit({ type: 'kingdom.proposePeace', issuer: k + 1, payload: { targetKingdom: targetIndex, tribute } });
         },
       },
-      extraReads: [planner.AiPlanState],
+      // M65: `canSustain` above reads Kingdom.treasury and Stockpile from INSIDE this system's
+      // tick (via the recruit gate's closure) — both must be declared here or the access guard
+      // throws at runtime, a check `tsc` cannot catch. Only added when the ceilings are (the
+      // harness wrapper's system never calls into `canSustain`, so it needs neither).
+      extraReads: recruitCeilings ? [planner.AiPlanState, kingdomGame.Kingdom, game.comps.Stockpile] : [planner.AiPlanState],
       get villageId(): EntityId {
         return (villageIndexByKingdom.get(k) ?? 0) as EntityId;
       },

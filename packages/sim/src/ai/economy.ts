@@ -8,15 +8,28 @@
  * command handler is the authority; a rejected order is retried unchanged or
  * simply skipped next day).
  *
- * TAX (plan-driven, no baseline — the deliberate "option 3" policy): a freshly
- * founded village starts at NORMAL (villages.ts), which taxes happiness for no
- * chosen reason. Instead the rate follows the strategic plan — HIGH while a
- * warlike plan needs gold for an army, a modest LOW under TechRace to fund
- * research edicts, and NONE otherwise so happiness (and thus growth and
- * prosperity) climbs on the +1/day no-tax drift. A happiness CLAMP overrides
- * the plan when the people are already suffering: never above LOW below 60 joy,
- * never above NONE below 45 — "high tax forever is self-defeating" (kingdom.ts)
- * made self-correcting.
+ * TAX (plan-driven, over a NORMAL peacetime baseline): the rate follows the
+ * strategic plan — HIGH while a warlike plan needs gold for an army, a modest
+ * LOW under TechRace to fund research edicts, and NORMAL otherwise. A happiness
+ * CLAMP overrides the plan when the people are already suffering: never above
+ * LOW below 60 joy, never above NONE below 45 — "high tax forever is
+ * self-defeating" (kingdom.ts) made self-correcting.
+ *
+ * M65 (doc 12 Phase 9) REVERSED the original "no baseline" policy, which taxed
+ * NONE under every non-warlike, non-TechRace plan so happiness could climb on
+ * the no-tax drift. That was a deliberate choice, and measurement retired it: a
+ * kingdom sitting in `DevelopHeartland` — the ordinary peaceful plan — collected
+ * ZERO tax for an entire campaign no matter how content it was, so three of four
+ * AI kingdoms held 1-4 gold at year 30 (joy 92-100 apiece) while the one that
+ * happened to sit in MilitaryBuildup banked 94,197. That is a deadlock, not a
+ * growth strategy: gold funds an army, only a warlike plan collects gold, and
+ * only an army justifies a warlike plan. It stayed invisible until M65's
+ * affordability gate stopped kingdoms recruiting against empty treasuries —
+ * before that they raised armies they could not pay for and `military-upkeep`
+ * deserted them every season (M64a measured the churn). NORMAL is also what a
+ * freshly founded village already starts at (villages.ts), so peacetime policy
+ * now agrees with genesis instead of contradicting it, and the happiness clamp
+ * still shuts tax off entirely whenever joy actually sags.
  *
  * EDICTS follow the same "only when the plan asks, and only what income can
  * sustain" rule. Upkeep-bearing edicts are enacted ONLY while the kingdom is
@@ -50,6 +63,7 @@ const index = (id: number): number => id & 0x3fffff;
 // Tax-rate indices into kingdom.ts's TAX_RATES (none/low/normal/high/punitive).
 const TAX_NONE = 0;
 const TAX_LOW = 1;
+const TAX_NORMAL = 2; // M65: the peacetime baseline, matching a village's founding rate
 const TAX_HIGH = 3;
 
 // Happiness bands (0..100). LOW: recovery floor — no tax, shed happiness-costing
@@ -79,9 +93,10 @@ export interface AiEconomyOptions {
   readonly extraReads?: readonly Component[];
 }
 
-/** The tax rate this plan+happiness wants — plan-driven, then clamped for joy. */
+/** The tax rate this plan+happiness wants — plan-driven over a NORMAL peacetime
+ * baseline (M65; see the module doc for why NONE was retired), then clamped for joy. */
 export function desiredTaxRate(plan: string, happiness: number): number {
-  let rate = WARLIKE_PLANS.has(plan) ? TAX_HIGH : plan === 'TechRace' ? TAX_LOW : TAX_NONE;
+  let rate = WARLIKE_PLANS.has(plan) ? TAX_HIGH : plan === 'TechRace' ? TAX_LOW : TAX_NORMAL;
   if (happiness < HAPPY_LOW) rate = TAX_NONE;
   else if (happiness < HAPPY_MID) rate = Math.min(rate, TAX_LOW);
   return rate;

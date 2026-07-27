@@ -31,7 +31,7 @@
  * construction manager rather than living here.
  */
 import type { EntityId } from '@crowns/core';
-import type { DefinitionDatabase } from '@crowns/data';
+import type { DefinitionDatabase, UnitDef } from '@crowns/data';
 import type { Component, World } from '../ecs.js';
 import type { Kernel, SimSystem } from '../kernel.js';
 import { TICKS_PER_DAY } from '../time.js';
@@ -113,6 +113,33 @@ export const RECRUIT_MIN_POPULATION_FLOOR = 20;
 export const RECRUIT_MIN_ADULTS_REMAINING = 12;
 /** M47.8: realized-hunger gate — no levies from a village whose security EMA is sagging. */
 export const RECRUIT_MIN_FOOD_SECURITY = 0.95;
+/** M65 (doc 12 Phase 9; M64a finding): every gate above is a FLOOR — none caps how large a
+ * standing army should be relative to the village that feeds it, so a village recruits at
+ * `popCost` (10 adults/unit) until it hits the floor and stays clamped there indefinitely. A
+ * ceiling as a fraction of the village's POTENTIAL workforce (current adults + everyone already
+ * serving — reconstructing "how many adults this village would have if nobody had ever been
+ * recruited") is what makes the workforce actually GROW instead of oscillating at the floor.
+ * A fraction ceiling has a MINIMUM VIABLE VILLAGE baked into it that is easy to miss: the
+ * FIRST unit needs `popCost <= fraction × adults`, i.e. `adults >= popCost / fraction`. At
+ * `popCost` 10 that is 67 adults at 0.15 but only 34 at 0.30 — and the shipping composition's
+ * villages hold ~30 adults at genesis, ~50 by year 20, crossing 67 only around year 30, well
+ * after the campaigns in `bench:balance --real` have ended. 0.15 was therefore not a tight
+ * cap but a TOTAL BLOCK (measured: zero units recruited in 60 years, `homed` flat at 0 in
+ * every village); it was validated against a medium-map probe whose villages reached 322-343
+ * adults and sailed past the threshold, which is exactly the scale error to avoid repeating.
+ * 0.30 admits the first unit around 34 adults (~year 8-10) and `WAR_MIN_STRENGTH` (20 men)
+ * near 47 adults (~year 18-20). Set this against the population scale the game ACTUALLY
+ * reaches, not the one a counterfactual reaches. */
+export const MAX_ARMY_WORKFORCE_FRACTION = 0.30;
+/** M65: the affordability half of the same finding — `military-upkeep` (game/military.ts)
+ * deserts a unit OUTRIGHT the instant one season's gold or food comes up short, and M64a
+ * measured this happening repeatedly (+695 adults returned to one village over 20 years via
+ * desertion) — a recruit→desert→recruit churn that both wastes the adults it costs to raise a
+ * unit and means an army rarely persists long enough to actually march. Requiring a buffer of
+ * seasons' worth of upkeep already affordable, for the WHOLE kingdom's committed units plus the
+ * candidate, before adding one more mouth is the minimal fix: it slows growth, it doesn't forbid
+ * it, the same "defer, never cancel" shape every other recruit gate here already has. */
+export const UPKEEP_SEASONS_BUFFER = 2;
 const WAR_STANCE_CONTACT_RANGE = 1; // Chebyshev — "arrived" for tactical purposes
 
 export interface AiWarTarget {
@@ -160,6 +187,23 @@ export interface AiMilitaryOptions {
    * wait (starve, gather intel, reinforce), 'lift' when the siege looks hopeless.
    * Omitted (pre-M54 compositions / harness): assault immediately, the M53 behaviour. */
   readonly assaultAdvice?: (castleVillageIndex: number) => 'assault' | 'hold' | 'lift';
+  /** M65 (doc 12 Phase 9): true if the kingdom's treasury and this village's food stockpile
+   * can sustain `UPKEEP_SEASONS_BUFFER` seasons of the given per-season gold/food total —
+   * ALREADY-COMMITTED units plus the recruit candidate, computed by the caller from `Unit`
+   * (this module has no Kingdom/Stockpile access, by the same narrowing-the-surface
+   * discipline `AiWarDiplomacy` documents). Omit to keep the pre-M65 behaviour (the recruit
+   * command's own reject-and-retry is the only affordability check) — the harness wrapper
+   * opts out, same as every other optional lever here. */
+  readonly canSustain?: (goldPerSeason: number, foodPerSeason: number) => boolean;
+  /** M65 (doc 12 Phase 9; M64a finding): caps recruiting at this fraction of the village's
+   * POTENTIAL workforce (current adults + everyone already homed there, serving or training —
+   * i.e. "how many adults this village would have if nobody had ever been recruited"). Every
+   * pre-M65 recruit gate is a FLOOR with no notion of army size, so a village recruits until it
+   * hits the floor and stays clamped there — this is what makes the workforce actually GROW.
+   * Omit to keep the pre-M65 behaviour (no ceiling) — the harness wrapper opts out, same
+   * convention as every other optional lever here. `MAX_ARMY_WORKFORCE_FRACTION` (this module)
+   * is the value the composition supplies when the lever is on. */
+  readonly maxArmyWorkforceFraction?: number;
   readonly id?: string;
   readonly searchRadius?: number;
   /** Extra components a custom `getPlan` reads (e.g. the planner's `AiPlanState` component). */
@@ -211,6 +255,38 @@ export function registerAiMilitaryManager(
       if ((u.armyId[ui] as number) === armyId && (u.complete[ui] as number) === 1) total += u.count[ui] as number;
     });
     return total;
+  };
+
+  // M65: current headcount HOMED at this village — training or trained, assigned to an army
+  // or not, all of it already deducted from `pop.adults` at recruitment. `Unit.count` reflects
+  // real combat casualties (M27), so this is the CURRENT committed workforce, not a stale total.
+  const homedHeadcount = (): number => {
+    const u = world.read(Unit);
+    let total = 0;
+    world.query([Unit]).forEach((ui) => {
+      if ((u.homeVillage[ui] as number) === (options.villageId as number)) total += u.count[ui] as number;
+    });
+    return total;
+  };
+
+  // M65: projected per-season upkeep for the WHOLE kingdom's committed units plus one
+  // candidate recruit — `game/military.ts`'s upkeep system deserts a unit outright the moment
+  // one season's gold or food comes up short, so the affordability check must see the total,
+  // not just the marginal unit. Ignores the Marshal's upkeep-discount modifier (kingdom.ts) —
+  // this module has no kingdom-modifier access, and skipping it only makes the estimate more
+  // conservative (never under-counts real upkeep), which is the safe direction for a gate.
+  const projectedUpkeep = (candidate: UnitDef): { gold: number; food: number } => {
+    const u = world.read(Unit);
+    let gold = candidate.upkeepGold;
+    let food = candidate.upkeepFood;
+    world.query([Unit]).forEach((ui) => {
+      if ((u.kingdomId[ui] as number) !== (options.kingdomId as number)) return;
+      if ((u.complete[ui] as number) !== 1) return; // training units draw no upkeep yet
+      const def = ops.unitDef(u.def[ui] as number);
+      gold += def.upkeepGold;
+      food += def.upkeepFood;
+    });
+    return { gold, food };
   };
 
   // ---- roster adoption (1.0): pick the recruit for today, given the kingdom's own units and
@@ -289,8 +365,35 @@ export function registerAiMilitaryManager(
         if (hasFoodSurplus && staysAboveFloor && keepsWorkforce && actuallyFed) {
           // roster adoption wired ⇒ the class rotation picks a mixed army from the unlocked
           // roster; otherwise (the harness) the pinned single-unit RECRUIT_ORDER, byte-identical.
+          // Computed BEFORE the M65 ceilings below (which need the actual candidate's
+          // popCost/upkeep, not RECRUIT_ORDER[0]'s) — a pure function, so moving the call
+          // earlier changes WHEN it runs, never WHAT it resolves to.
           const defId = options.isUnitUnlocked !== undefined ? pickRecruit(plan) : (RECRUIT_ORDER[0] as string);
-          kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
+          const candidateDef = db.units.get(defId);
+          // M65 (doc 12 Phase 9; M64a finding): two ceilings, both optional and independently
+          // gated on the composition supplying them — omitted (the harness) ⇒ both vacuously
+          // true, byte-identical pre-M65 behaviour.
+          const maxWorkforceFraction = options.maxArmyWorkforceFraction;
+          const withinWorkforceCeiling =
+            maxWorkforceFraction === undefined || candidateDef === undefined
+              ? true
+              : (() => {
+                  const homed = homedHeadcount();
+                  const potentialWorkforce = (pop.adults[vi] as number) + homed;
+                  return potentialWorkforce > 0 &&
+                    homed + candidateDef.popCost.count <= maxWorkforceFraction * potentialWorkforce;
+                })();
+          const canSustain = options.canSustain;
+          const sustainable =
+            canSustain === undefined || candidateDef === undefined
+              ? true
+              : (() => {
+                  const { gold, food } = projectedUpkeep(candidateDef);
+                  return canSustain(gold, food);
+                })();
+          if (withinWorkforceCeiling && sustainable) {
+            kernel.submit({ type: 'army.recruitUnit', issuer: options.issuer, payload: { villageId: options.villageId as number, unitDef: defId } });
+          }
           // rejected silently (unaffordable etc.) is fine — retried next day
         }
         // neither gate met: skip recruiting today, retried tomorrow — MilitaryBuildup stays the

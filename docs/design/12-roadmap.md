@@ -696,7 +696,7 @@ built. The M12 playability rule and ADR-3's composition rule bind as everywhere 
 | M64a | Demographic diagnosis | instrument the daily population update's per-village births / matured / senesced / deaths / migration / dispatch deltas and reconcile them against observed cohort change over 40 years. **Output is a written cause, not a fix** — nothing committed but a finding. Chartered separately because the review could NOT close the causal chain: the model's own constants imply a stable child:adult ratio of 1.3–2.5, not 20, and with 374 children maturation alone should feed ~27 adults/year into a cohort sitting at 18. Something removes adults that has not been found, and only two code paths write `pop.adults[]` | the observed cohort trajectory is fully explained by named terms; recalibrate-vs-redesign is DETERMINED, not guessed |
 | ~~M64b~~ | *merged into M65 (owner-directed 2026-07-27, after the M64a finding)* | M64a proved the demographic inversion and the never-massing army are ONE defect — an unbounded recruiting policy — so splitting them would have paid two fixture re-records to fix one cause, and neither half's bands could go green without the other's change. The genuinely population-side residue (`SETTLER_PARTY`'s age mix, `FAMINE_MORTALITY`'s slope) folds into M65 as secondary scope | — |
 | M65 | The military economy (was: war that concludes) | **Primary, per the M64a finding: give recruiting a CEILING.** Today every recruit gate is a FLOOR (`RECRUIT_MIN_ADULTS_REMAINING` 12, `RECRUIT_MIN_POPULATION_FLOOR` 20, `RECRUIT_MIN_FOOD_SECURITY` 0.95) with no notion of how large an army this kingdom should have, so it recruits at 10 adults/unit until it hits the floor, forever. Two coupled additions, both in `ai/military.ts`, no new system: (1) a WORKFORCE ceiling — army headcount capped as a fraction of the realm's adults, which is what makes M62's adult-cohort band structurally reachable; (2) an AFFORDABILITY ceiling — do not recruit what current upkeep capacity cannot sustain, which is what stops the recruit→desert→recruit churn (`military-upkeep` returned +695 adults to one village in 20 years; that is the churn, measured) and lets an army actually persist long enough to march. GDD §6's "standing army cost must force guns-vs-butter tension" is the design intent both serve. Secondary: `SETTLER_PARTY`'s 67%-adult mix; `FAMINE_MORTALITY`'s slope at mild hunger; `WAR_MIN_STRENGTH` (20) re-checked against what a capped army can actually field. Deferred unless the matrix demands them: the `MilitaryBuildup` plan monoculture (81% of plan-choices) and garrison-hold — both are war-CADENCE levers, and the cadence question cannot be read honestly until armies stop dissolving | M62's adult-cohort AND war bands both green — they are one fix, so they pass or fail together · 50-year age-structure property test green · food security ≥0.95 sustained in a developed village. Named baselines: flat harness 24 sieges begun / 23 captured (Gate P8.1); `--real` 4 begun / **0 captured**, 0/16 campaigns saw a village change hands (M61.5/M62) |
-| M66 | Victory semantics & pacing | Conquest re-based on TAKEN villages per ADR-5 (share of villages acquired by capture or occupation; founded and vassal-held villages excluded; the "all rivals defeated" clause retained) — an additive event-fed counter in the victory tracker's OWN save section, mirroring `wondersCompleted`, so no ECS component change and no world-section migration; Prosperity re-paced off year 18–20 toward doc 08 §1's 40–120 year band | M62's monoculture and year-30 bands green · Conquest unreachable without territorial change · victory section migrates v1→v2 |
+| M66 | Victory semantics & pacing (INHERITS M65's three open bands) | Conquest re-based on TAKEN villages per ADR-5 (share of villages acquired by capture or occupation; founded and vassal-held villages excluded; the "all rivals defeated" clause retained) — an additive event-fed counter in the victory tracker's OWN save section, mirroring `wondersCompleted`, so no ECS component change and no world-section migration; Prosperity re-paced toward doc 08 §1's 40–120 year band. **Changed by M65's outcome:** Prosperity no longer fires AT ALL in the real matrix (taxation costs happiness, so the ≥80-joy streak never sustains) — so re-pacing it is no longer "slow it down from year 18–20" but "make it reachable again on a longer horizon," and the monoculture to break is now **chronicle at 94%**, which is simply what wins when every other track is silent and campaigns run to the year cap. The changing-hands band (13%) is also inherited: war is alive but rare, and a 60-year campaign is what let the one `conquest in year 29` happen at all | M62's monoculture, year-30 AND changing-hands bands green (all three inherited from M65, which closed on the two demographic bands) · Conquest unreachable without territorial change · victory section migrates v1→v2 |
 | M67 | Onboarding, docs & Gate P9 | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9 | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
 
 **Phase 9 sequencing note — ordered by FIXTURE COST, not by importance.** M62, M63 and M64a are
@@ -716,6 +716,84 @@ compositions; the settler/famine secondary scope reaches terra too — constants
 **no schema change, no migration**); **M66** moves `campaign-demo` + `campaign-tick500-v1` only,
 plus a victory-section v1→v2 bump, and if a terra fixture moves under M66 that is a signal to stop,
 not a nuisance to record.
+
+*Corrected by M65's actual execution (2026-07-27):* M65 moved **two** fixtures, not six —
+`campaign-demo` and `campaign-tick500-v1`. Terra stayed byte-identical because the settler/famine
+secondary scope was never started (it defers with M64b's inherited scope), and because the
+recruiting ceilings proved entirely hash-inert: no committed fixture runs long enough (3000 ticks
+≈ 125 days) for a barracks to exist, let alone a recruit. The prediction was right in KIND and
+wrong in BREADTH, on the safe side — the diff walk checked a wider set than actually moved.
+
+**M65 scoping note (shipped 2026-07-27) — CLOSED on its two demographic bands; the three
+remaining bands hand to M66.** Three changes shipped, all in the AI layer, all flag-gated
+(`recruitCeilings`, default true, harness wrapper opts out — the same convention every AI feature
+since M47.8 uses):
+
+1. *Workforce ceiling* (`MAX_ARMY_WORKFORCE_FRACTION`, `ai/military.ts`): army headcount homed at
+   a village capped at a fraction of its POTENTIAL workforce (current adults + everyone already
+   serving). This is the direct answer to M64a's finding.
+2. *Affordability ceiling* (`canSustain`, an optional callback supplied by `campaign.ts`): don't
+   recruit what `UPKEEP_SEASONS_BUFFER` (2) seasons of kingdom treasury + village food can't
+   already sustain. `ai/military.ts` has no Kingdom/Stockpile access by design, so the composition
+   computes it — and `extraReads` must carry both components or the access guard throws (a runtime
+   check `tsc` cannot catch; found by running, not reading).
+3. *Peacetime tax baseline* (`ai/economy.ts`): non-warlike plans tax NORMAL instead of NONE. See
+   that module's doc for the full reasoning; this reverses a deliberate prior policy.
+
+**Measured against the M62 bands** (`bench:balance --real --years 60 --seeds 2`):
+
+| Band | M62 baseline | M65 |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 6.8% ✗ | **45.1% ✓** |
+| oldest-village floor (≥15%) | 5.1% ✗ | **27.9% ✓** |
+| campaigns changing hands (≥50%) | 0% ✗ | 13% ✗ |
+| earliest victory (≥y30) | y9 ✗ | y29 ✗ |
+| monoculture (≤60%) | prosperity 88% ✗ | chronicle 94% ✗ |
+
+The two bands M65 was chartered to move are green. War is alive but rare for the first time in the
+real composition — 3 wars declared, 2 eliminations, 2 occupations, and a **`conquest in year 29`**,
+the first territorial victory this composition has ever produced (still 0 sieges: the castle layer
+remains unexercised, inherited). The tax change also stopped Prosperity firing at all — taxation
+costs happiness, so the ≥80-joy streak never sustains — which is why campaigns now run the full 60
+years instead of ending at 18–20, why earliest-victory moved y9→y29, and why the monoculture FLIPPED
+from prosperity to chronicle rather than dissolving. Populations grew markedly (92 → 105–182).
+
+**Why the remaining three hand to M66 rather than staying open here.** All three are victory-shaped:
+the monoculture is now an artifact of Prosperity never firing, and both it and the year-30 floor are
+exactly what M66's Prosperity re-pacing exists to set. Chasing them from the military side would mean
+tuning war constants to compensate for a victory-pacing defect — the wrong lever on the wrong
+milestone. The changing-hands band is genuinely coupled to both (a campaign that ends at year 20
+cannot show conquest; one that runs 60 years just did).
+
+**Recorded against repeating it: the first `MAX_ARMY_WORKFORCE_FRACTION` was 0.15 and was a TOTAL
+RECRUITING BLOCK, not a tight cap.** A fraction ceiling has a minimum viable village baked in —
+the first unit needs `adults >= popCost / fraction`, i.e. 67 adults at 0.15 with `popCost` 10 —
+and the shipping composition's villages hold ~30 adults at genesis and ~50 by year 20. It was
+validated against a medium-map probe whose villages reached 322–343 adults and sailed past the
+threshold. **The check to apply to any future balance constant: verify it against the scale the
+SHIPPING composition actually reaches, not the scale a diagnostic probe reaches.** 0.30 admits the
+first unit near 34 adults and `WAR_MIN_STRENGTH` near 47.
+
+**Found in passing, NOT fixed (out of scope, reported not silently absorbed):** settler-founded
+colonies starve to death within ~3 years. `SETTLER_CARRY`'s 60 food feeds a 30-person colony for
+about 20 days and the construction manager does not raise a farm in time — a traced colony went
+25 → 3 → 0.5 → dead between years 7 and 10 having completed only its village centre. This is
+PRE-EXISTING and unrelated to M65's mechanism; M65 merely surfaces it far more often, because
+richer source villages attempt far more foundings (14 in 20 years vs ~9 in 30 pre-change). It is
+the likeliest remaining drag on the oldest-village floor and belongs with M64b's inherited
+settler scope. Also noted for whoever reads the matrix next: **seed 9000 on `mapSize: 'small'`
+never recruits in ANY configuration, before or after M65** — it is not a war-capable seed, so
+diagnosing recruiting against it alone will mislead.
+
+**Fixture impact — narrower than R6 predicted, and attribution was PROVEN rather than reasoned.**
+Two fixtures move, both campaign-side: `campaign-demo` (diverges at tick 100) and
+`campaign-tick500-v1`. R6 forecast terra fixtures moving too, but that was contingent on the
+settler/famine secondary scope, which M65 did not start. The recruiting ceilings are **provably
+hash-inert**: reverting ONLY the tax baseline while leaving both ceilings live at 0.30 returns all
+eight fixtures to green, so 100% of the movement is the tax policy. Mechanically a village founds
+at NORMAL, the old policy issued a day-1 `village.setTaxRate`→NONE and the new one issues nothing
+(the idempotent check), so the hashed `VillageCore.taxRate` differs from the first sampled tick —
+consistent with divergence at tick 100 (~day 4), far too early for any barracks or recruit.
 
 **M64a FINDING (2026-07-27) — the population model is NOT the defect; AI recruiting is. The
 M61.5 review attributed the symptom to the wrong subsystem.** M64a was chartered because the

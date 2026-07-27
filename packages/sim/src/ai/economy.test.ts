@@ -29,10 +29,16 @@ const plain: TerrainAccessor = {
 
 // ---------------------------------------------------------------- pure policy
 
-test('desiredTaxRate: plan-driven with no baseline — NONE for peaceful growth', () => {
-  assert.equal(desiredTaxRate('DevelopHeartland', 60), 0); // NONE
-  assert.equal(desiredTaxRate('ExpandSettle', 60), 0);
-  assert.equal(desiredTaxRate('ForgeAlliance', 80), 0);
+// M65 (doc 12 Phase 9) INTENTIONALLY reverses what this test used to pin ("no baseline —
+// NONE for peaceful growth"). Taxing NONE under every non-warlike plan left a kingdom in
+// DevelopHeartland penniless for an entire campaign at joy 100 (measured: 1-4 gold at year
+// 30, three kingdoms of four), which deadlocks the military economy — see ai/economy.ts's
+// module doc. The clamp below still shuts tax off whenever joy actually sags, which is the
+// protection the old baseline was really providing.
+test('desiredTaxRate: peaceful plans tax at the NORMAL baseline (M65)', () => {
+  assert.equal(desiredTaxRate('DevelopHeartland', 60), 2); // NORMAL
+  assert.equal(desiredTaxRate('ExpandSettle', 60), 2);
+  assert.equal(desiredTaxRate('ForgeAlliance', 80), 2);
 });
 
 test('desiredTaxRate: warlike taxes HIGH, TechRace taxes LOW', () => {
@@ -46,7 +52,8 @@ test('desiredTaxRate: happiness clamp overrides the plan', () => {
   assert.equal(desiredTaxRate('ConquestWar', 59), 1, 'below 60 joy → at most LOW');
   assert.equal(desiredTaxRate('ConquestWar', 44), 0, 'below 45 joy → NONE, recover');
   assert.equal(desiredTaxRate('TechRace', 44), 0, 'clamp applies to LOW plans too');
-  assert.equal(desiredTaxRate('DevelopHeartland', 30), 0, 'already NONE, stays NONE');
+  assert.equal(desiredTaxRate('DevelopHeartland', 59), 1, 'M65: the NORMAL baseline clamps to LOW too');
+  assert.equal(desiredTaxRate('DevelopHeartland', 30), 0, 'and to NONE when joy is genuinely sagging');
 });
 
 // ---------------------------------------------------------------- live manager
@@ -124,11 +131,16 @@ function makeKingdom() {
   return { kernel, world, db, game, popGame, kingdomGame, rejections, vIndex, villageId: vId, kingdomId, taxRate, setHappiness, setAdults, activeEdicts, setPlan: (p: string) => (plan = p), step: () => kernel.step(), runDays };
 }
 
-test('manager: a fresh peaceful capital drops its NORMAL start tax to NONE', () => {
+// M65 reversal (see ai/economy.ts's module doc): a peaceful capital used to drop its NORMAL
+// founding rate to NONE, which left AI kingdoms penniless for whole campaigns. It now HOLDS
+// the founding rate — peacetime policy agrees with genesis instead of contradicting it.
+test('manager: a fresh peaceful capital holds its NORMAL start tax (M65)', () => {
   const v = makeKingdom();
   assert.equal(v.taxRate(), 2, 'villages found at NORMAL');
   v.runDays(1, 65); // DevelopHeartland, comfortable joy
-  assert.equal(v.taxRate(), 0, 'DevelopHeartland above 60 joy → NONE');
+  assert.equal(v.taxRate(), 2, 'DevelopHeartland above 60 joy → stays NORMAL');
+  v.runDays(1, 40); // joy genuinely sagging — the clamp is what protects the people now
+  assert.equal(v.taxRate(), 0, 'below 45 joy → NONE regardless of plan');
 });
 
 test('manager: a warlike plan taxes HIGH, then the happiness clamp reins it in', () => {
@@ -141,15 +153,20 @@ test('manager: a warlike plan taxes HIGH, then the happiness clamp reins it in',
   assert.equal(v.taxRate(), 1, 'below 60 joy → clamp to LOW');
 });
 
+// M65: a peaceful kingdom now taxes at the NORMAL baseline, so it has income and its
+// wishlist gains the income-riding staples (grain reserves, merchant charters) AHEAD of the
+// free corvée edict — one enact per day means corvée lands on day 3, not day 1. Three fits
+// exactly inside EDICT_CAP. Pre-M65 a peaceful kingdom taxed NONE, so corvée was the only
+// thing it ever wanted and arrived immediately.
 test('manager: a content peaceful kingdom takes the free corvée-labor edict', () => {
   const v = makeKingdom();
-  v.runDays(1, HAPPY_HIGH + 8); // content headroom
+  v.runDays(3, HAPPY_HIGH + 8); // content headroom
   assert.ok(v.activeEdicts().includes('base:edict.corvee-labor'), `expected corvée active, got ${v.activeEdicts().join(',')}`);
 });
 
 test('manager: corvée is repealed once its happiness cost drags joy below the floor', () => {
   const v = makeKingdom();
-  v.runDays(1, HAPPY_HIGH + 8);
+  v.runDays(3, HAPPY_HIGH + 8);
   assert.ok(v.activeEdicts().includes('base:edict.corvee-labor'));
 
   v.runDays(1, 40); // below HAPPY_LOW (45)
@@ -163,8 +180,12 @@ test('manager: submits the tier-2 upgrade only once the population and happiness
 
   // meet the slow gates: pop >= 60 and happiness >= 60. Materials/distinct are unmet
   // (this capital built nothing), so the command rejects — proving the manager submitted the order.
+  // M65: a peaceful kingdom now taxes at NORMAL, so it has income and spends its ONE ACTION PER
+  // DAY enacting the income-riding edicts (grain reserves, merchant charters) before the upgrade
+  // block is ever reached — several days, not one. Pre-M65 a peaceful capital wanted no edicts at
+  // this joy (no tax ⇒ no staples, joy 65 < HAPPY_HIGH ⇒ no corvée) and fell straight through.
   v.setAdults(70);
   v.rejections.length = 0;
-  v.runDays(1, 65);
+  v.runDays(4, 65);
   assert.ok(v.rejections.some((r) => r.startsWith('village.upgrade')), `expected an upgrade attempt, rejections: ${v.rejections.join(' | ')}`);
 });
