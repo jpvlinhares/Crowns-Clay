@@ -651,7 +651,33 @@ migration**. Victory section bumps v1→v2.
 share-based Conquest progress re-evaluates under the taken-village rule on first load — a one-time
 behaviour snap, accepted and recorded here, same class as OQ-9's re-derivation snap. If M65's war
 tuning leaves the taken-share threshold untunable, falling back to option (a) is a one-line
-deletion — this decision does not foreclose that. OQ-9's mop-up concern is weaker than it was in
+deletion — this decision does not foreclose that.
+
+**OUTCOME (recorded at M66 execution, 2026-07-27) — option (b) was implemented, measured, and
+RETIRED in favour of (a); that escape hatch was needed.** The taken-village rule shipped exactly
+as specced (event-fed `takenBy`, victory section v2 + migration, mirroring `wondersCompleted`) and
+then fired in **0 of 16** campaigns: 60% of all villages taken by force is ~8 on a 4-kingdom map,
+and the shipped AI manages ~2 occupations across the entire matrix. (b) was chosen to preserve "a
+mid-length military track"; at the AI's real war competence it preserved nothing, and in practice
+collapsed into (a) anyway. The owner took **(a), elimination-only**, on 2026-07-27.
+
+What that unwound, deliberately rather than by leaving it inert: `DEFAULT_CONQUEST_SHARE`, the
+`conquestShare` option, the `takenBy` history, the v2 section bump and its v1→v2 migration are all
+DELETED — the section stays v1, because the Conquest RULE changed while its STATE did not
+(elimination reads the tracker's existing `defeated` set). Shipping a version bump plus dead
+take-history in every future save, for a clause nothing reads, would have repeated the
+defined-but-mechanically-inert pattern the gatehouse carried from M28 to M59.
+
+Two things this record got right and one it got wrong. Right: the defect diagnosis (out-settling
+winning the war track) and the escape hatch. Wrong: the cost estimate implied (b) was viable
+because it was cheap to BUILD — it was, and that was never the constraint. The constraint was
+whether the AI could ever satisfy it, which this record did not test before choosing. The lesson
+for future victory-condition work: a threshold's reachability at the AI's measured competence is
+part of the design, not a tuning detail to settle afterwards.
+
+**Consequence carried forward:** the war track is effectively dormant until AI war competence
+rises. That is the same root cause as M62's changing-hands band (13%, still failing), and no
+Phase 9 milestone owns it. OQ-9's mop-up concern is weaker than it was in
 2026-07: M53's annexation-on-capital-death seizes an entire realm in one strike and capitulation
 converts hopeless rivals to counted vassals, so elimination no longer implies sixty sieges.
 

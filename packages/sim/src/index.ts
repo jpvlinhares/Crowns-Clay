@@ -411,7 +411,7 @@ export {
 export { registerAiEventAnswering, type AiEventOptions } from './ai/events.js';
 export {
   registerVictoryGameplay,
-  DEFAULT_CONQUEST_SHARE,
+  // M66: DEFAULT_CONQUEST_SHARE removed with the share clause (Conquest is elimination-only).
   DEFAULT_HEGEMONY_YEARS,
   DEFAULT_PROSPERITY_HAPPINESS,
   DEFAULT_PROSPERITY_YEARS,

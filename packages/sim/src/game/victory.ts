@@ -2,7 +2,20 @@
  * Victory & defeat (roadmap M37; GDD §16; doc 08 §2 slot 20).
  *
  * FIVE TRACKS, one daily system (`victory-tracker`, doc 08's row 20):
- *   - CONQUEST: control `conquestShare` of all currently-existing villages,
+ *   - CONQUEST (M66, ADR-5 + owner decision 2026-07-27): every rival kingdom defeated or
+ *     vassalised. NOTHING ELSE — there is no village-share shortcut.
+ *     History, because two rules were retired here in sequence. Pre-M66 the track ALSO won on
+ *     share of villages OWNED, which let a realm win the war track by out-settling: a 2-kingdom
+ *     campaign declared `conquest in year 9` with zero captures, zero occupations and zero
+ *     eliminations, because 2 villages of 3 clears 60%. M66 first re-based that share on
+ *     villages TAKEN BY FORCE (ADR-5's option (b), meant to preserve a mid-length military
+ *     track). Measurement retired that too: 60% of all villages taken by force is ~8 on a
+ *     4-kingdom map, and the shipped AI manages ~2 occupations across a 16-campaign matrix, so
+ *     the clause fired in 0 of 16 runs. Option (b) did not survive contact with the AI's actual
+ *     war competence, so the owner took option (a): elimination is the whole rule. Consequence
+ *     accepted — the war track stays effectively dormant until AI war competence rises, which
+ *     is the same root cause as M62's still-failing changing-hands band.
+ *   - (retired, pre-M66) CONQUEST: control `conquestShare` of all currently-existing villages,
  *     or every rival kingdom is defeated (last-village rule, below).
  *   - HEGEMONY: every surviving rival is bound to this kingdom — an active
  *     `PACT_ALLIANCE` (game/diplomacy.ts, M35) or a sworn vassal — for
@@ -61,7 +74,9 @@ const DAYS_PER_YEAR = TICKS_PER_YEAR / TICKS_PER_DAY; // 360 (doc 08 §1)
 
 // ---------------------------------------------------------------- constants
 
-export const DEFAULT_CONQUEST_SHARE = 0.6;
+// M66: `DEFAULT_CONQUEST_SHARE` (0.6) is GONE, not merely unused — Conquest is elimination-only,
+// so a share threshold has nothing left to threshold. Keeping a dead lever invites exactly the
+// "defined but mechanically inert" confusion the gatehouse carried from M28 to M59.
 export const DEFAULT_HEGEMONY_YEARS = 10;
 // M47.8 balance: 70 exactly equalled the fed-only happiness baseline (fed×0.7 = 70 with zero
 // housing/services), so a fresh village's streak started on day 1 and Prosperity auto-won at
@@ -69,13 +84,27 @@ export const DEFAULT_HEGEMONY_YEARS = 10;
 // ever fire. 80 demands real housing + service investment, and 15 consecutive years gives
 // war-shaped campaigns room to resolve first (GDD §16: non-military paths faster than
 // conquest for peaceful builds, but interruptible — not a universal auto-win).
-export const DEFAULT_PROSPERITY_HAPPINESS = 80;
+// M66 (doc 12 Phase 9): 80 → 75. M65's peacetime tax baseline depressed realm joy by roughly
+// 5-15 points, and 80 sat at the very TOP of the resulting range — measured across the real
+// matrix, a peaceful kingdom runs 77-83 and a high-tax warlike one 61-68 — so an 80 threshold
+// could be touched but never held for 15 consecutive years, and Prosperity stopped firing
+// ENTIRELY (chronicle took 94% of wins by default). 75 is chosen to discriminate rather than to
+// pass: it is comfortably clear of the ~70 fed-only baseline M47.8 warned about (fed×0.7 = 70
+// with zero housing or services), so it still demands real investment to offset the tax drag,
+// but it sits INSIDE a well-run peaceful realm's band and outside a warmonger's. Prosperity is
+// meant to be the builder's path and denied to the conqueror; at 80 it was denied to everyone.
+export const DEFAULT_PROSPERITY_HAPPINESS = 75;
 export const DEFAULT_PROSPERITY_YEARS = 15;
 /** M47.8: prosperity must mean a GROWN realm, not subsistence stability — needs-v1 happiness
  * saturates for any fed-and-housed village (fed×0.7 + shelter×0.3 → 100), so without a
  * population bar the streak starts near day 0 in every campaign and no other track can ever
- * fire (the real-composition matrix's finding, twice). Realm-wide heads, all villages. */
-export const DEFAULT_PROSPERITY_POPULATION = 60;
+ * fire (the real-composition matrix's finding, twice). Realm-wide heads, all villages.
+ * M66: 60 → 90. Under M65's grown economy a realm passes 60 heads within the first decade, so
+ * the bar had stopped doing the job this comment describes. Measured: realms hold ~78-84 heads
+ * at year 15 and ~93+ by year 30, so 90 defers the streak's START to roughly year 25 — which is
+ * also what keeps the earliest possible Prosperity win clear of M62's no-victory-before-year-30
+ * floor, structurally rather than by tuning the streak length. */
+export const DEFAULT_PROSPERITY_POPULATION = 90;
 export const DEFAULT_WONDER_COUNT = 3;
 export const DEFAULT_YEAR_LIMIT = 100; // within doc 08 §1's 40-120 year target campaign length
 export const APPROACHING_FRACTION = 0.8; // contestability broadcast threshold
@@ -96,7 +125,6 @@ export interface VictoryOptions {
   /** GDD §17 sandbox toggle, independent of `enabled`. Default true. */
   readonly defeatEnabled?: boolean;
   readonly yearLimit?: number;
-  readonly conquestShare?: number;
   readonly hegemonyYears?: number;
   readonly prosperityHappiness?: number;
   readonly prosperityYears?: number;
@@ -170,7 +198,6 @@ export function registerVictoryGameplay(
   options: VictoryOptions = { enabled: VICTORY_TYPES },
 ): VictoryGameplay {
   const enabled = new Set(options.enabled);
-  const conquestShare = options.conquestShare ?? DEFAULT_CONQUEST_SHARE;
   const hegemonyDaysNeeded = (options.hegemonyYears ?? DEFAULT_HEGEMONY_YEARS) * DAYS_PER_YEAR;
   const prosperityHappiness = options.prosperityHappiness ?? DEFAULT_PROSPERITY_HAPPINESS;
   const prosperityDaysNeeded = (options.prosperityYears ?? DEFAULT_PROSPERITY_YEARS) * DAYS_PER_YEAR;
@@ -331,10 +358,14 @@ export function registerVictoryGameplay(
 
       for (const kingdomId of surviving) {
         if (enabled.has('conquest') && totalVillages > 0) {
-          const share = (villagesOf.get(kingdomId) ?? 0) / totalVillages;
+          // M66: elimination is the WHOLE rule (see the module doc). Progress is the fraction of
+          // rivals already defeated, so the contestability broadcast still fires as a realm
+          // closes in on the last holdout rather than only at the moment it wins.
+          const rivals = kingdoms.length - 1;
+          const defeatedRivals = rivals - (surviving.length - 1);
           const eliminatedAllRivals = kingdoms.length > 1 && surviving.length === 1;
-          maybeWarn(ctx, kingdomId, 'conquest', share / conquestShare);
-          if (share >= conquestShare || eliminatedAllRivals) {
+          if (rivals > 0) maybeWarn(ctx, kingdomId, 'conquest', defeatedRivals / rivals);
+          if (eliminatedAllRivals) {
             declare(ctx, kingdomId, 'conquest');
             continue;
           }
@@ -409,13 +440,15 @@ export function registerVictoryGameplay(
     for (const type of VICTORY_TYPES) {
       if (!enabled.has(type)) continue;
       if (type === 'conquest') {
-        let total = 0;
-        let own = 0;
-        world.query([game.comps.VillageCore]).forEach((vi) => {
-          total++;
-          if (ownerOfVillage(vi) === kingdomId) own++;
-        });
-        out.push({ type, progress: total === 0 ? 0 : clamp01(own / total / conquestShare) });
+        // M66: mirrors the evaluator exactly — rivals defeated over rivals total, so the Victory
+        // panel never shows progress the rule won't honour (pre-M66 it showed village share,
+        // which is precisely the measure the rule stopped using).
+        const rivals = kingdomGame.kingdomEntities().length - 1;
+        let defeatedRivals = 0;
+        for (const k of kingdomGame.kingdomEntities()) {
+          if ((k as number) !== kingdomId && defeated.has(k as number)) defeatedRivals++;
+        }
+        out.push({ type, progress: rivals <= 0 ? 0 : clamp01(defeatedRivals / rivals) });
       } else if (type === 'hegemony') {
         out.push({ type, progress: clamp01((hegemonyStreak.get(kingdomId) ?? 0) / hegemonyDaysNeeded) });
       } else if (type === 'legacy') {

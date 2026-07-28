@@ -696,8 +696,8 @@ built. The M12 playability rule and ADR-3's composition rule bind as everywhere 
 | M64a | Demographic diagnosis | instrument the daily population update's per-village births / matured / senesced / deaths / migration / dispatch deltas and reconcile them against observed cohort change over 40 years. **Output is a written cause, not a fix** — nothing committed but a finding. Chartered separately because the review could NOT close the causal chain: the model's own constants imply a stable child:adult ratio of 1.3–2.5, not 20, and with 374 children maturation alone should feed ~27 adults/year into a cohort sitting at 18. Something removes adults that has not been found, and only two code paths write `pop.adults[]` | the observed cohort trajectory is fully explained by named terms; recalibrate-vs-redesign is DETERMINED, not guessed |
 | ~~M64b~~ | *merged into M65 (owner-directed 2026-07-27, after the M64a finding)* | M64a proved the demographic inversion and the never-massing army are ONE defect — an unbounded recruiting policy — so splitting them would have paid two fixture re-records to fix one cause, and neither half's bands could go green without the other's change. The genuinely population-side residue (`SETTLER_PARTY`'s age mix, `FAMINE_MORTALITY`'s slope) folds into M65 as secondary scope | — |
 | M65 | The military economy (was: war that concludes) | **Primary, per the M64a finding: give recruiting a CEILING.** Today every recruit gate is a FLOOR (`RECRUIT_MIN_ADULTS_REMAINING` 12, `RECRUIT_MIN_POPULATION_FLOOR` 20, `RECRUIT_MIN_FOOD_SECURITY` 0.95) with no notion of how large an army this kingdom should have, so it recruits at 10 adults/unit until it hits the floor, forever. Two coupled additions, both in `ai/military.ts`, no new system: (1) a WORKFORCE ceiling — army headcount capped as a fraction of the realm's adults, which is what makes M62's adult-cohort band structurally reachable; (2) an AFFORDABILITY ceiling — do not recruit what current upkeep capacity cannot sustain, which is what stops the recruit→desert→recruit churn (`military-upkeep` returned +695 adults to one village in 20 years; that is the churn, measured) and lets an army actually persist long enough to march. GDD §6's "standing army cost must force guns-vs-butter tension" is the design intent both serve. Secondary: `SETTLER_PARTY`'s 67%-adult mix; `FAMINE_MORTALITY`'s slope at mild hunger; `WAR_MIN_STRENGTH` (20) re-checked against what a capped army can actually field. Deferred unless the matrix demands them: the `MilitaryBuildup` plan monoculture (81% of plan-choices) and garrison-hold — both are war-CADENCE levers, and the cadence question cannot be read honestly until armies stop dissolving | M62's adult-cohort AND war bands both green — they are one fix, so they pass or fail together · 50-year age-structure property test green · food security ≥0.95 sustained in a developed village. Named baselines: flat harness 24 sieges begun / 23 captured (Gate P8.1); `--real` 4 begun / **0 captured**, 0/16 campaigns saw a village change hands (M61.5/M62) |
-| M66 | Victory semantics & pacing (INHERITS M65's three open bands) | Conquest re-based on TAKEN villages per ADR-5 (share of villages acquired by capture or occupation; founded and vassal-held villages excluded; the "all rivals defeated" clause retained) — an additive event-fed counter in the victory tracker's OWN save section, mirroring `wondersCompleted`, so no ECS component change and no world-section migration; Prosperity re-paced toward doc 08 §1's 40–120 year band. **Changed by M65's outcome:** Prosperity no longer fires AT ALL in the real matrix (taxation costs happiness, so the ≥80-joy streak never sustains) — so re-pacing it is no longer "slow it down from year 18–20" but "make it reachable again on a longer horizon," and the monoculture to break is now **chronicle at 94%**, which is simply what wins when every other track is silent and campaigns run to the year cap. The changing-hands band (13%) is also inherited: war is alive but rare, and a 60-year campaign is what let the one `conquest in year 29` happen at all | M62's monoculture, year-30 AND changing-hands bands green (all three inherited from M65, which closed on the two demographic bands) · Conquest unreachable without territorial change · victory section migrates v1→v2 |
-| M67 | Onboarding, docs & Gate P9 | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9 | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
+| M66 | Victory semantics & pacing | **SHIPPED as elimination-only Conquest + a re-paced Prosperity** (the taken-village share of ADR-5's option (b) was built, measured at 0 wins in 16 campaigns, and deleted — owner decision 2026-07-27; see the M66 scoping note). Prosperity happiness 80→75 and realm population 60→90, both set against measured joy/heads rather than guessed | M62's monoculture band GREEN (prosperity 56%); the year-30 and changing-hands bands hand to M67 · no fixture re-record (victory state is not hashed) |
+| M67 | Onboarding, docs & Gate P9 (INHERITS M66's two open bands) | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9. **Inherited from M66:** the earliest-victory floor (a y29 prosperity, one year under — weigh that the matrix runs 60y while the shipped cap is 100 before touching a ratified band) and the changing-hands band (13%, needs AI war competence, which no Phase 9 milestone owns) | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
 
 **Phase 9 sequencing note — ordered by FIXTURE COST, not by importance.** M62, M63 and M64a are
 hash-inert (tooling, app/UI, and a throwaway probe), so the whole first wave costs zero fixture
@@ -723,6 +723,77 @@ secondary scope was never started (it defers with M64b's inherited scope), and b
 recruiting ceilings proved entirely hash-inert: no committed fixture runs long enough (3000 ticks
 ≈ 125 days) for a barracks to exist, let alone a recruit. The prediction was right in KIND and
 wrong in BREADTH, on the safe side — the diff walk checked a wider set than actually moved.
+
+**M66 scoping note (shipped 2026-07-27) — CLOSED on the monoculture band; two bands hand to
+M67.** Two changes shipped, both in `game/victory.ts`:
+
+1. *Conquest is ELIMINATION-ONLY* (owner decision 2026-07-27, superseding ADR-5's option (b)).
+   ADR-5 re-based the share clause on villages TAKEN BY FORCE to preserve a mid-length military
+   track. That was built, measured, and retired in the same milestone: 60% of all villages taken
+   by force is ~8 on a 4-kingdom map and the shipped AI manages ~2 occupations across the whole
+   16-campaign matrix, so the clause fired in **0 of 16** runs. Option (b) did not survive contact
+   with the AI's actual war competence. `DEFAULT_CONQUEST_SHARE`, the `conquestShare` option, and
+   the `takenBy` take-history were all DELETED rather than left inert — a defined-but-dead lever is
+   exactly the confusion the gatehouse carried from M28 to M59. Conquest progress is now "rivals
+   defeated / rivals total", so contestability still broadcasts as a realm closes on the last
+   holdout. Consequence accepted and recorded: the war track stays effectively dormant until AI
+   war competence rises, which is the same root cause as the still-failing changing-hands band.
+2. *Prosperity re-paced*: happiness 80 → 75, realm population 60 → 90. Measured first, not
+   guessed: under M65's tax baseline a peaceful realm runs joy 77-83 and a high-tax warlike one
+   61-68, so an 80 bar sat at the very top of the range and could never be held 15 consecutive
+   years — Prosperity had stopped firing ENTIRELY and chronicle took 94% of wins by default. 75
+   stays comfortably clear of the ~70 fed-only baseline M47.8 warned about, so it still demands
+   real investment, while discriminating builder from warmonger the way the track intends.
+
+**Measured (`bench:balance --real --years 60 --seeds 2`):**
+
+| Band | M62 baseline | M65 | M66 |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 6.8% ✗ | 45.1% ✓ | **46.1% ✓** |
+| oldest-village floor (≥15%) | 5.1% ✗ | 27.9% ✓ | **35.5% ✓** |
+| monoculture (≤60%) | prosperity 88% ✗ | chronicle 94% ✗ | **prosperity 56% ✓** |
+| earliest victory (≥y30) | y9 ✗ | y29 ✗ | y29 ✗ |
+| campaigns changing hands (≥50%) | 0% ✗ | 13% ✗ | 13% ✗ |
+
+**Three of five bands now pass.** Victory outcomes are genuinely mixed for the first time —
+prosperity 9, chronicle 7, firing at years 29/34/38/54/54/54/58/58 instead of never. And
+`story/9000 k=4` produced **`destroyed 1, risen 2`** alongside 2 sieges and an occupation: M53's
+kingdom-death and new-lords-rising machinery executing in the shipping composition for the first
+time since it was written.
+
+**A predicted null result, verified rather than assumed.** Removing the share clause was expected
+to change matrix OUTCOMES not at all, because the clause already won nothing. The re-run
+reproduced the previous run line-for-line — same winner, year, and populations in all 16
+campaigns, same four band figures. Stated before running, confirmed after.
+
+**Structural finding — the victory tracker is NOT a `kernel.addHashSource` contributor.** Its
+state never folds into `stateHash()`, so no golden replay and no save-corpus resume hash can
+detect a victory-logic regression, ever. M66's fixture-neutrality is therefore STRUCTURAL, not
+luck, and `victory.test.ts` plus `bench:balance` are the only guards this subsystem has. Worth
+knowing before anyone trusts a green corpus as evidence about victory behaviour.
+
+**A test that passed for the wrong reason, found while changing the rule.** `conquest: controlling
+the required village share wins` kept passing after the rule change — but via the ELIMINATION
+clause, because reassigning every village to one kingdom starves the others into last-village
+defeat. Its name claimed it proved share math; it proved nothing of the kind. Rewritten, and the
+suite now carries an explicit regression test for the original defect (`holding most of the map
+never wins while a rival still stands`).
+
+**Handed to M67:** the two failing bands. *Earliest victory y29* — `hard/9000` fires prosperity
+one year under the floor; a 15-year streak plus a 90-head gate lets a fast realm start its streak
+at y14. Deliberately NOT tuned, because Prosperity wins must land inside [30, 60] for this matrix
+and five already land at y54 with two at y58, so making Prosperity harder risks pushing them past
+the cap and breaking the monoculture band M66 just fixed. Note also that the matrix runs
+`--years 60` while the shipped `DEFAULT_YEAR_LIMIT` is **100** — the squeeze is partly an artifact
+of the short matrix, which M67 should weigh before touching a ratified band. *Changing hands 13%*
+— unchanged from M65 and not victory-shaped at all: it needs AI war competence (armies that mass,
+march, and take a defended castle), which is the war-cadence work no milestone in this phase owns.
+
+**Fixtures: NONE moved.** All four goldens and all four corpus saves byte-identical, no re-record,
+and the victory section stays **v1** — the Conquest rule changed but its STATE did not, since
+elimination reads the tracker's existing `defeated` set. A v2 section plus a `takenBy` migration
+was built for option (b) and removed with it rather than shipped as dead weight in every future
+save.
 
 **M65 scoping note (shipped 2026-07-27) — CLOSED on its two demographic bands; the three
 remaining bands hand to M66.** Three changes shipped, all in the AI layer, all flag-gated

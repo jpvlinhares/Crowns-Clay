@@ -1293,6 +1293,11 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   });
   saves.register({
     key: 'victory',
+    // M66: stays v1. The Conquest rule changed (share → elimination-only) but its STATE did not —
+    // elimination is read from the tracker's existing `defeated` set, so there is no new field to
+    // persist and no migration to write. A v2 + `takenBy` section was built and then removed when
+    // the owner took elimination-only; shipping a version bump for state nothing reads would have
+    // been dead weight in every future save.
     version: 1,
     save: () => victoryGame.save(),
     load: (data) => victoryGame.restore(data as ReturnType<typeof victoryGame.save>),

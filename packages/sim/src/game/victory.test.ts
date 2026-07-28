@@ -74,44 +74,47 @@ function makeRealm(kingdomCount: number, options: VictoryOptions, mapSize = 135)
 
 // ---------------------------------------------------------------- conquest
 
-test('conquest: controlling the required village share wins, within the year cap', () => {
+test('conquest: eliminating every rival wins, within the year cap (M66)', () => {
   const r = makeRealm(3, { enabled: ['conquest'] });
-  const [a, , c] = r.kingdomIds;
-  // reassign every village to `a` directly — this test proves the TRACKER threshold math,
-  // not that conquest emerges from real war
-  const owner = r.world.write(r.kingdomGame.VillageOwner as NonNullable<typeof r.kingdomGame.VillageOwner>);
-  r.world.query([r.game.comps.VillageCore]).forEach((vi) => {
-    owner.kingdom[vi] = a as number;
-  });
+  const [a, b, c] = r.kingdomIds;
+  // M66: elimination is the WHOLE rule, so this drives it directly — despawn both rivals'
+  // villages and the last-village rule defeats them. Reassigning ownership (what this test did
+  // pre-M66, when a village SHARE could win) no longer proves anything about the win condition.
+  r.world.despawn(r.villageOf(1) as never);
+  r.world.despawn(r.villageOf(2) as never);
   r.days(1);
   assert.equal(r.victoryGame.winner()?.type, 'conquest');
   assert.equal(r.victoryGame.winner()?.kingdomId, a);
   assert.ok((r.victoryGame.winner()?.tick ?? Infinity) <= DEFAULT_YEAR_LIMIT * TICKS_PER_YEAR);
-  void c;
+  assert.ok(r.victoryGame.isDefeated(b as never) && r.victoryGame.isDefeated(c as never));
 });
 
-test('conquest: eliminating every rival wins even below the village-share threshold', () => {
-  const r = makeRealm(2, { enabled: ['conquest'], conquestShare: 0.99 }); // share alone is unreachable with 2 kingdoms
+// M66 — the defect the rule change exists to close, kept as a REGRESSION test. Pre-M66 this
+// scenario WON the war track: owning 2 of 3 villages cleared the 0.6 share, so a realm that
+// merely out-settled a rival was crowned conqueror (observed in the real matrix as `conquest in
+// year 9` with zero captures, zero occupations and zero eliminations). Territory is no longer a
+// path to the war track at all — only defeating every rival is.
+test('conquest: holding most of the map never wins while a rival still stands (M66)', () => {
+  const r = makeRealm(3, { enabled: ['conquest'] });
   const [a, b] = r.kingdomIds;
-  const bVillage = r.villageOf(1);
-  r.world.despawn(bVillage as never);
+  // `a` takes `b`'s only village — 2 of 3, past the retired 0.6 share — but `c` survives.
+  const owner = r.world.write(r.kingdomGame.VillageOwner as NonNullable<typeof r.kingdomGame.VillageOwner>);
+  owner.kingdom[r.villageOf(1)] = a as number;
   r.days(1);
-  assert.equal(r.victoryGame.winner()?.type, 'conquest');
-  assert.equal(r.victoryGame.winner()?.kingdomId, a);
-  assert.ok(r.victoryGame.isDefeated(b as never));
+  assert.notEqual(r.victoryGame.winner()?.type, 'conquest', 'territory alone is not conquest');
+  assert.ok(r.victoryGame.isDefeated(b as never), 'b lost its last village and is out');
 });
 
-test('conquest: contestability broadcasts once progress crosses 80% of the threshold', () => {
-  // 8 villages total: owning 4/8 (share 0.5) is 83% of the way to the 0.6 default threshold —
-  // past APPROACHING_FRACTION (0.8) but short of actually winning. Needs 8 for the granularity;
-  // 3-way splits can't land a discrete village count strictly between 48% and 60%.
+test('conquest: contestability broadcasts once progress crosses 80% of defeated rivals (M66)', () => {
+  // 8 kingdoms ⇒ 7 rivals. Defeating 6 of 7 is 86% — past APPROACHING_FRACTION (0.8) but short
+  // of winning, since the 8th kingdom still holds its village. Progress is now measured in
+  // rivals defeated, not villages held, so the scenario drives defeat rather than ownership.
   const r = makeRealm(8, { enabled: ['conquest'] }, 260);
   const [a] = r.kingdomIds;
-  const owner = r.world.write(r.kingdomGame.VillageOwner as NonNullable<typeof r.kingdomGame.VillageOwner>);
-  for (const k of [1, 2, 3]) owner.kingdom[r.villageOf(k)] = a as number; // a now owns 4 of 8
+  for (const k of [1, 2, 3, 4, 5, 6]) r.world.despawn(r.villageOf(k) as never);
   r.days(1);
   assert.ok(r.events.some((e) => e.type === 'victory.approaching' && (e.data as { kingdomId: number }).kingdomId === a));
-  assert.notEqual(r.victoryGame.winner()?.type, 'conquest', 'not yet at the full 0.6 threshold');
+  assert.notEqual(r.victoryGame.winner()?.type, 'conquest', 'one rival still stands');
 });
 
 // ---------------------------------------------------------------- hegemony
