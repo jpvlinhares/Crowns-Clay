@@ -6,6 +6,8 @@
 [
   {
     "id": "base:building.farm",
+    // Crop Rotation (agriculture t1) — the one mapping that was already semantically right.
+    "outputBoost": { "tech": "base:tech.agriculture-t1-1", "multiplier": 1.5 },
     "name": "Farm",
     "category": "production",
     "footprint": { "w": 2, "h": 2 },
@@ -18,6 +20,8 @@
   },
   {
     "id": "base:building.lumber-camp",
+    // Timber Framing (construction t1). Was "Selective Breeding" (agriculture) — livestock breeding does not improve forestry.
+    "outputBoost": { "tech": "base:tech.construction-t1-1", "multiplier": 1.5 },
     "name": "Lumber Camp",
     "category": "production",
     "footprint": { "w": 1, "h": 1 },
@@ -30,6 +34,8 @@
   },
   {
     "id": "base:building.quarry",
+    // Mortar & Stone (construction t2). Was "Three-Field System" (agriculture, tier 5) — crop rotation has nothing to do with stone, and tier 5 put it out of reach for most of a campaign.
+    "outputBoost": { "tech": "base:tech.construction-t2-1", "multiplier": 1.5 },
     "name": "Quarry",
     "category": "production",
     "footprint": { "w": 2, "h": 2 },

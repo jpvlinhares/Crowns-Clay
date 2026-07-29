@@ -7,17 +7,12 @@
   {
     "id": "base:tech.agriculture-t1-1",
     "name": "Crop Rotation",
-    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "desc": "Resting fields in rotation restores the soil. Farms yield +50% food.",
     "branch": "agriculture",
     "tier": 1,
     "era": "early",
     "cost": 20,
     "prerequisites": [],
-    "unlocks": {
-      "buildings": [
-        "base:building.farm"
-      ]
-    },
     "diffusionDiscount": 0.1,
     "tags": []
   },
@@ -36,7 +31,7 @@
   {
     "id": "base:tech.agriculture-t2-1",
     "name": "Selective Breeding",
-    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "desc": "Better beasts from better bloodlines. Opens the way to later agricultural work.",
     "branch": "agriculture",
     "tier": 2,
     "era": "early",
@@ -44,11 +39,6 @@
     "prerequisites": [
       "base:tech.agriculture-t1-1"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.lumber-camp"
-      ]
-    },
     "diffusionDiscount": 0.15,
     "tags": []
   },
@@ -243,7 +233,7 @@
   {
     "id": "base:tech.agriculture-t5-1",
     "name": "Three-Field System",
-    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "desc": "Winter grain, spring grain, fallow — the mature rotation. A capstone of the agricultural branch.",
     "branch": "agriculture",
     "tier": 5,
     "era": "late",
@@ -252,11 +242,6 @@
       "base:tech.agriculture-t4-1",
       "base:tech.agriculture-t4-2"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.quarry"
-      ]
-    },
     "diffusionDiscount": 0.3,
     "tags": []
   },

@@ -91,6 +91,7 @@ blocks your building actually needs.
 | `serviceAura.radius` | integer ≥ 1 | tiles |
 | `storage.capacity` | integer ≥ 1 | *optional* |
 | `recipes` | `{inputs: Yield[], outputs: Yield[]}[]`, ≥ 1 entry | *optional* — see Recipes below |
+| `outputBoost` | `{ tech: <tech id>, multiplier: ≥ 1 }` | *optional* — once the owning kingdom knows `tech`, this building's recipe OUTPUTS are multiplied by `multiplier` (inputs untouched). A research reward, not a gate: an un-researched building still works at base rate. Must name a real tech (checked at load). |
 | `workers.required` | integer ≥ 1 | *optional* |
 | `military.recruits` | string[] (unit ids), ≥ 1 | *optional* — which units this building can train |
 | `military.garrisonCap` | integer ≥ 1 | *optional* — defenders it can shelter without training them |

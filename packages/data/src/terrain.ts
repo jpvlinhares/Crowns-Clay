@@ -196,6 +196,14 @@ export class DefinitionDatabase {
         integrity.push(`unit '${u.id}' requiresTech references unknown tech '${u.requiresTech}'`);
       }
     }
+    // M-era: same referential rule for a building's research yield boost — a typo'd tech id
+    // would otherwise fail SILENTLY (the boost simply never applies), which is exactly the
+    // class of inert-content bug the tech tree's own unenforced `unlocks` demonstrated.
+    for (const b of buildings) {
+      if (b.outputBoost !== undefined && !techMap.has(b.outputBoost.tech)) {
+        integrity.push(`building '${b.id}' outputBoost references unknown tech '${b.outputBoost.tech}'`);
+      }
+    }
     for (const t of techs) {
       for (const preId of t.prerequisites) {
         const pre = techMap.get(preId);

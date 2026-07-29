@@ -50,6 +50,17 @@ export interface BuildingDef {
   readonly serviceAura?: { readonly need: string; readonly strength: number; readonly radius: number };
   readonly storage?: { readonly capacity: number };
   readonly recipes?: readonly Recipe[];
+  /**
+   * A research reward: once the owning kingdom knows `tech`, this building's recipe OUTPUTS
+   * are multiplied by `multiplier` (inputs untouched — a yield boost, not a cheaper recipe).
+   * Deliberately a BUFF over unchanged base output rather than a gate: a locked building
+   * starves a village, a merely-unboosted one still works.
+   *
+   * Lives on the BUILDING (mirroring `UnitDef.requiresTech`) rather than on the tech, because
+   * `MODIFIER_TARGETS` is a closed, village-wide vocabulary that cannot name one building, and
+   * `TechDef.modifiers` is read by nothing today.
+   */
+  readonly outputBoost?: { readonly tech: string; readonly multiplier: number };
   readonly workers?: { readonly required: number };
   /** M25: which unit defs this building can train (barracks); M28: garrisonCap caps how
    * many troops the village can shelter as defenders (keeps/towers — no recruits of their
@@ -133,6 +144,7 @@ export const buildingValidator: Validator<BuildingDef> = v.object(
     serviceAura: v.object({ need: v.string({ minLength: 1 }), strength: v.number({ min: 0 }), radius: v.number({ min: 1, integer: true }) }),
     storage: v.object({ capacity: v.number({ min: 1, integer: true }) }),
     recipes: v.array(recipeValidator, { minItems: 1 }),
+    outputBoost: v.object({ tech: v.id(), multiplier: v.number({ min: 1 }) }),
     workers: v.object({ required: v.number({ min: 1, integer: true }) }),
     military: v.object(
       { recruits: v.array(v.id(), { minItems: 1 }), garrisonCap: v.number({ min: 1, integer: true }) },
@@ -142,5 +154,5 @@ export const buildingValidator: Validator<BuildingDef> = v.object(
     research: v.object({ pointsPerDay: v.number({ min: 0 }) }),
     tags: v.array(v.string({ minLength: 1 })),
   },
-  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'workers', 'military', 'defense', 'research', 'defenceFootprint'] },
+  { optional: ['requires', 'housing', 'serviceAura', 'storage', 'recipes', 'outputBoost', 'workers', 'military', 'defense', 'research', 'defenceFootprint'] },
 ) as Validator<BuildingDef>;

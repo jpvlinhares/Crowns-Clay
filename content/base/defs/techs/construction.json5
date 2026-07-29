@@ -7,7 +7,7 @@
   {
     "id": "base:tech.construction-t1-1",
     "name": "Timber Framing",
-    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "desc": "Squared frames and better saws. Lumber Camps yield +50% wood. Unlocks the Well.",
     "branch": "construction",
     "tier": 1,
     "era": "early",
@@ -36,7 +36,7 @@
   {
     "id": "base:tech.construction-t2-1",
     "name": "Mortar & Stone",
-    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "desc": "Lime mortar and dressed blocks. Quarries yield +50% stone. Unlocks the Warehouse.",
     "branch": "construction",
     "tier": 2,
     "era": "early",

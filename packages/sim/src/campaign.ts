@@ -728,6 +728,17 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   });
   researchGameRef.current = researchGame;
 
+  // M-era research reward: `BuildingDef.outputBoost` multiplies a def's recipe OUTPUTS once the
+  // owning kingdom knows the named tech. Wired here because economy registers long before
+  // research. Resolves the owner through the plain event-maintained `ownerIndexByVillage` map
+  // rather than reading `VillageOwner` — this runs INSIDE the economy system's access scope,
+  // and a component read there would trip the declared-access guard.
+  econGame.setKnowsTech((villageIndex, techId) => {
+    const kingdomIndex = ownerIndexByVillage.get(villageIndex) ?? 0;
+    const kingdomId = kingdomGame.kingdomEntities()[kingdomIndex];
+    return kingdomId !== undefined && researchGame.isKnown(kingdomId, techId);
+  });
+
   const researchContextFor = (kingdomIndex: number): AiResearchContext => ({
     coverage(): number {
       const myId = kingdomGame.kingdomEntities()[kingdomIndex];
