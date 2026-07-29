@@ -68,7 +68,7 @@
   },
   {
     "id": "base:tech.construction-t2-3",
-    "name": "Granary Design",
+    "name": "Warehouse Design",
     "desc": "Builds on early basics with practical, low-risk improvements.",
     "branch": "construction",
     "tier": 2,
