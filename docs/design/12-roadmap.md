@@ -724,6 +724,109 @@ recruiting ceilings proved entirely hash-inert: no committed fixture runs long e
 ≈ 125 days) for a barracks to exist, let alone a recruit. The prediction was right in KIND and
 wrong in BREADTH, on the safe side — the diff walk checked a wider set than actually moved.
 
+**M67 scoping note (shipped 2026-07-27):** the phase's truth pass. Five ADRs recorded for cuts the
+build had been carrying undocumented — **ADR-7** markets/prices/trade economy, **ADR-8** village
+tiers 3–4, **ADR-9** village specialisation, **ADR-10** the battle order vocabulary (which also
+CLOSES OQ-7, dangling since M27), **ADR-11** the advisor appointment UI. Every one was re-verified
+against the code before being written, not trusted from the review's notes. ADR-11 additionally
+CORRECTS ADR-1, which had justified cutting characters partly on the claim that advisors were
+"exactly what the player already sees" — they are not: `kingdom.appoint` has zero callers in
+`packages/app`, so the player sees a salary line for officials they can never meet. Recorded as a
+correction rather than by editing ADR-1, matching how ADR-4's A1 corrections were handled.
+
+Doc 07 §3's "roster adoption is currently INERT" caveat is retired: it claimed the AI never raises
+a barracks, and M64a measured 190 units recruited across 4 kingdoms in 20 years as a genuine mixed
+roster. README's status table, frozen at M54, now runs to M67 (13 rows, including M61.5 and all of
+Phase 9).
+
+**Reachability tutorial** — five steps naming the panels the old six-step economy tutorial never
+mentioned (diplomacy, research, military, victory, and above all the KEEP, which gates the entire
+castle layer and which nothing previously told the player about). The first trigger design was
+WRONG and measurement caught it: `village.happiness >= 55` defers nothing, because a fresh village
+is already content, so the diplomacy step fired at tick 10 — day one, ahead of the welcome message,
+and inside the single-kingdom terra sandbox where there are no neighbours to talk to. All five are
+now gated on `village.tier >= 2`, which is also the mechanically correct anchor (the Keep's own
+`requires.villageTier: 2`), spread across distinct seasons. Known limitation recorded in the content
+file: the DSL (OQ-3, DSL-only) has no predicate for "this composition has rivals", so a terra
+sandbox reaching tier 2 still sees the campaign-half hints — tier 2 at least makes them late and
+rare there.
+
+**Fixtures re-recorded INTENTIONALLY (6).** Cause is event-code RE-INTERNING, not events firing:
+`game/events.ts` assigns codes by position in `[...db.events.keys()].sort()` and folds those raw
+code numbers into a registered hash source (`onceFired`/`lastFired`/`pending`), so five new ids
+sorting into the middle of the block renumber every event after them. Verified directly that no new
+tutorial event fires inside the 3000-tick window — only `welcome`/`happiness`/`economy`, exactly as
+before — and that the two fixtures with no fired events (`calendar-baseline`, `wanderers`) are
+untouched. Predicted six, moved exactly six.
+
+---
+
+**Gate P9 (assessed 2026-07-27) — NOT PASSED: 3 of 5 ratified bands green. Phase 9 is NOT closed.**
+
+All eight milestones shipped (M61.5 · M62 · M63 · M64a · M65 · M66 · M67, with M64b merged into M65
+by R6). Global DoD checks are green: `npm run build` clean · `npm run lint` clean · full suite
+**496/496** · `npm run replay:verify` all four goldens byte-stable · `npm run save-corpus:verify`
+all four corpus saves resume clean with **0 migrations** · `npm run save-corpus:torture` 5
+save/load cycles per entry, hash stable throughout. Doc 11 §2 sim budgets
+(`npm run bench:scenes all`): war-max 0.159 ms/tick, ai-8k 0.303, late-campaign 0.220 — all ≤10 ms,
+AI share ≤10.3% of a 30% budget. `npm run bench:assault` holds the M54 bands unchanged: garrisoned
+templates repel raids, a keep-only village falls to a host, 0% max origin deviation.
+
+**The gate criterion is M62's five bands, ratified BEFORE the fixes they measure. Final state
+(`bench:balance --real --years 60 --seeds 2`, run on the shipping tree):**
+
+| Band | M62 baseline | Gate P9 | |
+|---|---:|---:|:--|
+| adult cohort p10 (≥30%) | 6.8% | **46.1%** | ✓ |
+| oldest-village floor (≥15%) | 5.1% | **35.5%** | ✓ |
+| monoculture (≤60% any type) | prosperity 88% | **prosperity 56%** | ✓ |
+| earliest victory (≥y30) | y9 | y29 | ✗ |
+| campaigns changing hands (≥50%) | 0% | 13% | ✗ |
+
+**What Phase 9 achieved.** The three demographic and victory-shape bands went from catastrophic to
+comfortable. Villages are staffed by adults instead of being 95% children; the player can found
+villages at all (M63 — the build shipped 1.0 with no expansion verb); victory outcomes are genuinely
+mixed rather than a single track winning 88-94% of campaigns; and `story/9000 k=4` produced
+`destroyed 1, risen 2`, meaning M53's kingdom-death and new-lords machinery executed in the shipping
+composition for the first time since it was written at Phase 8.
+
+**Why it is not closed, stated plainly.** Two ratified bands fail, and neither was tuned to pass —
+that discipline held throughout the phase.
+
+- *Earliest victory y29 (need ≥30)* is a one-year miss on one campaign of sixteen. It is NOT closed
+  by nudging Prosperity, because prosperity wins must land inside [30, 60] for this matrix and five
+  already land at y54 with two at y58; making Prosperity harder risks pushing them past the cap and
+  breaking the monoculture band M66 just fixed. Note the matrix runs `--years 60` while the shipped
+  `DEFAULT_YEAR_LIMIT` is **100** — this squeeze is partly an artifact of the short matrix, and any
+  fix should weigh that before touching a ratified band.
+- *Changing hands 13% (need ≥50%)* is the real one, and it is **owned by no milestone in this
+  roadmap**. It needs AI war competence — armies that mass, march, and take a defended castle. R5
+  chartered Phase 9 as "NO new systems", so this was structurally out of scope from the day the
+  phase was written. It is the same root cause that made ADR-5's taken-village Conquest unreachable
+  (0 wins in 16 campaigns) and that leaves the entire Phase 8 + 8.1 castle layer — thirteen
+  milestones — still unexercised to a conclusion in the shipping game.
+
+**Two structural findings this phase surfaced, recorded for whoever works here next.**
+
+1. *The victory tracker is not a `kernel.addHashSource` contributor.* Its state never folds into
+   `stateHash()`, so no golden replay and no corpus resume hash can EVER detect a victory-logic
+   regression. `victory.test.ts` and `bench:balance` are that subsystem's only guards — do not read
+   a green corpus as evidence about victory behaviour.
+2. *Event codes are positional.* Adding any event renumbers every event sorting after it and
+   invalidates every content-bearing fixture, even when the new events never fire. Hashing the event
+   ID string rather than its sorted index would make content additions fixture-neutral. Same class
+   as M56's "re-homing `Fortification` moved its registration order."
+
+**The decision this gate hands to the owner.** Phase 9 delivered its milestones and did not meet its
+own criterion; declaring it closed anyway would be precisely the M47.5 failure mode — the letter
+satisfied, the substance missed — that this project's whole review culture exists to prevent. Three
+ways forward, none of them mine to take: (a) charter a Phase 10 owning AI war competence, which is
+the only path that makes the changing-hands band, ADR-5's retired Conquest share, and the dormant
+castle layer all reachable by one body of work; (b) accept the two bands as unmet and ship on ADR-6's
+technical-build framing, with the war layer documented as dormant — defensible, provided the docs say
+so plainly; (c) re-ratify the bands themselves, which is legitimate only as an explicit owner
+decision and never as a way to turn a failing gate green.
+
 **M66 scoping note (shipped 2026-07-27) — CLOSED on the monoculture band; two bands hand to
 M67.** Two changes shipped, both in `game/victory.ts`:
 

@@ -157,10 +157,16 @@ test('audio: base content ships cues/playlists wired to real events, all within 
 
 // ---------------- tutorial content (roadmap M43) ----------------
 
-test('tutorial: base content ships exactly 6 once-only steps in the tutorial pool, ending at village.tier ≥ 2', () => {
+// M67 (doc 12 Phase 9; ADR-6): 6 → 11 steps. The original six covered the economy and stopped at
+// taxes, which the M61.5 review found left the ENTIRE campaign half of the game undiscoverable —
+// thirteen panels, and nothing naming diplomacy, research, the military, victory, or the Keep that
+// gates the whole castle layer. The five added steps are REACHABILITY, not teaching (ADR-6's trim):
+// each names a panel and what unlocks it, and carries no material reward. The invariants below
+// still hold for every step, and the completion signal is unchanged.
+test('tutorial: base content ships 11 once-only steps in the tutorial pool, ending at village.tier ≥ 2', () => {
   const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
   const tutorial = [...db.events.values()].filter((e) => e.pool === 'tutorial');
-  assert.equal(tutorial.length, 6);
+  assert.equal(tutorial.length, 11);
   for (const step of tutorial) {
     assert.ok(step.tags.includes('tutorial'), `${step.id} should carry the 'tutorial' tag too`);
     assert.equal(step.once, true, `${step.id} must be once:true — a tutorial step repeating is a bug`);

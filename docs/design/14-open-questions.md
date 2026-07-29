@@ -254,7 +254,7 @@ by the project owner. Binding consequences:
 | OQ-4 | Best-effort save↔mod reconciliation + report + automatic pre-load backup; hard-block on integrity failure |
 | OQ-5 | Frozen rivers passable, harsh-climate gated, with explicit freeze forecast UI |
 | OQ-6 | Espionage cut from 1.0; knowledge-model hooks retained; Chancellor grants intelligence-quality bonus |
-| OQ-7 | Battle interactivity fixed at stance + 5-order vocabulary; ratify with M27 playtest data |
+| OQ-7 | Battle interactivity fixed at stance + 5-order vocabulary; ratify with M27 playtest data — **CLOSED as DEFERRED 2026-07-27 by ADR-10 (doc 15)**: the ratification it asked for never happened, and `game/combat.ts` ships exactly ONE order, `army.withdraw` (itself with no UI caller). The 5-order vocabulary is not deferred pending tuning; it was never built, and doc 07 §3 records why (no resolvable choice exists in the resolver for a policy to score between). Recorded rather than left dangling a fourth year |
 | OQ-8 | Difficulty adjustable downward-only outside ironman, chronicled; ironman locks |
 | OQ-9 | Last-village defeat + AI capitulation/vassalage mechanics; dynastic defeat deferred post-M34 — **REOPENED 2026-07-15 by ADR-4 (see the OQ-9 delta above; rule unchanged for 1.0)** |
 | OQ-10 | f64 retained; cross-engine golden-replay CI is the sentinel; divergence triggers fixed-point migration of the diverging system |

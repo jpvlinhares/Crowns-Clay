@@ -139,10 +139,23 @@ state on top, it isn't a new prerequisite for the fighting to start.
 kingdom's own composition: slot = unit count % 4 over `[line, ranged, line, cavalry]`, each slot
 taking the best UNLOCKED unit of its class, siege engines only under `ConquestWar` with an army
 raised and under a cap. Mechanism, not scoring — mixed armies with an infantry backbone that
-upgrade themselves as warfare techs land, with no utility surface to tune. Two caveats recorded in
-doc 12's war-cadence backlog part 8: it is currently INERT (the real composition's AI is
-resource-starved and never raises a barracks), and AI tech PRIORITIES are unchanged, so the
-capstone units (Knight, Trebuchet) stay late and personality-flavoured until that post-1.0 item.
+upgrade themselves as warfare techs land, with no utility surface to tune. AI tech PRIORITIES are
+unchanged, so the capstone units (Knight, Trebuchet) stay late and personality-flavoured until that
+post-1.0 item.
+
+*Corrected at M67 (2026-07-27) — the "currently INERT" caveat this passage carried from doc 12's
+war-cadence backlog part 8 is STALE and is retired here.* Part 8 recorded the rotation as
+unobservable because "the real composition's AI is resource-starved and never raises a barracks,"
+measured then as 17,386 `village.build` rejections for insufficient wood. That is no longer true:
+the AI economy fixes that followed (lumber-camp-first placement, the wood-starvation deadlock fix)
+made barracks routine, and M64a's instrumented 20-year campaign measured **190 units recruited
+across 4 kingdoms**, arriving as a genuine mixed roster — spearman, archer, swordsman and cavalry
+all present, exactly the rotation this passage describes. The rotation is LIVE and has been for
+several milestones. What replaced the old constraint is a different one: M65 gave recruiting a
+workforce ceiling and an affordability ceiling, because unbounded recruiting against floor-only
+gates was the root cause of the demographic inversion M64a diagnosed (see doc 12's M64a finding and
+M65 scoping note). So the AI now recruits deliberately rather than not at all, and the open
+question is war CONDUCT — armies that mass, march and take a defended castle — not roster adoption.
 
 **M53 delta (Phase 8; OQ-9/OQ-11):** two additions, both deliberately evaluator-reusing rather
 than new brains. (1) *Capital sieges:* with occupation now exempting defence-layer capitals, the

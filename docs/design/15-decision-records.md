@@ -721,3 +721,116 @@ espionage (OQ-6), or the trade economy — none of which exist.
 blockers; the remaining four — no player expansion verb, the inverted demographic pyramid, war that
 never concludes, and the victory monoculture — are simulation defects, not presentation ones, and
 are unaffected by how the build is framed. Phase 9 is still required.
+
+---
+
+## ADR-7 — DEFERRED (2026-07-27): markets, prices and the trade economy are not built
+
+**Context.** GDD §3 designs per-market prices that "drift with local supply/demand within
+data-defined bands" and trade pacts that "create scheduled caravans between kingdoms," over a
+resource ladder of raw → processed → finished goods (grain, ore, hides, fish, flour, iron,
+leather, bread, weapons, armour, luxury goods — roughly seventeen resources). None of it exists.
+Shipped: **five** resources (food, wood, stone, planks, tools), one three-deep chain
+(wood→planks→tools), no market, no price, no caravan. `game/diplomacy.ts`'s trade pact is worth a
+flat nominal `TRADE_VALUE = 15` to the deal evaluator and carries, in that module's own words, "no
+real trade-route economy yet (v1)" — it is a diplomatic token with no mechanical consequence.
+
+**Why this was never recorded.** It wasn't a decision; it was an accumulation. M13 shipped a
+3-tier chain as the resource system, M23 shipped pacts as opinion-bearing objects, and no
+milestone after either owned "make trade mean something." The M61.5 review found it as the largest
+undocumented gap between GDD and build.
+
+**Decision.** DEFERRED, not cut. Recorded here so no reader mistakes the trade pact's existence
+for a trade economy, and so doc 02 §3 is read as intent rather than description.
+
+**Consequences.** Geography's economic payoff is unrealised: worldgen already produces resource
+asymmetry that nothing monetises, which is why hauling distance is a cost with no strategic
+counterpart. Diplomacy loses its most natural non-military lever — a trade pact a rival actually
+wants is leverage, and today it is a number. Any marketing or docs copy must not imply market or
+caravan mechanics. Post-release scope; it is the single largest system still owed against GDD §3.
+
+---
+
+## ADR-8 — DEFERRED (2026-07-27): village tiers 3–4 (Town, City) are not built
+
+**Context.** GDD §5 designs a four-rung ladder, Hamlet → Village → Town → City, each tier
+"unlocking building types and larger radius." Shipped: tiers **1 and 2 only** —
+`VILLAGE_RADIUS_T1` (12) and `VILLAGE_RADIUS_T2` (16), with `TIER2_REQUIREMENTS` the only gate and
+`village.upgrade` hard-coded to set `tier = 2`. There is no tier 3 or 4 in code, content, or
+schema.
+
+**Decision.** DEFERRED. The ladder stops at two rungs for 1.x.
+
+**Consequences.** The felt arc GDD §15 promises ("from mud to majesty") is materially shorter than
+designed: a settlement reaches its permanent ceiling within roughly a decade of founding, after
+which it has nothing left to become. This compounds with ADR-9 — with neither higher tiers nor
+specialisation, a mature village is mechanically identical to every other mature village, which is
+a direct cost to the "distinct places with visible character" promise. `requires.villageTier`
+already exists as a content gate and `village.upgrade` already exists as the command, so adding
+tiers is content plus a requirements table rather than new mechanism — the cheapest large
+progression win available post-release.
+
+---
+
+## ADR-9 — DEFERRED (2026-07-27): village specialisation is not built
+
+**Context.** GDD §5 designs designating a village's specialisation (farming, mining, crafting,
+trade) for focus bonuses, and names the wide-vs-tall tension it serves. It does not exist: a
+repository-wide search for `specialis`/`specializ` across sim, data and content finds only the
+word "specialised" inside one tech's flavour text.
+
+**Decision.** DEFERRED.
+
+**Consequences.** Villages are undifferentiated except by the terrain they happen to sit on, so
+the "wide (many villages) vs tall (few big cities)" balance question GDD §5 raises is currently
+unanswerable in either direction — there is no tall, and wide is uniform. Combined with ADR-8 this
+is the bulk of GDD §5's unbuilt depth. Note the mechanism is cheap if revisited: the `Modifier`
+system and per-building `tags` already carry everything a focus bonus needs.
+
+---
+
+## ADR-10 — DEFERRED (2026-07-27), closing OQ-7: the battle order vocabulary stays at `withdraw`
+
+**Context.** GDD §8 gives the player in-battle orders — "advance, hold, flank, target priority,
+withdraw" — and formations/stances before the clash. `game/combat.ts` registers exactly **one**
+command, `army.withdraw`, and doc 07 §3 records why: the other orders "aren't a resolvable choice
+in combat.ts yet (M27's own deferral), so there is nothing for a policy to score between."
+Front/flank/reserve lines and formation selection are likewise absent. OQ-7 required ratification
+against M27 playtest data and was never closed — the M61.5 review found it still open years later.
+
+**Decision.** DEFERRED, and **OQ-7 is CLOSED as deferred** rather than left dangling. The player's
+battle agency at 1.x is pre-battle positioning plus `withdraw`; the resolver is otherwise
+auto-resolved.
+
+**Consequences.** GDD §8's "battles you can influence, not micro-manage" is currently the second
+half without the first. This also caps the AI's tactical ceiling by construction: doc 07 §3's
+battle-layer policy has no vocabulary to choose from, so tactical AI cannot be improved without
+first giving the resolver orders to accept — the two are one work item, not two. `army.withdraw`
+itself has **no UI caller**, so even the one shipped order is injector-only; surfacing it is a
+small, separable win.
+
+---
+
+## ADR-11 — DEFERRED (2026-07-27): advisor appointment has no player surface (and ADR-1 overstated this)
+
+**Context.** GDD §2 has the player appoint advisors to offices (Steward, Marshal, Chancellor,
+Scholar), with skill-scaled bonuses. The sim implements this: `kingdom.appoint` is a registered
+command, offices carry real modifiers, advisors draw a daily `advisor-salary` ledger entry, and
+`MIN_OFFICE_AGE` is enforced. There is **no UI**: `kingdom.appoint` has zero callers in
+`packages/app`, so advisors are seated deterministically at genesis and the player can neither see
+nor change them.
+
+**This corrects ADR-1.** That record justified cutting characters partly on the grounds that "1.0's
+character surface is advisors (kingdom.ts), exactly what the player already sees." The M61.5 review
+verified that claim is false — the player sees a salary line for officials they never meet. ADR-1's
+*decision* stands (characters remain unwired); its *reasoning* was wrong on this point, and the
+correction is recorded here rather than by editing ADR-1's text, matching how ADR-4's A1
+corrections were handled.
+
+**Decision.** DEFERRED. Advisors stay sim-real and player-invisible at 1.x.
+
+**Consequences.** Vision pillar 1 ("named villagers/notables; its people are real") has **no**
+player-facing implementation at 1.x — characters are unwired (ADR-1) and advisors are unreachable
+(this record). Docs and any release copy must not claim either. The gap is small to close: the
+command, the bonuses and the ledger already work, so this is a panel, not a system — which is why
+the M61.5 review ranked it "strongly recommended" rather than a blocker.
