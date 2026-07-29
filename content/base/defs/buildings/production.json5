@@ -7,7 +7,7 @@
   {
     "id": "base:building.farm",
     // Crop Rotation (agriculture t1) — the one mapping that was already semantically right.
-    "outputBoost": { "tech": "base:tech.agriculture-t1-1", "multiplier": 1.5 },
+    "techBoost": { "tech": "base:tech.agriculture-t1-1", "multiplier": 1.5, "applies": "output" },
     "name": "Farm",
     "category": "production",
     "footprint": { "w": 2, "h": 2 },
@@ -21,7 +21,7 @@
   {
     "id": "base:building.lumber-camp",
     // Timber Framing (construction t1). Was "Selective Breeding" (agriculture) — livestock breeding does not improve forestry.
-    "outputBoost": { "tech": "base:tech.construction-t1-1", "multiplier": 1.5 },
+    "techBoost": { "tech": "base:tech.construction-t1-1", "multiplier": 1.5, "applies": "output" },
     "name": "Lumber Camp",
     "category": "production",
     "footprint": { "w": 1, "h": 1 },
@@ -35,7 +35,7 @@
   {
     "id": "base:building.quarry",
     // Mortar & Stone (construction t2). Was "Three-Field System" (agriculture, tier 5) — crop rotation has nothing to do with stone, and tier 5 put it out of reach for most of a campaign.
-    "outputBoost": { "tech": "base:tech.construction-t2-1", "multiplier": 1.5 },
+    "techBoost": { "tech": "base:tech.construction-t2-1", "multiplier": 1.5, "applies": "output" },
     "name": "Quarry",
     "category": "production",
     "footprint": { "w": 2, "h": 2 },
@@ -48,6 +48,9 @@
   },
   {
     "id": "base:building.dock",
+    // Fish Weirs (agriculture t3). Was falsely "unlocked" by Horse Collar — a draught-harness
+    // improvement has nothing to do with a fishing quay; weirs are literally the technique.
+    "techBoost": { "tech": "base:tech.agriculture-t3-4", "multiplier": 1.5, "applies": "output" },
     "name": "Dock",
     "category": "production",
     "footprint": { "w": 1, "h": 2 },
@@ -60,6 +63,9 @@
   },
   {
     "id": "base:building.sawmill",
+    // Watermills (agriculture t4). Was falsely "unlocked" by Heavy Plough. The water-powered
+    // saw is the actual historical sawmill, and it keeps Timber Framing free for the Lumber Camp.
+    "techBoost": { "tech": "base:tech.agriculture-t4-3", "multiplier": 1.5, "applies": "output" },
     "name": "Sawmill",
     "category": "production",
     "footprint": { "w": 1, "h": 2 },
@@ -77,6 +83,8 @@
   },
   {
     "id": "base:building.workshop",
+    // Workshop Tooling (construction t4) — the tech it already named, now as a real effect.
+    "techBoost": { "tech": "base:tech.construction-t4-1", "multiplier": 1.5, "applies": "output" },
     "name": "Workshop",
     "category": "production",
     "footprint": { "w": 2, "h": 1 },

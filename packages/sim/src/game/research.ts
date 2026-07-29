@@ -29,11 +29,13 @@
  * pair, `costOf` charges `cost × (1 - diffusionDiscount)` instead of the full
  * price. Omit the hook for the standalone-kingdom default (never discounted).
  *
- * `unlocks` (buildings/units/edicts) are validated referentially at content
- * load (terrain.ts's DAG validation) and queryable via `hasUnlocked`, but
- * NOT enforced against `village.build`/`army.recruitUnit` yet — the same
- * "data now, active later" precedent M25 set for `BuildingDef.military.
- * garrisonCap`.
+ * `unlocks` (buildings/units/edicts) is validated referentially at content load
+ * (terrain.ts's DAG validation) but is ADVISORY ONLY — nothing enforces it, no UI
+ * shows it, and `hasUnlocked` has no callers. ADR-12 deleted every
+ * `unlocks.buildings` claim in base content rather than leave the lie standing:
+ * a tech makes its building BETTER (`BuildingDef.techBoost`, applied below for
+ * `applies: 'research'` and in game/economy.ts for `'output'`), it never gates it.
+ * Units ARE gated for real, but by the separate `UnitDef.requiresTech` (M45).
  */
 import { Interner, type EntityId } from '@crowns/core';
 import type { DefinitionDatabase, TechDef } from '@crowns/data';
@@ -159,7 +161,8 @@ export interface ResearchGameplay {
    * planner's `TechRace` consideration (ai/planner.ts's `AiResearchContext`, M32). */
   coverageOf(kingdomId: EntityId): number;
   costOf(kingdomId: EntityId, techId: string): number;
-  /** Convenience query over known techs' `unlocks` — NOT enforced elsewhere yet (v1, see module doc). */
+  /** Convenience query over known techs' `unlocks` — advisory, enforced NOWHERE and called by
+   * nothing; base content declares no building unlocks at all (ADR-12). Kept for mods. */
   hasUnlocked(kingdomId: EntityId, defId: string): boolean;
 }
 
@@ -197,6 +200,12 @@ export function registerResearchGameplay(
     if (priorCodes.length === 0) return true;
     const knownCount = priorCodes.filter((code) => state.isKnown(kingdomId, code)).length;
     return knownCount / priorCodes.length >= ERA_BREADTH_FRACTION;
+  };
+
+  /** Known-by-id, for the id-shaped lookups (`BuildingDef.techBoost.tech`) rather than codes. */
+  const isTechKnown = (kingdomId: number, techId: string): boolean => {
+    const code = techCode(techId);
+    return code !== undefined && state.isKnown(kingdomId, code);
   };
 
   const prerequisitesMet = (kingdomId: number, def: TechDef): boolean =>
@@ -271,7 +280,15 @@ export function registerResearchGameplay(
         if (def.research === undefined) return;
         const vi = index(b.village[i] as number);
         const kingdomId = ownerOf !== null ? (ownerOf.kingdom[vi] as number) : (kingdomIds[0] as number);
-        pointsByKingdom.set(kingdomId, (pointsByKingdom.get(kingdomId) ?? 0) + def.research.pointsPerDay);
+        // M-era research reward (BuildingDef.techBoost, applies: 'research'): a scholar
+        // building yields more once ITS OWNER knows the tech. Per-kingdom for free — this
+        // loop already attributes each building to its owner, so unlike a `mods` entry
+        // (one shared board, M22) the buff cannot leak to a rival.
+        const boost =
+          def.techBoost?.applies === 'research' && isTechKnown(kingdomId, def.techBoost.tech)
+            ? def.techBoost.multiplier
+            : 1;
+        pointsByKingdom.set(kingdomId, (pointsByKingdom.get(kingdomId) ?? 0) + def.research.pointsPerDay * boost);
       });
       const researchYield = kingdomGame.mods.mul('kingdom.researchYield');
       for (const kingdomId of kingdomIds) {
@@ -297,8 +314,7 @@ export function registerResearchGameplay(
     techCode,
     techById,
     isKnown(kingdomId: EntityId, techId: string): boolean {
-      const code = techCode(techId);
-      return code !== undefined && state.isKnown(kingdomId as number, code);
+      return isTechKnown(kingdomId as number, techId);
     },
     activeResearch(kingdomId: EntityId): { readonly techId: string; readonly progress: number } | undefined {
       const active = state.active(kingdomId as number);

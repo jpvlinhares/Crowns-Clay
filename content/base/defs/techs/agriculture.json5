@@ -82,11 +82,6 @@
       "base:tech.agriculture-t2-1",
       "base:tech.agriculture-t2-2"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.dock"
-      ]
-    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -123,7 +118,7 @@
   {
     "id": "base:tech.agriculture-t3-4",
     "name": "Fish Weirs",
-    "desc": "A high-medieval advance requiring real institutional investment.",
+    "desc": "Woven traps set across the tidal channel take fish without a boat. Docks yield +50% food.",
     "branch": "agriculture",
     "tier": 3,
     "era": "high",
@@ -162,11 +157,6 @@
       "base:tech.agriculture-t3-1",
       "base:tech.agriculture-t3-2"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.sawmill"
-      ]
-    },
     "diffusionDiscount": 0.25,
     "tags": []
   },
@@ -188,7 +178,7 @@
   {
     "id": "base:tech.agriculture-t4-3",
     "name": "Watermills",
-    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "desc": "A millrace turns the wheel, and the wheel turns the saw. Sawmills yield +50% planks.",
     "branch": "agriculture",
     "tier": 4,
     "era": "high",

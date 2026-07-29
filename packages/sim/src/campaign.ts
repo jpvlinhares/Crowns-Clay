@@ -728,9 +728,11 @@ export function composeCampaign(options: ComposeCampaignOptions): CampaignCompos
   });
   researchGameRef.current = researchGame;
 
-  // M-era research reward: `BuildingDef.outputBoost` multiplies a def's recipe OUTPUTS once the
-  // owning kingdom knows the named tech. Wired here because economy registers long before
-  // research. Resolves the owner through the plain event-maintained `ownerIndexByVillage` map
+  // M-era research reward: `BuildingDef.techBoost` with `applies: 'output'` multiplies a def's
+  // recipe OUTPUTS once the owning kingdom knows the named tech. Wired here because economy
+  // registers long before research. (The `'research'` variant needs no wiring at all —
+  // research.ts owns both the rate and the known-tech table.)
+  // Resolves the owner through the plain event-maintained `ownerIndexByVillage` map
   // rather than reading `VillageOwner` — this runs INSIDE the economy system's access scope,
   // and a component read there would trip the declared-access guard.
   econGame.setKnowsTech((villageIndex, techId) => {

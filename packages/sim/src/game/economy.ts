@@ -130,7 +130,8 @@ export function registerEconomyGameplay(
   game: VillageGameplay,
   mods: StatModifierView = INERT_MODIFIERS,
 ): EconomyGameplay {
-  // M-era research reward (BuildingDef.outputBoost): set by campaign.ts once research exists.
+  // M-era research reward (BuildingDef.techBoost, applies: 'output'): set by campaign.ts once
+  // research exists. The 'research' variant is applied by game/research.ts, which owns that rate.
   let knowsTech: ((villageIndex: number, techId: string) => boolean) | null = null;
   const { VillageCore, Stockpile, BuildingCore } = game.comps;
   const ledger = new ResourceLedger();
@@ -231,8 +232,8 @@ export function registerEconomyGameplay(
         // untouched — it is a better harvest, not a cheaper recipe). 1 whenever the hook is
         // unset (terra/harness) or the tech is unknown, so this is inert by default.
         const boost =
-          def.outputBoost !== undefined && knowsTech !== null && knowsTech(vi, def.outputBoost.tech)
-            ? def.outputBoost.multiplier
+          def.techBoost?.applies === 'output' && knowsTech !== null && knowsTech(vi, def.techBoost.tech)
+            ? def.techBoost.multiplier
             : 1;
         for (const recipe of def.recipes) {
           // one batch fraction for the whole recipe: efficiency ∧ inputs ∧ outbox headroom

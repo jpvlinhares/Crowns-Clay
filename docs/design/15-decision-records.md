@@ -834,3 +834,63 @@ player-facing implementation at 1.x — characters are unwired (ADR-1) and advis
 (this record). Docs and any release copy must not claim either. The gap is small to close: the
 command, the bonuses and the ledger already work, so this is a panel, not a system — which is why
 the M61.5 review ranked it "strongly recommended" rather than a blocker.
+
+---
+
+## ADR-12 — ACCEPTED (2026-07-29): technologies BUFF their buildings; the decorative `unlocks.buildings` claims are deleted
+
+**Context.** All 17 `unlocks.buildings` entries in the base tech tree were inert. `hasUnlocked()`
+(game/research.ts) is their only reader and has **zero callers**; `BuildingDef` has no tech gate
+at all, so every building was placeable from turn one. Nothing surfaced the claim either — no UI
+reads `unlocks`. Doc 06 §8 recorded this as "data now, active later", but the mappings had also
+drifted: Quarry was claimed by Three-Field System (agriculture, **tier 5**), Lumber Camp by
+Selective Breeding (livestock), Dock by Horse Collar, Sawmill by Heavy Plough.
+
+**Decision.** Techs make their buildings **better**, never gate them.
+
+`BuildingDef.techBoost { tech, multiplier, applies }` multiplies one rate on that def once the
+owning kingdom knows `tech`. `applies` is a closed vocabulary — `'output'` (every
+`recipes[].outputs`, inputs untouched) and `'research'` (`research.pointsPerDay`) — chosen over a
+family of `outputBoost`/`researchBoost`/… fields because the boostable set will keep growing
+(storage capacity, service-aura strength and garrison caps are the obvious next three) and a
+modder should learn the concept once. Nine mappings at ×1.5:
+
+| Building | Tech | `applies` | was |
+|---|---|---|---|
+| Farm | Crop Rotation (agri t1) | output | the one claim already semantically right |
+| Lumber Camp | Timber Framing (constr t1) | output | Selective Breeding |
+| Quarry | Mortar & Stone (constr t2) | output | Three-Field System (t5) |
+| Dock | Fish Weirs (agri t3) | output | Horse Collar |
+| Sawmill | Watermills (agri t4) | output | Heavy Plough |
+| Workshop | Workshop Tooling (constr t4) | output | *(same tech, now real)* |
+| Scribe's Hut | Written Records (state t1) | research | *(same tech, now real)* |
+| Library | Scribal Schools (state t3) | research | *(same tech, now real)* |
+| University | University Charters (state t5) | research | *(same tech, now real)* |
+
+All 17 `unlocks.buildings` claims are **deleted** — the nine above are replaced by a real effect,
+and the eight that cannot be expressed as a boost yet (Well, Warehouse, Tavern, Barracks, Wall,
+Gatehouse, Tower, Keep) are removed rather than left as documented lies. Every affected `desc`
+now states the actual effect ("Docks yield +50% food").
+
+**Why buff and not gate.** Enforcing the gates is unshippable at this content. Farm and Lumber
+Camp are survival-critical, stone was behind a tier-5 tech, the AI only researches under TechRace
+(~8% of plan time), and — decisively — the Scribe's Hut is one of only three research sources and
+was claimed by a tech, so gating it would leave research permanently unable to bootstrap itself.
+A locked building starves a village; a merely-unboosted one still works. Base rates are therefore
+**not** nerfed to pay for the boost: this is strictly additive, so no existing balance number moves.
+
+**Why on the building, not the tech.** `MODIFIER_TARGETS` is a closed, *village-wide* vocabulary
+that cannot name one building, and `TechDef.modifiers` is read by nothing (0 of 72 techs use it).
+A `mods` entry would also have been **wrong**: `StatModifiers` is ONE board shared across every
+kingdom (M22), so a tech-granted modifier would leak to rivals. Reading the boost per building
+inside the two loops that already attribute a building to its owner is per-kingdom by construction.
+
+**Consequences.** `hasUnlocked()` is now dead in base content and `unlocks.buildings` is unused —
+kept in the schema (a mod may still declare it) but it remains **advisory**, and doc 06 §8 says so.
+`unlocks.units` (warfare) and `unlocks.edicts` (statecraft) are still decorative in exactly the
+same way; units are really gated by the separate, enforced `UnitDef.requiresTech`, edicts by
+nothing. 51 of the 72 techs still have no effect beyond era-breadth counting — this record
+does not fix that, and the remaining four `applies` kinds (`storage`, `service`, `garrison`,
+`defense`) are the honest path to re-attaching the eight deleted claims. Load-time validation
+rejects an unknown `tech` **and** an `applies` whose backing field is absent, so the inert-content
+bug this record exists to fix cannot recur silently.

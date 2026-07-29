@@ -91,7 +91,7 @@ blocks your building actually needs.
 | `serviceAura.radius` | integer ≥ 1 | tiles |
 | `storage.capacity` | integer ≥ 1 | *optional* |
 | `recipes` | `{inputs: Yield[], outputs: Yield[]}[]`, ≥ 1 entry | *optional* — see Recipes below |
-| `outputBoost` | `{ tech: <tech id>, multiplier: ≥ 1 }` | *optional* — once the owning kingdom knows `tech`, this building's recipe OUTPUTS are multiplied by `multiplier` (inputs untouched). A research reward, not a gate: an un-researched building still works at base rate. Must name a real tech (checked at load). |
+| `techBoost` | `{ tech: <tech id>, multiplier: ≥ 1, applies: "output" \| "research" }` | *optional* — once the owning kingdom knows `tech`, this building gets better at the thing named by `applies`. A research **reward**, not a gate: an un-researched building still works at base rate, and base rates are never nerfed to pay for the boost. See below. |
 | `workers.required` | integer ≥ 1 | *optional* |
 | `military.recruits` | string[] (unit ids), ≥ 1 | *optional* — which units this building can train |
 | `military.garrisonCap` | integer ≥ 1 | *optional* — defenders it can shelter without training them |
@@ -103,6 +103,31 @@ blocks your building actually needs.
 | `tags` | string[] | required (may be empty `[]`) |
 
 A `Yield` (used in `recipes`) is `{ "resource": "<resource id>", "perDay": <number ≥ 0> }`.
+
+### `techBoost` — how a technology improves a building
+
+`applies` names which rate the multiplier lands on, and the backing field must exist:
+
+| `applies` | multiplies | requires |
+|---|---|---|
+| `"output"` | every `recipes[].outputs` `perDay` — inputs untouched, so it is a better harvest, not a cheaper recipe | `recipes` |
+| `"research"` | `research.pointsPerDay` | `research` |
+
+```json5
+// once the owner researches Crop Rotation, this farm yields 12 food/day instead of 8
+"recipes": [{ "inputs": [], "outputs": [{ "resource": "base:resource.food", "perDay": 8 }] }],
+"techBoost": { "tech": "base:tech.agriculture-t1-1", "multiplier": 1.5, "applies": "output" },
+```
+
+Three load-time checks, all of which reject the mod rather than failing silently: `tech` must
+name a real tech, and `applies` must match a field the def actually has (`"output"` with no
+`recipes`, or `"research"` with no `research`, is an error). This is deliberate — a boost that
+quietly never fires is the exact bug class the base tech tree's old decorative
+`unlocks.buildings` claims were (see ADR-12).
+
+One field with a discriminator, rather than an `outputBoost`/`researchBoost`/… family, because
+the list of boostable properties will keep growing; `applies` gains a value, mods keep working.
+`applies` is a CLOSED vocabulary — an unknown value is a load error, not a no-op.
 
 ```json5
 [

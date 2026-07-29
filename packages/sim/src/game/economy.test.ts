@@ -324,12 +324,13 @@ test('economy: identical histories hash identically', () => {
 
 // ---------------------------------------------------------------- research yield boost
 
-// `BuildingDef.outputBoost` (M-era): a researched tech multiplies a def's recipe OUTPUTS.
+// `BuildingDef.techBoost` with `applies: 'output'` (M-era): a researched tech multiplies a
+// def's recipe OUTPUTS. (The `'research'` sibling is covered in game/research.test.ts.)
 // Deliberately a BUFF over unchanged base output rather than a gate — a locked building
 // starves a village, an unboosted one still works. Nothing else guards this: the goldens and
 // corpus cannot see it (no kingdom researches these techs inside their windows), so this test
 // is the only thing standing between the feature and a silent regression.
-test('outputBoost: a known tech multiplies recipe OUTPUT, and the hook is inert when unset', () => {
+test('techBoost/output: a known tech multiplies recipe OUTPUT, and the hook is inert when unset', () => {
   const measure = (grantBoost: boolean): number => {
     const e = makeEconomy({ buildings: ['base:building.farm'] });
     if (grantBoost) e.econ.setKnowsTech((_vi, techId) => techId === 'base:tech.agriculture-t1-1');
@@ -361,7 +362,7 @@ test('outputBoost: a known tech multiplies recipe OUTPUT, and the hook is inert 
   );
 });
 
-test('outputBoost: an unknown tech leaves output at base (no penalty for un-researched)', () => {
+test('techBoost/output: an unknown tech leaves output at base (no penalty for un-researched)', () => {
   const e = makeEconomy({ buildings: ['base:building.farm'] });
   e.econ.setKnowsTech(() => false); // hook wired, tech NOT known
   e.days(30);

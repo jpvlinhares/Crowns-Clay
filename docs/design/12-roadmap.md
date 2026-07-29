@@ -759,6 +759,38 @@ tutorial event fires inside the 3000-tick window — only `welcome`/`happiness`/
 before — and that the two fixtures with no fired events (`calendar-baseline`, `wanderers`) are
 untouched. Predicted six, moved exactly six.
 
+**M68 scoping note (shipped 2026-07-29):** un-chartered follow-up work, raised by the owner
+after M67 while reading the research panel. Three defects, one theme — content that claims an
+effect it does not have.
+
+1. *The joy panel's food factor read an EMA, not today's meal* (fixed in `buildingEmitter.ts`;
+   food at 0 still showed +40.8 joy because the panel fed `foodSecurity` — a smoothed average —
+   into the same helper the sim feeds today's `eaten/need`). Reproduced at +36.4 points on day 1.
+2. *"Granary" renamed to "Warehouse"* (display name and the "Warehouse Design" tech; the id
+   `base:building.granary` is unchanged, so no save or fixture sees it).
+3. *Every `unlocks.buildings` claim in the tech tree was inert* — see **ADR-12**. Nine became real
+   `BuildingDef.techBoost` effects at ×1.5; the other eight were deleted. The generalised
+   `{ tech, multiplier, applies }` shape replaced the `outputBoost` field shipped hours earlier in
+   the same phase: the Scribe's Hut has no recipes to boost, and rather than grow a second
+   near-identical field (and then a third for storage, a fourth for garrisons) the discriminator
+   went in while exactly two content entries and two tests depended on it.
+
+**No fixture re-record.** Verified, not assumed: all 4 golden replays and all 4 corpus saves are
+byte-identical. Techs are coded by id (positional over `[...db.techs.keys()]`), and no id, tier,
+cost or prerequisite moved — only `unlocks`, `desc`, and new `techBoost` fields, none of which is
+folded into a hash source. The behavioural risk was Written Records: a tier-1, cost-20 tech that
+now boosts the Scribe's Hut, and therefore plausibly *is* researched inside a fixture window.
+It is not — `campaign-demo` and `campaign-tick500-v1` both verified green.
+
+**What this milestone does NOT fix.** 51 of the 72 techs still do nothing beyond counting toward
+the era-breadth gate (counted: 60 declare neither `unlocks` nor `modifiers`, of which 9 now carry a
+building-side `techBoost`), and eight buildings lost their (fake) tech association without gaining a
+real one. The honest path for those eight is the remaining four `applies` kinds — `storage`
+(Warehouse ← Warehouse Design, a tech named for a building it never touched), `service` (Tavern,
+Well), `garrison` (Barracks) and `defense` (Wall/Gatehouse/Tower/Keep) — each a real sim change in
+a different system, deliberately not bundled here. ADR-12 records this rather than leaving it
+implied.
+
 ---
 
 **Gate P9 (assessed 2026-07-27) — NOT PASSED: 3 of 5 ratified bands green. Phase 9 is NOT closed.**
