@@ -782,10 +782,18 @@ folded into a hash source. The behavioural risk was Written Records: a tier-1, c
 now boosts the Scribe's Hut, and therefore plausibly *is* researched inside a fixture window.
 It is not — `campaign-demo` and `campaign-tick500-v1` both verified green.
 
-**What this milestone does NOT fix.** 51 of the 72 techs still do nothing beyond counting toward
-the era-breadth gate (counted: 60 declare neither `unlocks` nor `modifiers`, of which 9 now carry a
-building-side `techBoost`), and eight buildings lost their (fake) tech association without gaining a
-real one. The honest path for those eight is the remaining four `applies` kinds — `storage`
+**What this milestone does NOT fix.** **58 of the 72 techs do nothing** beyond counting toward the
+era-breadth gate and nudging the AI's `researchOpportunity` score, and eight buildings lost their
+(fake) tech association without gaining a real one. Only two routes from a tech to a game effect
+are wired at all: `BuildingDef.techBoost` (9 techs, new here) and `UnitDef.requiresTech` (5 techs,
+M45). `TechDef.modifiers` is used by 0 of 72; `unlocks.edicts` (3) is not checked by
+`kingdom.enactEdict`; `unlocks.wallTier` (2) has no reader outside the validator; and of the 8
+`unlocks.units` claims only the 5 that coincide with a real `requiresTech` gate bite — Spear
+Tactics, Archery Corps and Heavy Cavalry name pre-M45 units that were never gated.
+
+*(A first pass at this note said 51. That count credited every tech declaring an `unlocks` block
+with having an effect — which is precisely the assumption ADR-12 exists to refute. Re-derived from
+content: 72 − |techBoost ∪ requiresTech| = 72 − 14 = 58.)* The honest path for those eight is the remaining four `applies` kinds — `storage`
 (Warehouse ← Warehouse Design, a tech named for a building it never touched), `service` (Tavern,
 Well), `garrison` (Barracks) and `defense` (Wall/Gatehouse/Tower/Keep) — each a real sim change in
 a different system, deliberately not bundled here. ADR-12 records this rather than leaving it

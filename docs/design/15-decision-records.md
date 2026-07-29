@@ -887,10 +887,18 @@ inside the two loops that already attribute a building to its owner is per-kingd
 
 **Consequences.** `hasUnlocked()` is now dead in base content and `unlocks.buildings` is unused —
 kept in the schema (a mod may still declare it) but it remains **advisory**, and doc 06 §8 says so.
-`unlocks.units` (warfare) and `unlocks.edicts` (statecraft) are still decorative in exactly the
-same way; units are really gated by the separate, enforced `UnitDef.requiresTech`, edicts by
-nothing. 51 of the 72 techs still have no effect beyond era-breadth counting — this record
-does not fix that, and the remaining four `applies` kinds (`storage`, `service`, `garrison`,
-`defense`) are the honest path to re-attaching the eight deleted claims. Load-time validation
+`unlocks.units` (8), `unlocks.edicts` (3) and `unlocks.wallTier` (2) are still decorative in exactly
+the same way: units are really gated by the separate, enforced `UnitDef.requiresTech`, `wallTier`
+has no reader outside the validator, and `kingdom.enactEdict` checks id, duplication, the edict cap
+and the treasury — never a tech.
+
+**Only 14 of the 72 techs have any effect**, and both routes run from the *other* def: 9 via
+`BuildingDef.techBoost` (this record) and 5 via `UnitDef.requiresTech` (M45). `TechDef.modifiers` is
+used by 0 of 72. The remaining **58 do nothing** but satisfy the era-breadth gate and nudge the AI's
+`researchOpportunity` score. Seven of them look effectful and are not — Spear Tactics, Archery Corps
+and Heavy Cavalry name pre-M45 units that carry no `requiresTech`; Corvée Labor, Grain Reserves and
+Library Sciences name ungated edicts; Stone Fortification names an inert `wallTier`. This record does
+not fix that, and the remaining four `applies` kinds (`storage`, `service`, `garrison`, `defense`)
+are the honest path to re-attaching the eight deleted claims. Load-time validation
 rejects an unknown `tech` **and** an `applies` whose backing field is absent, so the inert-content
 bug this record exists to fix cannot recur silently.
