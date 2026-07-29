@@ -100,7 +100,7 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   // BuildingEmitter surfaces each def's own capacity contribution, generically.
   const recs = new BuildingEmitter(world, game).full();
   const house = recs.find((r) => r.name === 'House');
-  const granary = recs.find((r) => r.name === 'Granary');
+  const granary = recs.find((r) => r.name === 'Warehouse'); // renamed from 'Granary'; id unchanged
   assert.equal(house?.housingCapacity, 5, 'house projects its housing capacity');
   assert.equal(house?.storageCapacity, 0, 'a house has no storage capacity');
   assert.equal(granary?.storageCapacity, 400, 'granary projects its storage capacity');
@@ -113,7 +113,7 @@ test('BuildingEmitter + VillageStatsEmitter: capacity is projected from defs and
   assert.ok(v, 'village stats emitted');
   assert.equal(v.housing, 5, 'village housing total = Σ completed housing capacity');
   assert.equal(v.stockCap, BASE_STORAGE + 400, 'village stock cap = BASE_STORAGE + Σ completed storage capacity');
-  assert.equal(v.foodCap, KEEP_FOOD_BUFFER + 400, 'food cap = keep buffer + granary capacity (smaller base than other goods)');
+  assert.equal(v.foodCap, KEEP_FOOD_BUFFER + 400, 'food cap = keep buffer + warehouse capacity (smaller base than other goods)');
 
   // workforce split (M-era labour legibility): the three parts are non-negative and always sum to
   // the adult pool the jobs solver distributes — working + hauling + idle == floor(adults). (Uses

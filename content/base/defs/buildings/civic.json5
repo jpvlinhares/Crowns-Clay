@@ -38,7 +38,12 @@
   },
   {
     "id": "base:building.granary",
-    "name": "Granary",
+    // Display name only. The ID stays `granary` — it is a stable identifier referenced by
+    // tech unlocks, ai/needs.ts's storage evaluator, the save corpus and interned building
+    // codes; renaming it would be a migration, not a relabel. "Warehouse" is also the more
+    // accurate word for what this def actually does: `storage.capacity` holds EVERY resource,
+    // not grain alone.
+    "name": "Warehouse",
     "category": "storage",
     "footprint": { "w": 2, "h": 1 },
     "cost": { "base:resource.wood": 30, "base:resource.stone": 5 },

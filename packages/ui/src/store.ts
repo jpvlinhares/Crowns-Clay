@@ -20,7 +20,7 @@ export interface VillageInfo {
    * inspector's used/total gauges (M-era). */
   readonly housing: number;
   readonly stockCap: number;
-  /** Food's own cap (keep buffer + granary capacity), smaller than stockCap. */
+  /** Food's own cap (keep buffer + warehouse capacity), smaller than stockCap. */
   readonly foodCap: number;
   /** Joy breakdown for the Joy panel (M-era), projected from live sim state. */
   readonly joy?: {
