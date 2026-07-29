@@ -434,6 +434,15 @@ export function createSession(
     });
     return home;
   };
+  // The Joy panel's food factor must come from TODAY's fed fraction, not from
+  // `Population.foodSecurity` (a ~7-day EMA that drives births and starvation deaths).
+  // population.ts already publishes exactly that as `village.fed`, so the emitter LISTENS
+  // rather than the component gaining a new hashed field — this stays presentation-only and
+  // hash-inert (no fixture, save-schema or migration impact).
+  const villageEmitter = new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods, c.kingdomGame);
+  c.kernel.subscribe<{ village: number; eaten: number; need: number }>('village.fed', (event) => {
+    villageEmitter.noteFed(event.data.village & 0x3fffff, event.data.eaten, event.data.need);
+  });
   return {
     panels,
     catalog,
@@ -477,7 +486,7 @@ export function createSession(
     terrain,
     world: c.world,
     buildingEmitter: new BuildingEmitter(c.world, c.game),
-    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods, c.kingdomGame),
+    villageEmitter: villageEmitter,
     roadEmitter: new RoadEmitter(c.logiGame.roads),
     territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, fog),
     saves: c.saves,
