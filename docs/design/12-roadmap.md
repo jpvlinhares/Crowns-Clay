@@ -1125,12 +1125,12 @@ not just in the job's own comment.
 
 ---
 
-## Phase 10 — The War (M69–M75, post-1.0 — added by revision R7, DRAFT — NOT RATIFIED)
+## Phase 10 — The War (M69–M75, post-1.0 — added by revision R7, CHARTERED)
 
 Chartered from **Gate P9's own handover**, which named three ways forward and did not take one:
 (a) charter a phase owning AI war competence, (b) ship on ADR-6's technical-build framing with the
-war layer documented as dormant, (c) re-ratify the bands. **This charter is option (a), drafted for
-the owner's decision — it is not ratified and nothing in it is scheduled until R7 is.**
+war layer documented as dormant, (c) re-ratify the bands. **The owner took option (a) on 2026-08-02;
+R7 is RATIFIED and Phase 10 is chartered.**
 
 **The case for (a) over (b).** Gate P9 failed two of five ratified bands, and one of them —
 `changing hands 13%` against `≥50%` — is downstream of a single missing capability. That same gap
@@ -1383,13 +1383,13 @@ Amendment A1; scope option (C) RATIFIED 2026-07-21).**
   where the pre-merge M65 would have moved only campaign fixtures — folded into the M65 prediction
   in the sequencing note above so the diff walk is checked against the wider set, not the narrower.
 
-**R7 — Phase 10 ("The War") drafted from Gate P9's handover (DRAFTED 2026-08-02, NOT RATIFIED).**
+**R7 — Phase 10 ("The War") chartered from Gate P9's handover (ratified 2026-08-02).**
 
 - **Change:** a seven-milestone Phase 10 (M69–M75) appended as post-1.0 scope, with its own five
-  gate bands ratified at charter. Phase 9 remains CLOSED-NOT-PASSED and is not reopened; nothing in
-  Phase 10 is scheduled until this revision is ratified by the owner.
-- **Why:** Gate P9 named three ways forward and explicitly declined to choose between them. This is
-  option (a) written out so the choice can be made against a real scope rather than a sentence.
+  gate bands ratified at charter. Phase 9 remains CLOSED-NOT-PASSED and is not reopened — Phase 10
+  is new scope, not a reopening.
+- **Why:** Gate P9 named three ways forward and explicitly declined to choose between them. The
+  owner chose option (a) against the written scope below, rather than against a sentence.
   The argument for it over option (b) is leverage, not ambition: one missing capability — AI war
   competence — is upstream of the failing changing-hands band, of ADR-5's taken-village Conquest
   clause (built, measured at 0/16, deleted at M66), and of thirteen milestones of military, siege
