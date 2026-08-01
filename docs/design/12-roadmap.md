@@ -1125,6 +1125,84 @@ not just in the job's own comment.
 
 ---
 
+## Phase 10 — The War (M69–M75, post-1.0 — added by revision R7, DRAFT — NOT RATIFIED)
+
+Chartered from **Gate P9's own handover**, which named three ways forward and did not take one:
+(a) charter a phase owning AI war competence, (b) ship on ADR-6's technical-build framing with the
+war layer documented as dormant, (c) re-ratify the bands. **This charter is option (a), drafted for
+the owner's decision — it is not ratified and nothing in it is scheduled until R7 is.**
+
+**The case for (a) over (b).** Gate P9 failed two of five ratified bands, and one of them —
+`changing hands 13%` against `≥50%` — is downstream of a single missing capability. That same gap
+already forced two other retreats this project has on record: ADR-5's taken-village Conquest clause
+was **built, measured at 0 wins in 16 campaigns, and deleted** (M66), and Conquest is elimination-only
+today not by design but because nothing else was reachable. Behind both sits the standing fact
+Phase 9 opened with and closes with unchanged: **Phases 4, 8 and 8.1 — thirteen milestones of
+military, siege and castle work — are complete, tested, and never reached to a conclusion in the
+shipping game.** One body of work makes the band, the retired Conquest clause, and the dormant
+castle layer all reachable. No other item on the backlog has that leverage.
+
+**The measurement that scopes it.** The assault code is not the defect and this is measured, not
+assumed: the flat harness reaches **24 sieges begun / 23 captured** (Gate P8.1), while the shipping
+composition reaches **4 begun / 0 captured** (M61.5/M62). Whatever fails, fails *upstream* of the
+assault resolver. That is what makes this a competence phase rather than a systems phase.
+
+**Phase 10 adds no new player-facing systems.** Unlike Phase 9's "NO new systems" rule, it does
+change ARCHITECTURE in two places — event coding and modifier scope — because Gate P9 named both as
+the standing tax on every other piece of work. Both land at the phase HEAD, before any behaviour
+work, so their fixture cost is paid once. The M12 playability rule and ADR-3's composition rule bind
+as everywhere else.
+
+**Sequencing rationale (the M64a/R6 lesson, applied deliberately).** M70 is a diagnosis milestone
+that commits **no fix** — the same shape as M64a, and for the same reason: Phase 9's one wrong turn
+was a recruiting ceiling specified at 0.15 and validated against a probe at the wrong population
+scale, which measured out as a total recruiting block. Diagnosis-before-fix is this project's proven
+pattern and the phase's highest-risk milestone gets it. Conversely M71 is deliberately NOT split:
+R6 dissolved M64b into M65 because two milestones would have paid two re-records for one root cause,
+and the war-cadence levers M65 explicitly deferred belong to the same cause as the fix that enables
+reading them.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M69 | Fixture economics & the victory blind spot | Gate P9's two structural findings, both paid at the phase head so later milestones inherit the cheaper regime. (1) **Hash event IDs by string, not sorted index** — `game/events.ts` codes events by position in `[...db.events.keys()].sort()`, so adding any event renumbers every event after it and invalidates every content-bearing fixture *even when the new events never fire* (M67 paid exactly this for five tutorial events). (2) **Register the victory tracker as a `kernel.addHashSource` contributor** — its state never folds into `stateHash()`, so no golden replay and no corpus resume can EVER detect a victory-logic regression; `victory.test.ts` and `bench:balance` are currently that subsystem's only guards | ONE intentional re-record, predicted hunk-by-hunk before recording · a deliberately-introduced victory-logic change is caught by `replay:verify` where it previously passed green — demonstrate the new guard actually guards · a new event added to base content moves NO fixture |
+| M70 | War diagnosis (**finding only — nothing committed but a written cause**) | Explain the 24-begun/23-captured (flat harness) vs 4-begun/0-captured (`--real`) gap in named terms. Candidate paths to instrument, none pre-judged: `MilitaryBuildup` plan monoculture (**81% of plan-choices**, deferred by M65 as unreadable until armies stopped dissolving — they have); garrison-hold (deferred for the same reason, now due); `WAR_MIN_STRENGTH` (20) against what an M65-capped army actually fields; whether hosts mass or trickle; whether a besieger persists long enough to resolve; whether the AI ever chooses to assault at all | the begun-vs-captured gap is fully accounted for by named terms, reconciled against measured counts · recalibrate-vs-redesign is DETERMINED, not guessed · **no behaviour change in the commit** |
+| M71 | War that concludes (the fix per M70) | Whatever M70 names, plus the two cadence levers M65 deferred by name and the `WAR_MIN_STRENGTH` re-check. Explicitly NOT split from its diagnosis' scope: one root cause, one milestone, one re-record (R6's rule) | **M62's changing-hands band ≥50% GREEN** · M62's three green bands (adult cohort, oldest-village floor, monoculture) STAY green — a war fix that re-breaks demographics has not worked · sieges reaching a resolution ≥50% (new band, below) |
+| M72 | The earliest-victory band, decided | Re-measure earliest victory against the **shipped `DEFAULT_YEAR_LIMIT` of 100**, not the matrix's `--years 60`. Gate P9 recorded that the y29-vs-y30 miss is partly an artifact of the short matrix; that is a measurement question with a factual answer. Output is an ADR either way: band green as measured, or the band formally RESTATED with its reasoning. Prosperity's constants are not to be nudged to close a one-year gap — five wins already land at y54 and two at y58 against a 60-cap | the band is green under an honest measurement, or an ADR records the restatement and why · monoculture band unmoved either way |
+| M73 | Per-kingdom stat modifiers | `StatModifiers` has been ONE board shared across every kingdom since M22. It is why `TechDef.modifiers` is used by 0 of 72 techs (a tech buff would leak to rivals) and why `kingdom.researchYield` is read once outside the per-kingdom loop. Scope the board per kingdom. Pure architecture, no content | a modifier granted to one kingdom is measurably absent from a rival's rollup · goldens/corpus byte-identical where no content grants a per-kingdom modifier yet (verify, do not assume) |
+| M74 | The tech tree earns its cost | **58 of 72 techs do nothing** beyond satisfying the era-breadth gate and nudging the AI's `researchOpportunity` term (ADR-12, re-derived). Grow `BuildingDef.techBoost`'s `applies` vocabulary by the four kinds ADR-12 named — `storage` (Warehouse ← Warehouse Design), `service` (Tavern, Well), `garrison` (Barracks), `defense` (Wall/Gatehouse/Tower/Keep) — which also re-attaches the eight claims ADR-12 deleted. Then wire `TechDef.modifiers` on M73's per-kingdom board for the branch-wide effects no single building can carry | ≥36 of 72 techs (half the tree) have an effect measurable in a test, counted the ADR-12 way (from the def that reads them, not from `unlocks` declarations) · no tech GATES a building — ADR-12's buff-not-gate rule holds |
+| M75 | Player agency & Gate P10 | The two ADR-recorded surfaces the player cannot reach. **Advisor appointment** (ADR-11): `kingdom.appoint` works, offices carry real modifiers, advisors draw a daily salary line — with zero UI callers, leaving vision pillar 1 ("its people are real") with *no* player-facing implementation at 1.x. **`army.withdraw`** (ADR-10): the one shipped battle order is injector-only, so GDD §8's "battles you can influence" is the second half without the first. Both are panels, not systems. Then Gate P10 | injector-free walkthrough: seat an advisor and observe the modifier land; withdraw from a battle in progress · Gate P10 recorded in this doc in Gate P8/P8.1/P9 format |
+
+**Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
+and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
+`bench:balance --real --years 60 --seeds 2` unless stated:
+
+| # | Band | Source |
+|---|---|---|
+| 1 | villages changing hands in **≥50%** of campaigns | INHERITED from M62 unchanged — deliberately not restated |
+| 2 | earliest victory **≥y30**, measured at the shipped 100-year cap | inherited; M72 may restate it, and if it does the restatement IS the deliverable (ADR required) |
+| 3 | **≥50%** of sieges BEGUN reach a resolution — a capture or a lifted siege, never a stall | NEW. The 4-begun/0-resolved shape is the specific failure this phase exists to end |
+| 4 | **≥36 of 72** techs have a measurable effect | NEW. Content band, gated, counted per ADR-12 |
+| 5 | M62's three green bands (adult cohort p10 ≥30%, oldest-village floor ≥15%, monoculture ≤60%) STAY green | NEW as a REGRESSION guard — Phase 9 won these and Phase 10 must not spend them |
+
+**Known risks, named now rather than discovered mid-phase.**
+
+- *M71 is the phase and it is not de-risked by anything but M70.* If M70's finding is "the AI needs a
+  strategic layer it does not have", M71 stops being a competence fix and the charter needs revising
+  before it is executed, not during. That is the outcome M70 exists to surface EARLY and cheaply.
+- *Two intentional re-records* (M69, M71), both predicted before recording per the standing rule.
+  M73 and M74 are predicted fixture-NEUTRAL and must be verified as such, not assumed — M68's
+  `techBoost` work was also predicted neutral and was, but only because Written Records happened not
+  to be researched inside a fixture window.
+- *Band 4 may be unreachable without M73.* If the per-kingdom board proves larger than scoped, M74
+  falls back to the four `applies` kinds alone (~22 of 72) and band 4 fails honestly rather than
+  being restated downward. A band lowered to match its outcome is the failure mode this project's
+  review culture exists to prevent.
+- *Gate P9's bands 4 and 5 were failed, not tuned.* Phase 10 inherits that discipline explicitly:
+  no constant in `victory.ts`, `ai/military.ts` or `population.ts` moves to make a band green
+  without an ADR saying so in its own words.
+
+---
+
 ## Dependency & Risk Notes
 
 - Long-pole chains: ECS/determinism (M2–M5) → everything; AI harness (M24) is deliberately early —
@@ -1304,3 +1382,39 @@ Amendment A1; scope option (C) RATIFIED 2026-07-21).**
   M65's blast radius: it now moves terra fixtures too (via the settler/famine secondary scope),
   where the pre-merge M65 would have moved only campaign fixtures — folded into the M65 prediction
   in the sequencing note above so the diff walk is checked against the wider set, not the narrower.
+
+**R7 — Phase 10 ("The War") drafted from Gate P9's handover (DRAFTED 2026-08-02, NOT RATIFIED).**
+
+- **Change:** a seven-milestone Phase 10 (M69–M75) appended as post-1.0 scope, with its own five
+  gate bands ratified at charter. Phase 9 remains CLOSED-NOT-PASSED and is not reopened; nothing in
+  Phase 10 is scheduled until this revision is ratified by the owner.
+- **Why:** Gate P9 named three ways forward and explicitly declined to choose between them. This is
+  option (a) written out so the choice can be made against a real scope rather than a sentence.
+  The argument for it over option (b) is leverage, not ambition: one missing capability — AI war
+  competence — is upstream of the failing changing-hands band, of ADR-5's taken-village Conquest
+  clause (built, measured at 0/16, deleted at M66), and of thirteen milestones of military, siege
+  and castle work that have never reached a conclusion in the shipping game. Option (b) is still
+  defensible and is NOT argued against here; it simply requires the docs to say "dormant" plainly,
+  which ADR-6 already licenses.
+- **Scope discipline carried over:** the assault resolver is measurably NOT the defect (flat harness
+  24 begun / 23 captured vs `--real` 4 begun / 0 captured), so this is a competence phase, not a
+  systems phase. Two architecture changes are admitted — event-ID hashing and per-kingdom
+  `StatModifiers` — both because Gate P9 named them as the standing tax on other work, and both
+  scheduled at the phase head so their fixture cost is paid once.
+- **Sequencing follows two Phase 9 lessons rather than restating them:** M70 commits a written cause
+  and no fix (M64a's shape — Phase 9's one wrong turn was a ceiling specified at 0.15 and validated
+  at the wrong population scale), and M71 is deliberately NOT split from that cause (R6's rule —
+  two milestones would pay two re-records for one root cause).
+- **Affected documents:** this doc (12) — new phase section and this record. No ADR changes: ADR-5,
+  ADR-10, ADR-11 and ADR-12 are all *inputs* to this charter and none is amended by it. Doc 06 §8,
+  doc 07 §3 and GDD §8 will need edits INSIDE M71/M74/M75, not before.
+- **Affected milestones:** none shipped. M68 (un-chartered, shipped 2026-07-29) is unaffected and
+  stays outside any phase; its `applies`-vocabulary follow-up is picked up by M74 rather than left
+  implied.
+- **Risk impact:** adds two intentional fixture re-records (M69, M71) and two predicted-neutral
+  milestones that must be VERIFIED neutral (M73, M74). Concentrates the phase's risk in M71, which
+  is de-risked by nothing except M70 — if M70 finds the AI needs a strategic layer it does not have,
+  this charter needs revising before execution, not during, and M70 is scheduled early and cheap
+  precisely to surface that. Band 4 (tech effectiveness) is the one band that may prove unreachable
+  within scope; the charter states it fails honestly rather than being restated downward.
+
