@@ -1772,6 +1772,54 @@ fixture set protects this change.** The two unit tests above are its only guard.
 the position M68 was in when it moved four bands unnoticed, and the difference here is only that
 the tests were written deliberately rather than assumed unnecessary. 504/504 tests, lint clean.
 
+**M73 scoping note (shipped 2026-08-03) — DECIDED. The band stands; it was reporting a real
+defect, and the defect is a hole in M53's capital-death chain. See ADR-13.**
+
+R9 left earliest victory as the only failing band on the shipping configuration, and it is
+clock-independent (y10 at both the 60- and 100-year limits). The full per-campaign matrix at the
+shipped clock shows **every early victory shares one signature, and all five are `k=2`**:
+
+| difficulty | seed | victory | eliminated | sieges | assaults | capitals fallen | occupations | capitulated | risen |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| fair | 9000 | **conquest y10** | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| fair | 9001 | conquest y15 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| hard | 9000 | conquest y18 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| brutal | 9000 | conquest y26 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| hard | 9001 | conquest y27 | 1/2 | 3 | 0 | **0** | **1** | 0 | 0 |
+
+One occupation, no capital fallen, no capitulation offered, no new lord. Contrast the healthy `k=2`
+runs — `chronicle y100 · sieges 1 assaults 1 capitals fallen 1 · destroyed 1 · risen 1` — where a
+capital genuinely fell, succession resolved it, a new banner rose, and the campaign ran the full
+hundred years.
+
+*The mechanism, verified in code rather than inferred.* Two facts compose into the hole:
+
+1. `game/defence.ts` gives a CAPITAL a defence map unconditionally from the first tick
+   (`if (!options.isCapital(vi) && !keepBuilt.has(vi)) continue;`), so `applicable` is true
+   immediately — a capital is siege-eligible from founding.
+2. `campaign.ts` exempts a village from plain occupation only when it is
+   `applicable && (villageGarrisoned(vi) || already under siege)`. An **ungarrisoned** capital is
+   therefore NOT exempt: a field army walks in and `village.occupied` fires.
+
+And `capitalFall.claim` — M53's capitulate-or-raise-a-new-lord window — is called from exactly ONE
+place, `siege.ts`'s `capture()`. Occupation never reaches it. So a kingdom whose capital is taken
+without a siege dies with no succession chance at all, and in a two-kingdom game the last-village
+rule (`everFounded && villages === 0`, any cause) converts that immediately into a **conquest**
+victory for a survivor who may never have fought a battle.
+
+*The decision (ADR-13): the band is CORRECT and stays; the game is wrong.* The alternative reading —
+that the band is mis-scoped because a two-kingdom duel legitimately ends fast — was considered and
+rejected. `k=2` is a real player configuration (the new-game screen permits 1–8 kingdoms), the same
+path exists at every kingdom count and merely fails to end the game there, and M53's design intent
+is explicit that losing a capital opens a window rather than ending a realm. That only fortified,
+garrisoned capitals get that window is an accident of where the hook was placed, not a decision
+anyone recorded.
+
+*Not fixed here.* Routing capital loss through `capitalFall.claim` regardless of how the capital
+changed hands is a behaviour change that moves victory outcomes and will re-record fixtures. It
+reopens M53's chain and deserves its own milestone rather than being absorbed into a decision
+milestone — the same separation M64a→M65 and M70→M72 used. **Chartered as M77.**
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**

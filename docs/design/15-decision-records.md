@@ -902,3 +902,50 @@ not fix that, and the remaining four `applies` kinds (`storage`, `service`, `gar
 are the honest path to re-attaching the eight deleted claims. Load-time validation
 rejects an unknown `tech` **and** an `applies` whose backing field is absent, so the inert-content
 bug this record exists to fix cannot recur silently.
+
+---
+
+## ADR-13 — ACCEPTED (2026-08-03), closing M73: the earliest-victory band stands; capital loss must always open the succession window
+
+**Context.** M62 ratified "no victory before year 30" as a gated band. It has never been green in any
+measured tree state (y29 at Gate P9, y28 boosts-off, y10 and y15 since), and R9 established it is
+the ONLY band still failing on the shipped configuration and that it is clock-independent. M73's
+charter was to decide it: green under an honest measurement, or formally restated with reasons.
+
+**What the measurement showed.** Every early victory in the 16-campaign matrix at the shipped
+100-year limit is a `k=2` conquest with an identical signature: **one occupation, zero capitals
+fallen, zero capitulations, zero new lords.** Verified in code, the path is:
+
+1. `game/defence.ts` attaches a defence map to a CAPITAL unconditionally from its first tick, so a
+   capital is siege-eligible from founding.
+2. `campaign.ts` exempts a village from plain occupation only when it is
+   `applicable && (garrisoned || already besieged)` — so an **ungarrisoned** capital may simply be
+   walked into by a field army.
+3. `capitalFall.claim`, M53's capitulate-or-raise-a-new-lord window, is invoked from exactly one
+   call site: `siege.ts`'s `capture()`. The occupation path never reaches it.
+4. The last-village defeat rule (`everFounded && villages === 0`) then marks the kingdom defeated
+   for ANY cause, and Conquest fires on "every rival defeated" — which in a two-kingdom game is one
+   event away.
+
+A realm can therefore be ended without a siege, without an assault, and without ever being offered
+the capitulation M53 exists to provide.
+
+**Decision.** The band is **CORRECT and stands unchanged.** It was reporting a real defect, not a
+measurement artifact. **Capital loss must open the succession window however the capital changed
+hands** — occupation as well as siege. Implementation is chartered as **M77**, not taken here.
+
+**Rejected alternative.** Restating the band per-configuration, on the grounds that a two-kingdom
+duel legitimately resolves quickly. Rejected because `k=2` is a real player configuration (the
+new-game screen permits 1–8 kingdoms); because the same bypass exists at every kingdom count and
+merely fails to END the game at higher counts, so restating would hide it rather than resolve it;
+and because M53's stated intent is that losing a capital opens a window rather than ending a realm.
+That only fortified, garrisoned capitals receive that window is an accident of where the hook was
+placed, not a recorded design decision.
+
+**Consequences.** Phase 10 gains M77. Until it ships, the earliest-victory band stays red and Gate
+P10 cannot pass — correctly, because the defect is real. This also revises the reading of ADR-5 and
+M66: the war track was described as "effectively dormant until AI war competence rises", but a
+substantial share of kingdom deaths in the matrix are not conquests at all — they are undefended
+capitals being walked into. M70.5's instrument correction and this record together mean **no
+statement about this project's war outcomes made before 2026-08-03 should be trusted without
+re-measurement.**
