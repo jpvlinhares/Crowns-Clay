@@ -1274,6 +1274,87 @@ the one that was wrong, and it survived a release review, a gate assessment, and
 before the first `grep` of the milestone caught it. The event half — written from M67's *measured*
 re-record — was right in direction and still understated by two of its three causes.
 
+**M70 scoping note (shipped 2026-08-02) — FINDING ONLY, nothing committed but this cause.**
+
+The milestone asked why the flat harness reaches 24 sieges begun / 23 captured while the shipping
+composition reaches 4 begun / 0 captured. **The answer is not AI competence, and it is not balance.
+It is a hard bug in the assault resolver, and it is narrow.**
+
+*Method.* Temporary telemetry on `ai/military.ts`'s war-path gates and on `resolveSpatialAssault`'s
+exit condition, run over `composeCampaign` (the real composition) at 60 years × 3 seeds × hard.
+All instrumentation was reverted; nothing but this note is committed.
+
+*What the AI actually does — seed 9000, hard, 60 years.* It masses, marches, besieges and assaults.
+14,289 war-path decisions; armies reach **72 men** against a `WAR_MIN_STRENGTH` of 20; 5 wars
+declared, 4 sieges begun, **19 assaults ordered**. Zero command rejections. And **zero captures**.
+
+*Why every one of those 19 assaults failed — identically.*
+
+| | |
+|---|---|
+| exit reason | `no path and no wall to break`, **round 1**, all 19 |
+| casualties | attacker `68 → 68`; defender `0 → 0` — **not a blow struck** |
+| defence layer | **one structure: the keep.** 0 walls, 0 gates, 0 towers |
+| entry tile | right edge, flow-field distance **-1 (unreachable)** |
+| per-edge reachability | left **100/100**, right **0/100**, top 54, bottom 65 |
+| map | 300 water tiles — one full-height strip severing the right edge from the keep |
+
+`resolveSpatialAssault` **conflates "blocked by fortification" with "blocked by terrain."** Its
+fallback comment says it plainly — *"fully walled off from this edge: enter at the edge anyway"* —
+and that is right when the blocker is a wall, because a wall can be broken. Here the blocker is
+WATER. The column enters on an unreachable tile, `pickWallTarget` returns null because the AI built
+no walls, and the assault is "repelled" without a fight. Nothing is damaged, so the next assault is
+identical, and the one after that, forever. The origin never changes either: `siege.ts` derives it
+from where the army stands, and the army stands where it arrived.
+
+*This is not seed 9000 being unlucky — it is a coin flip on every siege.* Reading
+`generateDefenceMap` directly over 400 kingdom maps (100 worlds × 4 kingdoms):
+
+- **59.0%** of kingdom defence maps have at least one **fully severed** approach edge
+- **18.9%** of all approach edges (302 of 1600) are fully severed
+
+The map generator draws `rng.int(0, 2)` water strips, each running **edge to edge**. Its comment
+intends "each strip makes one whole approach expensive." It does not make it expensive; it makes it
+**impossible**, and nothing downstream knows the difference.
+
+*The control proves the rest of the war layer is sound.* Same code, same difficulty, other seeds:
+
+| seed | defence layer | approach edges | sieges | outcome |
+|---|---|---|---|---|
+| 9000 | keep only | right **severed** | 4 | **0 captured**, 19 futile assaults |
+| 9001 | 28 walls, 3 gates, 4 towers, keep | all open | 1 | 1 captured, 1 attacker host wiped |
+| 9002 | keep only | all open | 16 | **15 of 15 assaults captured**, a kingdom destroyed |
+
+Seed 9002 is the refutation of the charter's own framing: with an unsevered approach the AI takes
+fifteen castles in sixty years. **The armies mass, march and win already.** R7 was written expecting
+a strategic-competence gap; the measurement says otherwise, and that is exactly what M70 existed to
+find out before M71 built the wrong thing.
+
+*Secondary findings, real but not the blocker.*
+
+1. **Plan monoculture, from the other side.** 11,605 of 14,289 war-path decisions (81%) exit at
+   "not initiating and not committed" — the plan is not `ConquestWar`/`PunitiveRaid` and no war is
+   already in progress. This is M65's deferred cadence lever, now readable as promised. It throttles
+   how OFTEN war starts; it does not explain a siege that cannot conclude.
+2. **`WAR_MIN_STRENGTH` is not binding.** 2,636 decisions exit under the 20-man floor, but armies
+   reach 72. The gate delays the first march; it does not prevent it.
+3. **The AI builds no walls in the real composition** — two of three seeds' defence layers hold the
+   keep and nothing else. Harmless where the approach is open (9002 captures anyway) and a
+   compounding factor where it is severed, since a wall would at least give the column something to
+   break. Worth its own look; not the cause.
+4. **`siege.assaultBegun` fires nowhere** — 0 in every run including the flat harness's 39 sieges,
+   where 35 captured. It only fires for a defended garrison fight, so it is a misleading progress
+   metric: Gate P9 and M61.5 both read "0 assaults" as "the AI never assaults", when the AI assaults
+   constantly. `bench:balance` should report ORDERED assaults, not just engaged ones.
+
+*What M71 should therefore fix, in priority order.* (1) The resolver must distinguish impassable
+terrain from breakable fortification — pick a reachable origin, or path around, or counsel `lift`
+when no route exists. (2) The intel counsel compares strength against resistance and never asks
+whether the keep is REACHABLE, which is why it says `assault` 19 times into a river. (3) Only then
+the cadence lever in finding 1. **The charter's own risk paragraph — "if M70's finding is that the
+AI needs a strategic layer it does not have, M71 stops being a competence fix" — resolves the good
+way: it needs no such layer.**
+
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
 `bench:balance --real --years 60 --seeds 2` unless stated:
