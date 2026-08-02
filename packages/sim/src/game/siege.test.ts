@@ -84,7 +84,7 @@ function driver(c: ReturnType<typeof composeCampaign>) {
   for (const type of [
     'army.created', 'village.founded', 'village.rejected',
     'siege.begun', 'siege.ended', 'siege.captured', 'siege.assaultResolved',
-    'siege.assaultBegun', 'siege.sortieBegun',
+    'siege.capitalFallen', 'siege.sortieBegun',
   ]) {
     c.kernel.subscribe(type, (e) => events.push({ type, tick: e.tick, data: e.data as Record<string, unknown> }));
   }

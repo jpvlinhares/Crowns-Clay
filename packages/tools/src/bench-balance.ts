@@ -90,16 +90,30 @@ interface RunResult {
   readonly capitulations: number;
   readonly destructions: number;
   readonly risings: number;
-  /** 1.x war-cadence backlog telemetry: does a declared war ever actually REACH a siege,
-   * and does a mounted siege ever REACH an assault? Distinguishes "never marches" from
-   * "arrives but never assaults" — the roadmap's "no capital sieges mounted" finding had
-   * no counter to confirm which stage was stalling. */
+  /** War-cadence telemetry: does a declared war REACH a siege, does a siege REACH an assault,
+   * and does an assault RESOLVE? All three stages are counted separately so a stall can be
+   * attributed to one of them instead of guessed at.
+   *
+   * M70.5 rewrote this block after the M70 isolation run found every war number here was wrong:
+   *
+   *  - `assaultsResolved`/`assaultsRepelled` replace `assaultsBegun`, which subscribed to
+   *    **`siege.assaultBegun` — an event NO code in this repository publishes.** It read 0 in
+   *    every run of every composition ever made, and M61.5 and Gate P9 both read that 0 as
+   *    "the AI never assaults". Measured after the fix: the AI assaults constantly. The real
+   *    event is `siege.assaultResolved`, carrying `outcome: 'captured' | 'repelled'`.
+   *  - `capitalFalls` is new and is the ONLY capture signal the shipping composition can emit.
+   *    `siege.captured` fires only for a NON-capital castle: `siege.ts`'s `capture()` consults
+   *    `capitalFall.claim` first (M53), and a capital's fall is a KINGDOM event
+   *    (`siege.capitalFallen`) resolved by succession. The AI besieges capitals. The flat
+   *    harness sets `succession: false` (`ai/multiKingdomHarness.ts`), so THERE the identical
+   *    assault publishes `siege.captured` — which is the whole of the "23 captured vs 0
+   *    captured" gap that chartered Phase 10. Counting only `siegesCaptured` made every
+   *    successful war in the real composition invisible. */
   readonly siegesBegun: number;
-  readonly assaultsBegun: number;
-  /** 1.x war-cadence: sieges that CAPTURED the castle. An undefended capital captures outright on
-   * the first breach (no `siege.assaultBegun` fires — that's only for a defended garrison fight),
-   * so this is the outcome counter that reveals sieges actually RESOLVING, not just beginning. */
+  readonly assaultsResolved: number;
+  readonly assaultsRepelled: number;
   readonly siegesCaptured: number;
+  readonly capitalFalls: number;
   /** M62: per-village age/adult-fraction snapshot at the run's final tick. */
   readonly villageBands: readonly VillageBand[];
 }
@@ -163,11 +177,17 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
     composed.kernel.subscribe('kingdom.destroyed', () => destructions++);
     composed.kernel.subscribe('kingdom.newLordRisen', () => risings++);
     let siegesBegun = 0;
-    let assaultsBegun = 0;
+    let assaultsResolved = 0;
+    let assaultsRepelled = 0;
     let siegesCaptured = 0;
+    let capitalFalls = 0;
     composed.kernel.subscribe('siege.begun', () => siegesBegun++);
-    composed.kernel.subscribe('siege.assaultBegun', () => assaultsBegun++);
+    composed.kernel.subscribe<{ outcome: string }>('siege.assaultResolved', (e) => {
+      assaultsResolved++;
+      if (e.data.outcome !== 'captured') assaultsRepelled++;
+    });
     composed.kernel.subscribe('siege.captured', () => siegesCaptured++);
+    composed.kernel.subscribe('siege.capitalFallen', () => capitalFalls++);
     // M62: every village's founding tick, capital or settled — `ops.found` is the ONE path
     // both take (villages.ts), so this single subscription covers both without a genesis vs.
     // settler-founded distinction.
@@ -226,8 +246,10 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       destructions,
       risings,
       siegesBegun,
-      assaultsBegun,
+      assaultsResolved,
+      assaultsRepelled,
       siegesCaptured,
+      capitalFalls,
       villageBands,
     };
   } catch (error) {
@@ -247,8 +269,10 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       destructions: 0,
       risings: 0,
       siegesBegun: 0,
-      assaultsBegun: 0,
+      assaultsResolved: 0,
+      assaultsRepelled: 0,
       siegesCaptured: 0,
+      capitalFalls: 0,
       villageBands: [],
     };
   }
@@ -283,7 +307,7 @@ for (const level of DIFFICULTY_LEVELS) {
       const outcome = r.winner === null ? `no winner by year ${YEARS} (SOFT-LOCK RISK)` : `${r.winner.type} in year ${r.winner.year}`;
       console.log(
         `OK     ${level.padEnd(6)} seed=${seed} k=${kc} · ${outcome} · eliminated=${r.kingdomsEliminated}/${kc} · ` +
-          `wars ${r.warsDeclared}/${r.warsEnded} ended · sieges ${r.siegesBegun} assaults ${r.assaultsBegun} captures ${r.siegesCaptured} · ` +
+          `wars ${r.warsDeclared}/${r.warsEnded} ended · sieges ${r.siegesBegun} assaults ${r.assaultsResolved} (${r.assaultsRepelled} repelled) capitals fallen ${r.capitalFalls} captures ${r.siegesCaptured} · ` +
           `occupations ${r.occupations} · ` +
           `capitulated ${r.capitulations} · destroyed ${r.destructions} · risen ${r.risings} · ` +
           `pop=[${r.finalPopulations.map((p) => p.toFixed(0)).join(',')}] (${ms}ms)`,
@@ -302,10 +326,12 @@ const starvedAtPeace = clean.filter((r) => r.warsDeclared === 0 && r.finalPopula
 const warsStarted = clean.reduce((n, r) => n + r.warsDeclared, 0);
 const warsEnded = clean.reduce((n, r) => n + r.warsEnded, 0);
 const totalSieges = clean.reduce((n, r) => n + r.siegesBegun, 0);
-const totalAssaults = clean.reduce((n, r) => n + r.assaultsBegun, 0);
+const totalAssaults = clean.reduce((n, r) => n + r.assaultsResolved, 0);
+const totalRepelled = clean.reduce((n, r) => n + r.assaultsRepelled, 0);
+const totalCapitalFalls = clean.reduce((n, r) => n + r.capitalFalls, 0);
 const totalCaptures = clean.reduce((n, r) => n + r.siegesCaptured, 0);
 const victoryTypes = new Set(clean.filter((r) => r.winner !== null).map((r) => r.winner?.type));
-console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · sieges: ${totalSieges} begun, ${totalAssaults} assaulted, ${totalCaptures} captured · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
+console.log(`wars: ${warsStarted} declared, ${warsEnded} ended · sieges: ${totalSieges} begun, ${totalAssaults} assaults resolved (${totalRepelled} repelled), ${totalCapitalFalls} capitals fallen, ${totalCaptures} non-capital captures · victory types seen: [${[...victoryTypes].join(', ')}] · peacetime starvation: ${starvedAtPeace.length} run(s)`);
 if (crashes.length > 0) {
   console.error(`FAIL: ${crashes.length} campaign(s) crashed (SC-2 violation)`);
   process.exitCode = 1;
@@ -335,9 +361,15 @@ if (REAL) {
   const oldVillages = allBands.filter((b) => b.ageYears > 10);
   const minOldFraction = oldVillages.length > 0 ? Math.min(...oldVillages.map((b) => b.adultFraction)) : null;
 
-  const changedHandsRuns = clean.filter((r) => r.occupations + r.siegesCaptured > 0).length;
+  // M70.5: `capitalFalls` belongs in this band and its absence was silently deflating it. A
+  // capital that falls to an assault IS a village changing hands — it just publishes
+  // `siege.capitalFallen` instead of `siege.captured`, because succession owns a capital's fate
+  // (M53). The band's definition is unchanged ("a village changed hands"); only the set of events
+  // that can evidence it is corrected. Ratified band, corrected instrument — NOT a re-ratification.
+  const changesIn = (r: RunResult): number => r.occupations + r.siegesCaptured + r.capitalFalls;
+  const changedHandsRuns = clean.filter((r) => changesIn(r) > 0).length;
   const changedHandsShare = clean.length > 0 ? changedHandsRuns / clean.length : 0;
-  const totalChanges = clean.reduce((n, r) => n + r.occupations + r.siegesCaptured, 0);
+  const totalChanges = clean.reduce((n, r) => n + changesIn(r), 0);
 
   const winners = clean.filter((r): r is RunResult & { winner: NonNullable<RunResult['winner']> } => r.winner !== null);
   const winnerYears = winners.map((r) => r.winner.year).sort((a, b) => a - b);

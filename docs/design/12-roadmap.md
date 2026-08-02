@@ -1479,6 +1479,53 @@ it rather than let M71 proceed on a premise that no longer holds:
    (`ai/multiKingdomHarness.ts:109`), which is the whole of the "23 captured vs 0 captured" gap.
    Fix the instrument before trusting any war number from it.
 
+**M70.5 scoping note (shipped 2026-08-02) — un-chartered: fix the instrument before trusting any
+war number it has ever produced.**
+
+M70 and its isolation run found that every war metric in `bench:balance` was wrong. R7 does not
+contain this milestone; it is a prerequisite the diagnosis uncovered, taken first at owner direction
+because the alternative is re-chartering a phase against numbers already known to be false.
+
+*Three faults, all in the instrument, none in the game.*
+
+1. **`assaultsBegun` subscribed to `siege.assaultBegun` — an event NO code in this repository
+   publishes.** Not "rarely fires": never, in any composition, since the counter was written. It
+   read 0 always, and **M61.5 and Gate P9 both read that 0 as "the AI never assaults"**, which is a
+   load-bearing claim in the review that chartered Phase 9 and in the gate that failed to close it.
+   M70 measured the truth by instrumenting the resolver directly: the AI assaults constantly (19
+   assaults in one 60-year seed). The real event is `siege.assaultResolved`, and it carries
+   `outcome: 'captured' | 'repelled'`. Now reported as **assaults resolved, of which repelled** —
+   the repulse count is the number that would have exposed M70's severed-approach bug years ago.
+2. **`siegesCaptured` cannot fire in the shipping composition.** `siege.ts`'s `capture()` consults
+   `capitalFall.claim` first (M53): a capital's fall is a KINGDOM event, so it publishes
+   `siege.capitalFallen` and succession resolves it. `siege.captured` is reachable only for a
+   NON-capital castle, and the AI besieges capitals. The flat harness sets `succession: false`
+   (`ai/multiKingdomHarness.ts:109`), so there the identical assault publishes `siege.captured`.
+   **That one line is the entire "24 begun / 23 captured vs 4 begun / 0 captured" gap that chartered
+   Phase 10.** New `capitalFalls` counter; both are now reported.
+3. **The changing-hands band counted `occupations + siegesCaptured`,** so a capital that fell and
+   capitulated was invisible to the band unless it also produced an occupation. Now
+   `occupations + siegesCaptured + capitalFalls`. **The band's DEFINITION is unchanged** — "a
+   village changed hands" — only the set of events allowed to evidence it. A ratified band with a
+   corrected instrument is not a re-ratification, and this note exists so nobody later mistakes it
+   for one.
+
+*Also fixed: the same dead event name in the audio layer.* `TENSION_EVENT_WEIGHTS` carried
+`'siege.assaultBegun': 0.4`, which had never once contributed heat — the music never reacted to an
+assault. Re-pointed at `siege.assaultResolved` (it fires on repulse too, which is the right moment
+for a spike) and `siege.capitalFallen` added at 0.5.
+
+*Verification.* Same seed, before and after, `--real --years 25 --seeds 1 --kingdoms 2`: the old
+instrument reported `sieges 2 begun, 0 assaulted, 0 captured`; the new one reports **`2 begun, 2
+assaults resolved (0 repelled), 2 capitals fallen, 0 non-capital captures`**. Two successful sieges
+that the tool had been scoring as nothing. 502/502 tests, lint clean, no sim code touched — the
+goldens and corpus are untouched by construction.
+
+**Everything downstream is now suspect and must be re-measured, not re-read.** Every war figure in
+M61.5, M62, Gate P9, the M65 note and R7's charter came from this instrument. The demographic,
+victory-timing and monoculture bands are unaffected (they never touched these counters); the
+war-cadence findings are all provisional until re-run.
+
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
 `bench:balance --real --years 60 --seeds 2` unless stated:
