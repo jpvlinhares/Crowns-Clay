@@ -1521,6 +1521,22 @@ assaults resolved (0 repelled), 2 capitals fallen, 0 non-capital captures`**. Tw
 that the tool had been scoring as nothing. 502/502 tests, lint clean, no sim code touched — the
 goldens and corpus are untouched by construction.
 
+*Independent confirmation, and the strongest evidence in this note.* A 60-year `--real` run on the
+corrected tool reproduces M70's hand-instrumented finding **from the tool itself, with no temporary
+telemetry**:
+
+```
+hard seed=9000 k=4 · sieges 4 assaults 19 (19 repelled) capitals fallen 2 captures 0
+```
+
+Four sieges, nineteen assaults, **all nineteen repelled** — the exact severed-approach campaign M70
+diagnosed by patching `resolveSpatialAssault`. Across the 8-campaign run: `30 begun, 37 assaults
+resolved (20 repelled), 23 capitals fallen, 0 non-capital captures`, where the old instrument would
+have printed `30 begun, 0 assaulted, 0 captured`. Twenty repulses and twenty-three fallen capitals,
+all previously scored as zero. **The repulse counter is now the standing detector for M70's bug** —
+a healthy war layer resolves assaults, and a run reporting near-100% repulses in one campaign is the
+signature of an unreachable keep.
+
 **Everything downstream is now suspect and must be re-measured, not re-read.** Every war figure in
 M61.5, M62, Gate P9, the M65 note and R7's charter came from this instrument. The demographic,
 victory-timing and monoculture bands are unaffected (they never touched these counters); the
