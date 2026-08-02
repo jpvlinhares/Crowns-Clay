@@ -163,6 +163,52 @@ test('assault: a strong column takes an unwalled capital; ownership and capital 
   assert.equal(d.c.villageOf(1), null, 'the loser owned only its capital — binding deleted');
 });
 
+// M72 (the M70 finding): a river across one approach must not make a castle unassailable.
+// Pre-M72 the column only ever considered `input.origin`; when no tile on that edge could reach
+// the keep it entered there anyway, `pickWallTarget` returned null (nothing to break — the wall
+// it assumed does not exist), and the assault was "repelled" in round one having struck no blow
+// and taken no casualty. Nothing was damaged, so the next attempt was identical, forever: M70
+// measured one campaign spending NINETEEN assaults that way and taking the castle none of them.
+// Measured over 800 base defence maps, at most two of four approaches are ever severed, so
+// marching around is always possible — and is what a besieging army would obviously do.
+test('assault: a severed approach makes the column march around, not fail without a fight', () => {
+  const d = driver(compose());
+  const { v1, armyId } = besiegeCapital(d, 3); // the same column that captures from an open edge
+
+  // sever the LEFT approach with a full-height water strip, exactly as `generateDefenceMap` can
+  const map = d.c.defenceGame.mapOf(v1);
+  assert.ok(map !== undefined, 'the capital has a defence layer');
+  const cut = 6; // inside the map, outside the keep's guaranteed clearing
+  for (let y = 0; y < DEFENCE_MAP_SIZE; y++) {
+    for (let w = 0; w < 3; w++) map.tiles[y * DEFENCE_MAP_SIZE + cut + w] = DEFENCE_TILE.water;
+  }
+
+  d.submit('siege.assault', { armyId, origin: 'left' }, 1);
+  const r = d.resolved();
+  assert.ok(r !== undefined, 'the assault resolved');
+  assert.notEqual(r['origin'], 'left', 'the column reports the edge it ACTUALLY entered by');
+  assert.equal(r['outcome'], 'captured', 'a river delays the column; it does not defeat it');
+  assert.ok(d.events.some((e) => e.type === 'siege.captured'), 'castle captured');
+});
+
+// The guard that would have caught M70 directly: every assault must DO something. M70's failure
+// traced `enter` → `repelled` and nothing else — no keep reached, no wall struck, no garrison met,
+// no casualty on either side. A null event dressed as a defeat, and repeatable forever because it
+// changed no state. Note this deliberately does NOT assert that a repulse costs casualties: a
+// column that walks to an undefended keep and is turned away under `holdStrength` legitimately
+// costs nothing (the test above pins that rule). What must never happen is arriving nowhere.
+test('assault: every assault reaches something — no null repulse', () => {
+  const d = driver(compose());
+  const { armyId } = besiegeCapital(d, 1); // 10 men, strength 50 < holdStrength 60 — genuinely repelled
+  d.submit('siege.assault', { armyId, origin: 'left' }, 1);
+  const r = d.resolved();
+  assert.ok(r !== undefined);
+  assert.equal(r['outcome'], 'repelled');
+  const kinds = new Set((r['trace'] as { kind: string }[]).map((t) => t.kind));
+  const engaged = ['keep', 'wall', 'breach', 'clash', 'tower'].filter((k) => kinds.has(k));
+  assert.ok(engaged.length > 0, `the column must reach the keep or meet a defence, saw only [${[...kinds].join(', ')}]`);
+});
+
 test('assault: a token column is repelled at the keep threshold; the siege stands', () => {
   const d = driver(compose());
   const { armyId } = besiegeCapital(d, 1); // 10 men, strength 50 < holdStrength 60

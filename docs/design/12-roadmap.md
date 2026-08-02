@@ -1711,6 +1711,67 @@ stayed fair, because the command was constant. Three specific conclusions were a
 it is the only measured defect remaining in the M62 set. M70's severed-approach assault bug (59% of
 defence maps) also stands, independent of all of this.
 
+**M72 scoping note (shipped 2026-08-03) — the severed approach. A castle behind a river is no
+longer unassailable.**
+
+M70's bug, fixed. `resolveSpatialAssault` considered only `input.origin` when choosing an entry
+tile, and when no tile on that edge could reach the keep it entered there anyway — a fallback whose
+own comment ("fully walled off from this edge … let wall-breaking open the field") is right for a
+WALL, which can be broken, and wrong for WATER, which cannot. The column entered on an unreachable
+tile, `pickWallTarget` returned null, and the assault was "repelled" in round one having struck no
+blow and taken no casualty. Nothing was damaged, so the next attempt was identical — forever.
+
+*The fix.* `pickEntry()` now returns the best REACHABLE tile: the requested origin first, else the
+nearest reachable approach with the edges walked in a fixed order for determinism. `result.origin`
+reports the edge the column ACTUALLY entered by, so a battle report cannot claim an attack from a
+side the army could not reach. Marching around is what a besieging army would obviously do, and it
+is always possible — measured over **800 kingdom defence maps** (200 worlds × 4 kingdoms):
+
+| severed approach edges | maps | |
+|---:|---:|---|
+| 0 | 329 | 41.1% |
+| 1 | 345 | 43.1% |
+| 2 | 126 | 15.8% |
+| 3 or 4 | **0** | **0%** |
+
+At most two of four are ever cut, so a reachable edge always exists. The old "enter anyway" path is
+KEPT but is now unreachable on base content — retained for mods whose maps could enclose a keep
+entirely, and documented as such rather than deleted.
+
+*Demonstrated on the campaign M70 diagnosed* (`hard`, seed 9000, 60 years), the same composition,
+before and after:
+
+| | sieges | assaults | captured | repelled | entry edge |
+|---|---:|---:|---:|---:|---|
+| M70 (before) | 4 | 19 | **0** | **19** | `right` — the severed one |
+| M72 (after) | 3 | **1** | **1** | **0** | `bottom` |
+
+Nineteen futile assaults became one successful one.
+
+*Matrix effect: none, and that is the expected result.* On the shipped clock (`--real --seeds 2`)
+every band is byte-identical to the R9 baseline — adult cohort 43.0% · floor 15.5% · monoculture
+44% · earliest victory y10 · changing hands 93.8%, still **4 of 5** — with 84 total village changes
+against 82. The war band was already saturated, so M72 could not raise it. **This milestone is a
+correctness fix, not a balance fix**, and it is worth having on those terms: a castle that no army
+can ever take is a broken game state whatever the aggregate statistics say.
+
+*Two regression tests, and a third that was WRONG and had to be narrowed.* (1) A water strip across
+the left approach; the same column that captures from an open edge must still capture, and must
+report the edge it really used. (2) Every assault must reach the keep or meet a defence — M70's
+failure traced `enter → repelled` and nothing else, a null event dressed as a defeat. The version
+first written asserted "a repulse must cost casualties or breaches", and it FAILED: a column that
+walks to an undefended keep and is turned away under `holdStrength` legitimately costs nothing, and
+an existing test pins that rule. **The assertion was wrong, not the game** — widening the fix to
+satisfy it would have smuggled a balance change into a bug fix. Narrowed to what actually matters:
+arriving nowhere.
+
+*No fixture re-record — and no fixture guard either.* All eight fixtures are byte-identical
+(verified, not assumed): the windows are 125 days and 10 years, and neither contains an assault
+against a severed approach. **The consequence must be stated rather than enjoyed: nothing in the
+fixture set protects this change.** The two unit tests above are its only guard. That is exactly
+the position M68 was in when it moved four bands unnoticed, and the difference here is only that
+the tests were written deliberately rather than assumed unnecessary. 504/504 tests, lint clean.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**
