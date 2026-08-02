@@ -1355,6 +1355,61 @@ the cadence lever in finding 1. **The charter's own risk paragraph — "if M70's
 AI needs a strategic layer it does not have, M71 stops being a competence fix" — resolves the good
 way: it needs no such layer.**
 
+**M70 addendum (same day, 2026-08-02) — "0 captured" was a MEASUREMENT ARTIFACT, and the matrix
+has moved a long way since Gate P9. Two corrections, one of them to the note above.**
+
+*1. `siege.captured` cannot fire in the shipping composition.* `siege.ts`'s `capture()` checks
+`capitalFall.claim` FIRST (M53): a defence-layer capital does not change hands, its fall is a
+KINGDOM event. The siege freezes on `fallenDeadline` and publishes **`siege.capitalFallen`**, then
+succession resolves it — capitulation spares, refusal or expiry destroys. `siege.captured` is only
+reached for a non-capital castle, and the AI besieges capitals. The flat harness does not wire
+`capitalFall`, so there the same assault publishes `siege.captured` — which is the ENTIRE source of
+the "24 begun / 23 captured vs 4 begun / 0 captured" gap this milestone was chartered to explain.
+
+`bench:balance` counts `siege.captured` only. Measured directly, 60y × hard × `composeCampaign`:
+
+| seed | sieges begun | `siege.captured` | `siege.capitalFallen` | capitulations | kingdoms destroyed |
+|---|---:|---:|---:|---:|---:|
+| 9000 | 4 | **0** | **2** | 0 | 0 |
+| 9001 | 1 | **0** | **1** | 0 | 1 |
+| 9002 | 16 | **0** | **15** | 15 | 0 |
+
+Eighteen capitals fell across three seeds and the metric reported zero every time. **M61.5's "0
+castles captured", Gate P9's reading of it, and the framing of the M70 note above all inherited this
+artifact.** The changing-hands band is affected too: it counts `occupations + siegesCaptured`, so a
+capital that falls and capitulates is invisible unless it also produces an occupation.
+
+*What still stands from the note above, unchanged:* seed 9000's nineteen assaults DID all fail in
+round 1 against a severed approach, with no casualties on either side, and 59% of kingdom defence
+maps have a fully severed approach edge. That bug is real, measured, and independent of this
+artifact — the two capital falls at seed 9000 came from its other sieges, not from those nineteen
+assaults. What changes is the note's framing: the shipping composition is NOT failing to conclude
+sieges in general; it is failing on the severed-approach subset, and the metric hid the rest.
+
+*2. The `--real` matrix has moved substantially since Gate P9.* One run of the gate's own command
+(`bench:balance --real --years 60 --seeds 2`, 16 campaigns) on the current tree:
+
+| Band | Gate P9 | now | |
+|---|---:|---:|:--|
+| adult cohort p10 (≥30%) | 46.1% | **28.5%** | ✗ regressed |
+| oldest-village floor (≥15%) | 35.5% | **15.5%** | ✓ barely |
+| monoculture (≤60% any type) | prosperity 56% | **chronicle 69%** | ✗ regressed |
+| earliest victory (≥y30) | y29 | **y10** | ✗ regressed |
+| campaigns changing hands (≥50%) | 13% | **87.5% (14/16)** | ✓ **passes** |
+
+The band Phase 10 was chartered to fix now PASSES, and three that were green have gone red. This is
+not tuning and nothing was tuned: no balance constant has been touched since Gate P9. The likely
+cause is **M69 part 1**, which re-keyed every event RNG fork name from the positional code to the
+def id — that perturbs the whole downstream stream, so every campaign now follows a different
+history. **This is not isolated and must not be reported as established** until someone measures the
+same matrix against the pre-M69 commit. Recorded here as an observation with its confounder named,
+not as a finding.
+
+*Consequence for R7.* M71's target is no longer obvious and the phase may need re-charting. The
+honest reading is that Phase 10's central premise — "villages rarely change hands because the AI
+cannot conclude a war" — is now doubtful on two independent grounds: the metric that produced it was
+blind, and the current matrix disagrees with it. **Owner decision needed before M71 proceeds.**
+
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
 `bench:balance --real --years 60 --seeds 2` unless stated:
