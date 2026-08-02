@@ -1659,6 +1659,58 @@ was right all along; the probe was wrong. (2) The village-count claim that follo
 retracted before reaching any document. **Neither the instrument nor the game was at fault in
 either case** — which is worth recording after M70.5, where both were.
 
+**M71 scoping note (2026-08-03) — BUILT, MEASURED, and NOT SHIPPED. The problem it was chartered
+to fix does not exist at the length the game actually runs.**
+
+M71 was to break the food→births coupling M70.6 identified. A `FERTILITY_CEILING` was implemented
+(one `Math.min` on the combined `fed × shelterTerm × joyFertility` multiplier) and bisected against
+`bench:balance --real --years 60 --seeds 2`: baseline 2 of 5 bands, ceiling 1.0 → 2 of 5, 0.85 →
+3 of 5, 0.7 → 3 of 5 but with `chronicle` at 100% (every campaign timing out — a scorecard pass on a
+strictly worse game, and the reason band counting alone must never decide a milestone). 0.85 looked
+like the answer.
+
+**Then the clock was checked, and it was the wrong clock.** `bench-balance.ts:123` passes
+`yearLimit: YEARS`, so `--years 60` does not merely truncate observation — it shortens the GAME's
+victory clock from the shipped `DEFAULT_YEAR_LIMIT` of 100 to 60. Re-run at the shipped default
+(`--real --seeds 2`, no `--years`):
+
+| Band | baseline @ 60y | **baseline @ shipped 100y** | ceiling 0.85 @ 100y |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 28.5% ✗ | **43.0%** ✓ | 22.8% ✗ |
+| oldest-village floor (≥15%) | 15.5% ✓ | 15.5% ✓ | 9.4% ✗ |
+| monoculture (≤60%) | 69% ✗ | **44%** ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ | y15 ✗ |
+| changing hands (≥50%) | 93.8% ✓ | 93.8% ✓ | 81.3% ✓ |
+| **bands green** | **2 of 5** | **4 of 5** | **2 of 5** |
+
+**The untouched tree is 4 of 5 at the configuration that ships**, and the fertility ceiling takes it
+back to 2. M71 is therefore NOT SHIPPED: no code, no constant, no fixture re-record. The branch was
+reverted and all eight fixtures re-verified green.
+
+*Why the 60-year measurement misled.* M70.6 had already measured that villages are still in
+demographic TRANSIENT at year 60 — and that finding was recorded and then under-weighted. A growing
+village is child-heavy; maturation catches up over the following decades. Reading the adult-fraction
+bands at year 60 reads a growth bulge, not a resting state. The same tree sits at 43.0% by year 100.
+The lesson is narrower and sharper than M70.5's: **a band measured inside a system's transient
+measures the transient.** Population's slowest term is `MATURE_RATE` at 14 years; nothing that
+depends on it can be read at 60 years and called an equilibrium.
+
+*What this invalidates.* Every band measurement in this project's history used `--years 60`:
+M62's ratification, Gate P9, R7, R8, and all of M68–M71's analysis. Comparisons BETWEEN tree states
+stayed fair, because the command was constant. Three specific conclusions were artifacts:
+
+1. **M68's "demographic regression"** (recorded in the M68 isolation note) — at the shipped clock
+   M68's tree is 4 of 5. The regression was the 60-year bulge, not the boosts.
+2. **R8's "two equilibria and no path between them"** — the phase's founding premise. There is one
+   equilibrium and it is healthy; the "poor" equilibrium was Gate P9's tree read on the same short
+   clock, and the "rich" one was M68's read the same way.
+3. **M71 itself** — chartered against a problem visible only on the wrong clock.
+
+*What is actually left.* One band fails on the shipping configuration: **earliest victory y10**
+(needs ≥y30). That is real, it is unaffected by the clock (an early win is early on any clock), and
+it is the only measured defect remaining in the M62 set. M70's severed-approach assault bug (59% of
+defence maps) also stands, independent of all of this.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**
@@ -1970,3 +2022,34 @@ Amendment A1; scope option (C) RATIFIED 2026-07-21).**
   construction, so `bench:balance --real` is in its DoD rather than after it, per M70.5's lesson.
   Two process guards now bind the phase: **no yield/cost/rate/threshold change ships without matrix
   numbers in its scoping note**, and **byte-identical fixtures are evidence about 125 days only.**
+
+**R9 — the band-measurement command is corrected to the SHIPPED year limit; R8's premise is withdrawn (recorded 2026-08-03).**
+
+- **Change:** the ratified balance command becomes `bench:balance --real --seeds 2` — i.e. the
+  SHIPPED `DEFAULT_YEAR_LIMIT` of 100 — not `--real --years 60 --seeds 2`. `bench-balance.ts` passes
+  `yearLimit: YEARS`, so `--years 60` shortened the game's own victory clock by 40% rather than
+  merely truncating observation. **M71 is NOT SHIPPED** (see its scoping note) and Phase 10's
+  milestone list is reduced accordingly.
+- **Why:** on the shipped clock the untouched tree scores **4 of 5 bands** (adult cohort 43.0% ·
+  oldest-village floor 15.5% · monoculture 44% · changing hands 93.8%; only earliest victory y10
+  fails). On the 60-year clock the same tree scores 2 of 5. The difference is not noise and not
+  tuning: `MATURE_RATE` is 1/(14 years), so villages are still in demographic transient at year 60
+  — M70.6 measured exactly that — and the adult-fraction bands were reading a growth bulge.
+- **What is withdrawn.** R8's founding premise — "the game has two equilibria and no path between
+  them" — is **WITHDRAWN**. It was two readings of the same short clock. With it go R8's
+  characterisation of M68 as half-regression (M68's tree is 4 of 5 at 100 years) and M71's charter.
+  R8's other corrections STAND unchanged: the `siege.assaultBegun` and `siege.captured` instrument
+  faults (M70.5), the severed-approach assault bug (M70), and the process guards on balance changes.
+- **Affected documents:** this doc (12) — R8's premise paragraph, the Phase 10 milestone list, and
+  Gate P10's bands, which must be re-ratified against the shipped clock before they gate anything.
+  Doc 11 §6 should record the command change so nobody re-derives the short-clock numbers.
+- **Affected milestones:** M69, M70, M70.5, M70.6 stand as shipped — none depended on the clock.
+  M71 is cancelled with a finding. M72 (severed approach) is unaffected and remains the phase's
+  clearest real defect. M73 keeps the earliest-victory question, which is now the ONLY failing band
+  and is clock-independent; its `DEFAULT_PROSPERITY_POPULATION` sub-question is retired, since
+  monoculture is green at 44%.
+- **Risk impact:** removes a phase's worth of scope built on an artifact, at the cost of admitting
+  every prior band number was measured on a configuration that does not ship. The forward guard is
+  narrow and mechanical: **the gate command must not pass `--years`.** A third process rule joins
+  M70.5's two — *a band measured inside a system's transient measures the transient; check the
+  slowest term before choosing a window.* Population's is 14 years, so 60 was never enough.
