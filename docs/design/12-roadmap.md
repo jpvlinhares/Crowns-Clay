@@ -1542,6 +1542,56 @@ M61.5, M62, Gate P9, the M65 note and R7's charter came from this instrument. Th
 victory-timing and monoculture bands are unaffected (they never touched these counters); the
 war-cadence findings are all provisional until re-run.
 
+**M68 decision experiment (2026-08-02) — the boosts are ONE lever that trades three bands for one.
+They are not separable as written.**
+
+Run on the CORRECTED instrument (M70.5), `--real --years 60 --seeds 2`, 16 campaigns each. **A** is
+the current tree. **B** is the same tree with M68's nine `techBoost` multipliers set to `1.0` — the
+boosts still resolve, they just do nothing, so the ONLY variable between the runs is that number.
+M69's RNG re-key, M70.5's counters and all other code are identical in both.
+
+| Band | Gate P9 (`33b42ca`) | **A** — boosts ON | **B** — boosts OFF |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 46.1% ✓ | **28.5%** ✗ | **45.1%** ✓ |
+| oldest-village floor (≥15%) | 35.5% ✓ | 15.5% ✓ | **30.1%** ✓ |
+| monoculture (≤60%) | prosperity 56% ✓ | **chronicle 69%** ✗ | chronicle 56% ✓ |
+| earliest victory (≥y30) | y29 ✗ | **y10** ✗ | y28 ✗ |
+| changing hands (≥50%) | 13% ✗ | **93.8%** ✓ | **13%** ✗ |
+| villages changing hands (count) | 2 | **61** | 2 |
+| bands green | 3 of 5 | **2 of 5** | **3 of 5** |
+
+**B reproduces Gate P9 almost exactly** (45.1 vs 46.1, 30.1 vs 35.5, 56% vs 56%, y28 vs y29, 13% vs
+13%). Neutralising nine numbers in a content file returns the whole game to the Phase 9 equilibrium.
+That is a clean, decisive result: **M68's yield boosts are the entire difference between the two
+equilibria**, and every effect the isolation run attributed to M68 is confirmed causally, not just
+correlationally.
+
+*The trade is real and it is one lever.* The war improvement is not free AI competence appearing
+from nowhere — it is that richer kingdoms can afford armies. 61 villages change hands with the
+boosts and 2 without. There is no setting of this lever that buys the war band without paying the
+other three: it is the same surplus doing both.
+
+**This is what Phase 10's real work is, and neither R7 nor any earlier document names it: war is
+gated on economic surplus, and the only surplus large enough to fund war also wrecks the
+demographic and pacing bands.** Decoupling those is the design problem. M71 as chartered ("the fix
+per M70") does not address it.
+
+*An open question that must be settled BEFORE any fix, because it has two different answers.* Why
+does the adult FRACTION fall from 46% to 28% under the boosts? Two mechanisms are consistent with
+the data and this experiment cannot separate them:
+
+1. **Births.** More food raises the birth rate, so more children — and both bands measure an adult
+   fraction, not an adult count. The cohort would be diluted, not depleted.
+2. **War consumption.** A has ten times the war. Recruiting costs 10 adults per unit and casualties
+   kill adults, so the cohort would be genuinely depleted, and the demographic "regression" would
+   be a *symptom of the war working*, not a separate defect.
+
+These demand opposite fixes — saturating the birth response versus capping the military draw — and
+choosing wrong repeats M65's error of specifying a ceiling against the wrong measurement. The
+settling measurement is M64a's method: per-village cohort accounting over a boosted run, attributing
+every adult delta to births, maturation, senescence, deaths, recruitment and casualties. **That is
+the next milestone, and it is a diagnosis, not a fix.**
+
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
 `bench:balance --real --years 60 --seeds 2` unless stated:
