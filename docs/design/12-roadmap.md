@@ -776,7 +776,9 @@ effect it does not have.
    went in while exactly two content entries and two tests depended on it.
 
 **No fixture re-record.** Verified, not assumed: all 4 golden replays and all 4 corpus saves are
-byte-identical. Techs are coded by id (positional over `[...db.techs.keys()]`), and no id, tier,
+byte-identical. **(M70's isolation run later proved this was true and MEANINGLESS as evidence — see
+the M70 isolation note. M68 moved four of five M62 bands over 60 years; the fixtures run 125 days.
+The milestone's "no existing balance moves" claim was false and `bench:balance` was never run.)** Techs are coded by id (positional over `[...db.techs.keys()]`), and no id, tier,
 cost or prerequisite moved — only `unlocks`, `desc`, and new `techBoost` fields, none of which is
 folded into a hash source. The behavioural risk was Written Records: a tier-1, cost-20 tech that
 now boosts the Scribe's Hut, and therefore plausibly *is* researched inside a fixture window.
@@ -1409,6 +1411,73 @@ not as a finding.
 honest reading is that Phase 10's central premise — "villages rarely change hands because the AI
 cannot conclude a war" — is now doubtful on two independent grounds: the metric that produced it was
 blind, and the current matrix disagrees with it. **Owner decision needed before M71 proceeds.**
+
+**M70 isolation run (2026-08-02) — the confounder is ISOLATED, and it is not M69. It is M68, a
+content change that shipped claiming "no existing balance moves."**
+
+The M70 addendum above named M69's RNG re-key as the likely cause of the matrix swing and flagged
+that it was not isolated. It has now been isolated by bisection: `bench:balance --real --years 60
+--seeds 2` run at three commits, each in its own worktree, each verified to be genuinely at that
+commit by checking its own goldens verify GREEN before running (the first attempt did not — a
+symlinked `node_modules` resolved `@crowns/*` back to the root workspace and was silently running
+new code, caught only because the old fixtures failed with hashes recognisable from M69).
+
+| | `33b42ca` (M67, **Gate P9's own commit**) | `a0c57af` (pre-M69, **post-M68**) | `67a93e2` (current) |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | **46.1%** ✓ | 22.6% ✗ | 28.5% ✗ |
+| oldest-village floor (≥15%) | **35.5%** ✓ | **5.2%** ✗ | 15.5% ✓ |
+| monoculture (≤60%) | prosperity **56%** ✓ | conquest 38% ✓ | chronicle 69% ✗ |
+| earliest victory (≥y30) | **y29** ✗ | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | **13%** ✗ | 75% ✓ | 87.5% ✓ |
+| wars declared | **5** | 56 | 56 |
+| sieges begun | **2** | 32 | 39 |
+
+**Gate P9 reproduces to the digit** — 46.1 / 35.5 / prosperity 56 / y29 / 13%, every figure it
+recorded. The gate was sound and its numbers are honest. The entire swing lands between `33b42ca`
+and `a0c57af`, a range whose ONLY sim-affecting commits are `69006f8` and `12cf856` — **M68's yield
+boosts**. Everything else in the range is display-only or documentation.
+
+*What M68 actually did.* It was scoped as a modest content reward: nine buildings gain ×1.5 on one
+output once their kingdom knows a tech. Its commit says, in as many words, *"no existing balance
+moves."* **That claim was false.** Over sixty years the boosts compound:
+
+- **wars declared 5 → 56** and **sieges begun 2 → 32**. More food and tools feed more people, who
+  feed more recruits, who make war affordable. M68 did by accident what Phase 10 was chartered to do
+  on purpose — **the changing-hands band went 13% → 75% and now passes**.
+- **adult cohort p10 46.1% → 22.6%** and **oldest-village floor 35.5% → 5.2%**. The same extra food
+  raises BIRTHS, and both bands measure an adult *fraction*, not a count. M68 silently re-broke the
+  demographic bands M64a diagnosed and M65 was built to fix — the two headline wins of Phase 9.
+- **earliest victory y29 → y10.** A faster economy reaches every threshold sooner.
+
+*Why nothing caught it.* M68's verification was 498 tests green, lint clean, and **all eight fixtures
+byte-identical** — all true, and all irrelevant. The fixtures run 3000 ticks (**125 days**); these
+effects need years. It is the SAME blind spot M69 part 2 was built to close for victory, in a
+different subsystem, discovered two milestones later. `bench:balance` was never run for M68, because
+M68 was filed as content, and content changes had never needed it.
+
+**The process lesson, stated plainly: "buff-only, so no balance moves" is not an argument, it is a
+hypothesis, and this project owns the tool that tests it.** A buff is a balance change by
+definition — it moves the economy that feeds every other system. Any change to a yield, cost, rate
+or threshold must run `bench:balance --real` before it ships, and its scoping note must carry the
+numbers. Byte-identical fixtures are evidence about 125 days and nothing more.
+
+*Consequences for R7.* Phase 10's chartered premise — "villages rarely change hands because the AI
+cannot conclude a war" — **is dissolved**. It was true at Gate P9 (13%) and stopped being true the
+moment M68 shipped (75%, now 87.5%). Combined with the `siege.captured`/`siege.capitalFallen`
+measurement artifact recorded above, neither pillar of the charter survives contact with
+measurement. What is left is a genuinely different problem, and the owner should re-charter against
+it rather than let M71 proceed on a premise that no longer holds:
+
+1. **M68 is an unreviewed balance change that is half regression and half accident.** It broke the
+   two bands Phase 9 won and fixed the one Phase 10 was chartered for. Deciding what to keep is a
+   design decision, not a bug fix — and it must be made explicitly, not inherited.
+2. **The severed-approach assault bug (M70) is real and independent of all of this.** 59% of defence
+   maps, measured; a siege that hits it can never resolve. Worth fixing regardless of the above.
+3. **`bench:balance` is blind to capital falls** — it counts `siege.captured`, which the shipping
+   composition can never publish because `succession: true` routes every capital fall to
+   `siege.capitalFallen`. The flat harness sets `succession: false`
+   (`ai/multiKingdomHarness.ts:109`), which is the whole of the "23 captured vs 0 captured" gap.
+   Fix the instrument before trusting any war number from it.
 
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
