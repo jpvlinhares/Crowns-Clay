@@ -25,7 +25,7 @@
  * cut. `scope` (kingdom/village/world) is metadata only this milestone; every
  * event resolves against its kingdom's representative village regardless.
  */
-import { Interner, type EntityId, type Rng } from '@crowns/core';
+import { Interner, fnv1a32, type EntityId, type Rng } from '@crowns/core';
 import type { DefinitionDatabase, EventDef, EventPool, StatPath } from '@crowns/data';
 import { EVENT_POOLS } from '@crowns/data';
 import type { World } from '../ecs.js';
@@ -226,23 +226,39 @@ export class EventState {
     return true;
   }
 
-  /** Sorted-key fold — deterministic regardless of mutation order (stateHash requirement). */
-  fold(fold: (v: number) => void): void {
-    for (const key of [...this.lastFired.keys()].sort()) {
+  /**
+   * Sorted-key fold — deterministic regardless of mutation order (stateHash requirement).
+   *
+   * M69: folds a STABLE key per event (`fnv1a32` of the def id, supplied by the registrar) and
+   * SORTS by it, never the interned code. Codes are positional over `[...db.events.keys()].sort()`,
+   * so folding them made every content-bearing fixture a hostage to the event list: adding one id
+   * renumbered every id sorting after it and moved both the folded values AND their order, even
+   * when the new event could never fire. M67 paid exactly that for five tutorial events.
+   * Sorting matters as much as the value here — the old `lastFired` sort was a STRING sort over
+   * `"kingdomId:code"`, so a renumber reordered the fold too.
+   */
+  fold(fold: (v: number) => void, stableKey: (code: number) => number): void {
+    const lastFiredRows: [number, number, number][] = []; // kingdomId, stableKey, tick
+    for (const [key, tick] of this.lastFired) {
       const [kingdomId, code] = key.split(':');
-      fold(Number(kingdomId));
-      fold(Number(code));
-      fold(this.lastFired.get(key) as number);
+      lastFiredRows.push([Number(kingdomId), stableKey(Number(code)), tick]);
     }
-    for (const code of [...this.onceFired].sort((a, b) => a - b)) fold(code);
+    lastFiredRows.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const [kingdomId, sk, tick] of lastFiredRows) {
+      fold(kingdomId);
+      fold(sk);
+      fold(tick);
+    }
+    for (const sk of [...this.onceFired].map(stableKey).sort((a, b) => a - b)) fold(sk);
     for (const kingdomId of [...this.seasonCount.keys()].sort((a, b) => a - b)) {
       fold(kingdomId);
       fold(this.seasonCount.get(kingdomId) as number);
     }
     for (const kingdomId of [...this.pending.keys()].sort((a, b) => a - b)) {
       fold(kingdomId);
+      // insertion order is FIRE order, which a new def cannot reorder — only the value needs remapping
       for (const p of this.pending.get(kingdomId) as PendingEvent[]) {
-        fold(p.eventCode);
+        fold(stableKey(p.eventCode));
         fold(p.firedTick);
       }
     }
@@ -319,7 +335,6 @@ export function registerEventGameplay(
   options: EventGameplayOptions = {},
 ): EventGameplay {
   const state = new EventState();
-  kernel.addHashSource('events', (fold) => state.fold(fold));
 
   // Special-event levers (independent; ordinary/tutorial events are unaffected by both):
   const specialTuning: SpecialEventTuning = { ...DEFAULT_SPECIAL_EVENT_TUNING, ...options.specialEvents };
@@ -331,6 +346,13 @@ export function registerEventGameplay(
   for (const id of eventIds) interner.intern(id);
   const eventCode = (id: string): number | undefined => interner.peek(id) as number | undefined;
   const eventById = (code: number): EventDef => db.events.get(eventIds[code] as string) as EventDef;
+
+  // M69: the interned code is POSITIONAL, so it must never reach the state hash or an RNG fork
+  // name — both are content-addressable surfaces that a mere content addition would otherwise
+  // renumber. `stableKeyOf` is the def id's FNV-1a, computed once; fork names use the id itself.
+  const stableKeyOf: readonly number[] = eventIds.map((id) => fnv1a32(id));
+  const stableKey = (code: number): number => stableKeyOf[code] ?? code;
+  kernel.addHashSource('events', (fold) => state.fold(fold, stableKey));
 
   const edictIds = [...db.edicts.keys()].sort();
   const edictCode = new Map(edictIds.map((id, i) => [id, i]));
@@ -438,7 +460,7 @@ export function registerEventGameplay(
     const vi = representativeVillage(ki);
     const calendar = calendarFromTick(ctx.tick);
     if (choice.requirements !== undefined) {
-      const rng = ctx.rng.fork(`event-choose:${code}:${ki}:${ctx.tick}`);
+      const rng = ctx.rng.fork(`event-choose:${eventById(code).id}:${ki}:${ctx.tick}`);
       const evalCtx = contextFor(ki, vi, calendar.seasonName, rng);
       if (!evaluatePredicate(choice.requirements, evalCtx)) {
         return reject(ctx, 'event.choose', 'requirements not met', command.issuer);
@@ -484,7 +506,7 @@ export function registerEventGameplay(
         const passedWeights: number[] = [];
         for (const code of candidates) {
           const def = eventById(code);
-          const rng = ctx.rng.fork(`event:${code}:${ki}:${ctx.tick}`);
+          const rng = ctx.rng.fork(`event:${def.id}:${ki}:${ctx.tick}`);
           const evalCtx = contextFor(ki, vi, calendar.seasonName, rng);
           if (!evaluatePredicate(def.trigger, evalCtx)) continue;
           let weight = def.weight;
@@ -495,7 +517,7 @@ export function registerEventGameplay(
           // governor, whose boost/dampen would otherwise skew the average and act as soft
           // spacing. Ordinary (tutorial) events keep the governor exactly as before.
           weight *= isSpecial ? 1 : governorMultiplier;
-          const roll = ctx.rng.fork(`event-roll:${code}:${ki}:${ctx.tick}`).chance(weight * poolRate);
+          const roll = ctx.rng.fork(`event-roll:${def.id}:${ki}:${ctx.tick}`).chance(weight * poolRate);
           if (roll) {
             passed.push(code);
             passedWeights.push(weight);

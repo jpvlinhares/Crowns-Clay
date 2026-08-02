@@ -696,7 +696,7 @@ built. The M12 playability rule and ADR-3's composition rule bind as everywhere 
 | M64a | Demographic diagnosis | instrument the daily population update's per-village births / matured / senesced / deaths / migration / dispatch deltas and reconcile them against observed cohort change over 40 years. **Output is a written cause, not a fix** — nothing committed but a finding. Chartered separately because the review could NOT close the causal chain: the model's own constants imply a stable child:adult ratio of 1.3–2.5, not 20, and with 374 children maturation alone should feed ~27 adults/year into a cohort sitting at 18. Something removes adults that has not been found, and only two code paths write `pop.adults[]` | the observed cohort trajectory is fully explained by named terms; recalibrate-vs-redesign is DETERMINED, not guessed |
 | ~~M64b~~ | *merged into M65 (owner-directed 2026-07-27, after the M64a finding)* | M64a proved the demographic inversion and the never-massing army are ONE defect — an unbounded recruiting policy — so splitting them would have paid two fixture re-records to fix one cause, and neither half's bands could go green without the other's change. The genuinely population-side residue (`SETTLER_PARTY`'s age mix, `FAMINE_MORTALITY`'s slope) folds into M65 as secondary scope | — |
 | M65 | The military economy (was: war that concludes) | **Primary, per the M64a finding: give recruiting a CEILING.** Today every recruit gate is a FLOOR (`RECRUIT_MIN_ADULTS_REMAINING` 12, `RECRUIT_MIN_POPULATION_FLOOR` 20, `RECRUIT_MIN_FOOD_SECURITY` 0.95) with no notion of how large an army this kingdom should have, so it recruits at 10 adults/unit until it hits the floor, forever. Two coupled additions, both in `ai/military.ts`, no new system: (1) a WORKFORCE ceiling — army headcount capped as a fraction of the realm's adults, which is what makes M62's adult-cohort band structurally reachable; (2) an AFFORDABILITY ceiling — do not recruit what current upkeep capacity cannot sustain, which is what stops the recruit→desert→recruit churn (`military-upkeep` returned +695 adults to one village in 20 years; that is the churn, measured) and lets an army actually persist long enough to march. GDD §6's "standing army cost must force guns-vs-butter tension" is the design intent both serve. Secondary: `SETTLER_PARTY`'s 67%-adult mix; `FAMINE_MORTALITY`'s slope at mild hunger; `WAR_MIN_STRENGTH` (20) re-checked against what a capped army can actually field. Deferred unless the matrix demands them: the `MilitaryBuildup` plan monoculture (81% of plan-choices) and garrison-hold — both are war-CADENCE levers, and the cadence question cannot be read honestly until armies stop dissolving | M62's adult-cohort AND war bands both green — they are one fix, so they pass or fail together · 50-year age-structure property test green · food security ≥0.95 sustained in a developed village. Named baselines: flat harness 24 sieges begun / 23 captured (Gate P8.1); `--real` 4 begun / **0 captured**, 0/16 campaigns saw a village change hands (M61.5/M62) |
-| M66 | Victory semantics & pacing | **SHIPPED as elimination-only Conquest + a re-paced Prosperity** (the taken-village share of ADR-5's option (b) was built, measured at 0 wins in 16 campaigns, and deleted — owner decision 2026-07-27; see the M66 scoping note). Prosperity happiness 80→75 and realm population 60→90, both set against measured joy/heads rather than guessed | M62's monoculture band GREEN (prosperity 56%); the year-30 and changing-hands bands hand to M67 · no fixture re-record (victory state is not hashed) |
+| M66 | Victory semantics & pacing | **SHIPPED as elimination-only Conquest + a re-paced Prosperity** (the taken-village share of ADR-5's option (b) was built, measured at 0 wins in 16 campaigns, and deleted — owner decision 2026-07-27; see the M66 scoping note). Prosperity happiness 80→75 and realm population 60→90, both set against measured joy/heads rather than guessed | M62's monoculture band GREEN (prosperity 56%); the year-30 and changing-hands bands hand to M67 · no fixture re-record — correct outcome, WRONG REASON as recorded ("victory state is not hashed"); it is hashed, but no fixture window is long enough for it to diverge. Corrected by M69 |
 | M67 | Onboarding, docs & Gate P9 (INHERITS M66's two open bands) | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9. **Inherited from M66:** the earliest-victory floor (a y29 prosperity, one year under — weigh that the matrix runs 60y while the shipped cap is 100 before touching a ratified band) and the changing-hands band (13%, needs AI war competence, which no Phase 9 milestone owns) | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
 
 **Phase 9 sequencing note — ordered by FIXTURE COST, not by importance.** M62, M63 and M64a are
@@ -850,10 +850,21 @@ that discipline held throughout the phase.
 
 **Two structural findings this phase surfaced, recorded for whoever works here next.**
 
-1. *The victory tracker is not a `kernel.addHashSource` contributor.* Its state never folds into
-   `stateHash()`, so no golden replay and no corpus resume hash can EVER detect a victory-logic
-   regression. `victory.test.ts` and `bench:balance` are that subsystem's only guards — do not read
-   a green corpus as evidence about victory behaviour.
+1. ~~*The victory tracker is not a `kernel.addHashSource` contributor.*~~ **WRONG AS STATED —
+   corrected by M69 (2026-08-02); the conclusion survives, the reason does not.** `victory.ts` HAS
+   registered `addHashSource('victory', …)` since **M37**, unconditionally, and `composeCampaign`
+   registers victory unconditionally too. The fold is thorough (winner, defeated, everFounded, both
+   streak maps, wonders). Verified three ways rather than re-read: adding `fold(4242)` to that
+   source diverges `campaign-demo` at tick 100, so it IS reached; yet dropping
+   `DEFAULT_PROSPERITY_HAPPINESS` 75 → 5 moves NOTHING. The real defect is **window length** —
+   `campaign-demo` runs 3000 ticks = **125 days**, and victory needs years (90 realm population,
+   multi-year streaks, a 10-year hegemony), so tracker state never diverges that early. The
+   practical conclusion is unchanged and still binding: **do not read a green corpus as evidence
+   about victory behaviour** — `victory.test.ts` and `bench:balance` remain that subsystem's only
+   guards. But the fix is a LONG-WINDOW fixture (or an explicit decision to rely on
+   `bench:balance`), not a hash source, and M69 was chartered against the wrong one. See the M69
+   scoping note. This correction is recorded here rather than by silently rewriting the finding,
+   matching how R4 handled ADR-4's A1 predictions.
 2. *Event codes are positional.* Adding any event renumbers every event sorting after it and
    invalidates every content-bearing fixture, even when the new events never fire. Hashing the event
    ID string rather than its sorted index would make content additions fixture-neutral. Same class
@@ -1171,6 +1182,63 @@ reading them.
 | M73 | Per-kingdom stat modifiers | `StatModifiers` has been ONE board shared across every kingdom since M22. It is why `TechDef.modifiers` is used by 0 of 72 techs (a tech buff would leak to rivals) and why `kingdom.researchYield` is read once outside the per-kingdom loop. Scope the board per kingdom. Pure architecture, no content | a modifier granted to one kingdom is measurably absent from a rival's rollup · goldens/corpus byte-identical where no content grants a per-kingdom modifier yet (verify, do not assume) |
 | M74 | The tech tree earns its cost | **58 of 72 techs do nothing** beyond satisfying the era-breadth gate and nudging the AI's `researchOpportunity` term (ADR-12, re-derived). Grow `BuildingDef.techBoost`'s `applies` vocabulary by the four kinds ADR-12 named — `storage` (Warehouse ← Warehouse Design), `service` (Tavern, Well), `garrison` (Barracks), `defense` (Wall/Gatehouse/Tower/Keep) — which also re-attaches the eight claims ADR-12 deleted. Then wire `TechDef.modifiers` on M73's per-kingdom board for the branch-wide effects no single building can carry | ≥36 of 72 techs (half the tree) have an effect measurable in a test, counted the ADR-12 way (from the def that reads them, not from `unlocks` declarations) · no tech GATES a building — ADR-12's buff-not-gate rule holds |
 | M75 | Player agency & Gate P10 | The two ADR-recorded surfaces the player cannot reach. **Advisor appointment** (ADR-11): `kingdom.appoint` works, offices carry real modifiers, advisors draw a daily salary line — with zero UI callers, leaving vision pillar 1 ("its people are real") with *no* player-facing implementation at 1.x. **`army.withdraw`** (ADR-10): the one shipped battle order is injector-only, so GDD §8's "battles you can influence" is the second half without the first. Both are panels, not systems. Then Gate P10 | injector-free walkthrough: seat an advisor and observe the modifier land; withdraw from a battle in progress · Gate P10 recorded in this doc in Gate P8/P8.1/P9 format |
+
+**M69 scoping note (shipped 2026-08-02) — HALF the milestone shipped; the victory half is
+RE-SCOPED, not delivered.**
+
+*Shipped: event codes no longer reach any content-addressable surface.* The charter said "hash
+event IDs by string." That was necessary and NOT sufficient. The positional code also leaked into
+**three RNG fork names** — `event:${code}:…`, `event-roll:${code}:…`, `event-choose:${code}:…` —
+and that leak dominated the fold: renumbering changed every roll, so the events that FIRED changed,
+not merely how they hashed. A third leak sat inside the fold itself, where `lastFired` was sorted
+as a STRING over `"kingdomId:code"`, so a renumber reordered the fold as well as revaluing it. All
+three are fixed: fork names key on `def.id`, and `EventState.fold` takes a `stableKey` resolver
+(`fnv1a32` of the def id, computed once at registration) and sorts numerically by it.
+
+*Proven with a control, not asserted.* A never-firing probe event was inserted into the MIDDLE of
+the sorted id list (so it renumbers everything after it) and final hashes were taken both ways:
+
+| | terra-demo | campaign-demo |
+|---|---|---|
+| old code + probe | `0xee8edcd9` | `0x8b605306` |
+| new code + probe | `0x69dd420b` | `0x77b06795` |
+| new code, no probe | `0x69dd420b` | `0x77b06795` |
+
+Adding an event moved fixtures before and moves nothing now — the chartered T objective, measured.
+
+*Re-record: predicted 6 of 8, moved exactly 6 of 8.* `terra-demo`, `campaign-demo` and all four
+corpus saves; `calendar-baseline` and `wanderers` byte-identical because neither composes events.
+Every recorded hash matched its pre-record prediction exactly. Torture green (5 cycles each),
+499/499 tests, build and lint clean.
+
+*Two tests failed and NEITHER was this change breaking them* — both had been passing on the old RNG
+stream by coincidence, which is worth recording as its own finding:
+
+1. *`tutorial: all 6 steps are reachable`* counted fires by the `base:event.tutorial.` prefix and
+   asserted `=== 6`. **M67 added five more events sharing that prefix**, gated on
+   `village.tier >= 2` — which this test sets itself, at step 6. It passed only because the old
+   stream happened not to roll one of them inside the remaining window. It now asserts the six
+   NAMED steps each fire and resolve exactly once, which is the property its own assertion message
+   always claimed. This was a latent M67 defect, surfaced by M69 rather than caused by it.
+2. *`event.choose: a grantResource effect…`* waited 4000 ticks at seed 4 for a random merchant
+   event. Widened to 40,000 rather than re-seeded — a wider window survives ANY future stream
+   change, where seed-hunting only re-anchors the same coincidence.
+
+*Re-scoped: the victory half was chartered against a wrong premise.* Gate P9's structural finding
+(1) said the victory tracker is not a hash source. It is, and has been since M37 — see the
+correction recorded at that finding. Registering it is a no-op, so **M69 delivers nothing here**.
+The underlying defect is real but different: no fixture window is long enough for victory state to
+diverge, so no golden or corpus can detect a victory regression in practice. Fixing THAT means a
+long-window fixture (a 20-year campaign golden is ~175k ticks, ≈40 s at the measured 0.22 ms/tick,
+which is affordable) or an explicit decision that `bench:balance --real` is the sole guard and the
+docs say so. Either is a milestone-sized choice with a real cost, and neither is what R7 ratified —
+so it is left OPEN for the owner rather than absorbed silently. **Gate P10 is unaffected: no band
+depends on it.**
+
+*Lesson for the phase.* The one charter item written from a code read rather than a measurement was
+the one that was wrong, and it survived a release review, a gate assessment, and a ratified charter
+before the first `grep` of the milestone caught it. The event half — written from M67's *measured*
+re-record — was right in direction and still understated by two of its three causes.
 
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as

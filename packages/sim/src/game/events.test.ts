@@ -332,9 +332,13 @@ test('event.choose: a grantResource/removeResource effect actually moves the vil
   // this exercises effect application, not the start gate — open the gate so the special
   // traveling-merchant event can fire promptly (avgPerMonth left at default)
   const { kernel, submit, world, game, villageId, kingdomId, eventGame } = makeKingdom({ seed: 4, specialEvents: { startGateMonths: 0, avgPerMonth: 1 } });
+  // M69: the window was 4000 ticks and passed on the pre-M69 RNG stream alone — re-keying event
+  // fork names from the positional code to the def id changed every roll, and the merchant no
+  // longer landed inside it at this seed. Widened rather than re-seeded: a wider window is robust
+  // to ANY future stream change, where seed-hunting just re-anchors the same coincidence.
   let tries = 0;
   let target: { eventId: string; choiceIds: readonly string[] } | undefined;
-  while (target === undefined && tries < 4000) {
+  while (target === undefined && tries < 40_000) {
     kernel.step();
     tries++;
     target = eventGame.pendingChoices(kingdomId as never).find((e) => e.eventId === 'base:event.opportunity.traveling-merchant');
@@ -413,20 +417,29 @@ test('tutorial: all 6 steps are reachable and resolvable in sequence through the
   k.world.write(k.game.comps.VillageCore).tier[vi] = 2;
   resolve('base:event.tutorial.complete', waitForPending('base:event.tutorial.complete', 5000).choiceIds[0] as string);
 
-  const tutorialFired = k.fired.filter(
-    (f) => f.type === 'event.fired' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.'),
-  );
-  const tutorialResolved = k.fired.filter(
-    (f) => f.type === 'event.resolved' && (f.data as { eventId: string }).eventId.startsWith('base:event.tutorial.'),
-  );
-  assert.equal(tutorialFired.length, 6, 'each once:true tutorial step fires exactly once');
-  assert.equal(tutorialResolved.length, 6, 'every fired step was actually resolved');
-  // other pools keep firing independently across the long wait windows above — only the
-  // TUTORIAL steps are this test's concern, and none of them are left unanswered
-  const pendingTutorial = k.eventGame
+  // M69: assert the SIX NAMED steps, not a count over the `base:event.tutorial.` prefix.
+  // M67 added five reachability events (diplomacy/research/castle/military/victory) that share
+  // that prefix and unlock at `village.tier >= 2` — which this test sets itself, at step 6. The
+  // old `length === 6` passed only because the pre-M69 RNG stream happened not to roll one of
+  // them inside the remaining window; it asserted a coincidence, not the property its own message
+  // claims. Naming the steps asserts the property directly and is immune to both the stream and
+  // to any further event being added to the file.
+  const STEPS = [
+    'base:event.tutorial.welcome', 'base:event.tutorial.economy', 'base:event.tutorial.happiness',
+    'base:event.tutorial.tax', 'base:event.tutorial.edicts', 'base:event.tutorial.complete',
+  ] as const;
+  const countOf = (type: string, id: string): number =>
+    k.fired.filter((f) => f.type === type && (f.data as { eventId: string }).eventId === id).length;
+  for (const id of STEPS) {
+    assert.equal(countOf('event.fired', id), 1, `${id} fires exactly once (once:true)`);
+    assert.equal(countOf('event.resolved', id), 1, `${id} was actually resolved`);
+  }
+  // other pools keep firing independently across the long wait windows above — only the SIX
+  // TUTORIAL STEPS are this test's concern, and none of them is left unanswered
+  const pendingSteps = k.eventGame
     .pendingChoices(k.kingdomId as never)
-    .filter((p) => p.eventId.startsWith('base:event.tutorial.'));
-  assert.deepEqual(pendingTutorial, [], 'no tutorial step left unanswered');
+    .filter((p) => (STEPS as readonly string[]).includes(p.eventId));
+  assert.deepEqual(pendingSteps, [], 'no tutorial step left unanswered');
 });
 
 test('determinism: event state folds identically for the same tick sequence', () => {
