@@ -1592,6 +1592,67 @@ settling measurement is M64a's method: per-village cohort accounting over a boos
 every adult delta to births, maturation, senescence, deaths, recruitment and casualties. **That is
 the next milestone, and it is a diagnosis, not a fix.**
 
+**M70.6 scoping note (shipped 2026-08-02) — un-chartered DIAGNOSIS. Nothing committed but this
+cause. It is BIRTHS, and the two competing hypotheses are settled by the same measurement.**
+
+The M68 decision experiment left one question deciding what M71 builds: why does the adult FRACTION
+fall from 46% to 28% under the boosts? Hypothesis (1) births — more food, more children, a diluted
+cohort. Hypothesis (2) war consumption — A has ten times the war, and recruiting costs 10 adults a
+unit. Opposite fixes. Method: M64a's — instrument every term that writes `pop.adults[]`
+(`population.ts`'s daily update, `military.ts`'s recruit draw and return) plus per-village age,
+population and war-event counts, over 60-year runs with the boosts on and off. All telemetry
+reverted; goldens re-verified green afterwards.
+
+*Verdict: hypothesis (1). Hypothesis (2) is refuted, and refuted by the cleanest possible evidence —
+the worst village has never been touched by war.* Seed 9000, `fair`, boosts ON:
+
+| village | age | adult fraction | population | children / adults | war events |
+|---|---|---:|---:|---|---:|
+| vi=28 | 60y | **28.5%** | 745 | 496 / 212 | **0** |
+| vi=32 | 60y | 52.4% | 715 | 305 / 375 | 3 |
+| vi=30 | 60y | 66.6% | 579 | 171 / 386 | 2 |
+
+The 28.5% village — the one that IS the failing band figure — saw no war at all, while both
+war-touched villages sit far higher. Aggregated across both difficulties: war-touched villages mean
+**59.5%** adult, untouched **28.5%** (fair); 55.8% vs 56.3% (hard). **War does not deplete the adult
+cohort; if anything the correlation runs the other way.** The recruit draw confirms it in absolute
+terms — net adult drain to the army over 60 years is 1,769 at `fair`, against 3,313 matured and
+10,673 net in-migration.
+
+*What actually happens.* Villages do not multiply under the boosts — they GROW.
+
+| | boosts ON | boosts OFF |
+|---|---|---|
+| villages (seed 9000 `fair`) | 3 | 4 |
+| population each | 745 / 715 / 579 | 174 / 150 / 120 / 90 |
+| adult fraction range | **28.5 – 66.6%** | 46.2 – 63.0% |
+| births / matured (60y) | 5,162 / 3,313 | 1,349 / 726 |
+
+`population.ts`: `births = adults × BIRTH_RATE × fed × (0.5 + 0.5·shelter) × joyFactor`, while
+`matured = children × MATURE_RATE` is a FLAT rate. Births scale with food security and joy; nothing
+saturates. The boosts raise `fed` to its ceiling and keep joy high, so a large well-fed village
+breeds children faster than a fixed maturation rate can convert them, and the child pool inflates
+against the adult base indefinitely. That is the whole mechanism, and it needs no war to appear.
+
+**The design coupling to break, stated for M71:** food surplus has exactly one outlet — births —
+and it is unbounded. Any economy strong enough to fund a war therefore also floods the child cohort.
+Candidate directions, none measured yet and all belonging to a FIX milestone rather than this one:
+saturate the `fed` term in the birth rate; make `MATURE_RATE` responsive to conditions rather than
+flat; or give surplus a second sink (stockpiles, trade, migration out) so it need not become people.
+
+*Scope of evidence, stated so nobody over-reads it.* Two configurations at ONE seed (9000, `fair`
+and `hard`), against a band pooled over 16 campaigns. The mechanism is unambiguous and the war
+hypothesis is cleanly refuted at this seed; the exact contribution split should be re-measured
+across the matrix before any constant is chosen.
+
+*Two of my own errors, recorded because both nearly became findings.* (1) A first pass filtered
+villages at `total <= 0` and so counted razed slots carrying float residue — they report a
+meaningless 98.2% adult fraction, which inflated "villages" from 3 to 21 and produced a bogus "91%
+mean adult" and a bogus "5× more villages under boosts". `bench-balance` filters at `total < 1` and
+was right all along; the probe was wrong. (2) The village-count claim that followed from it was
+retracted before reaching any document. **Neither the instrument nor the game was at fault in
+either case** — which is worth recording after M70.5, where both were.
+
 **Gate P10's bands — ratified AT CHARTER, before the fixes they measure.** This is M62's discipline
 and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
 `bench:balance --real --years 60 --seeds 2` unless stated:
