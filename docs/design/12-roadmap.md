@@ -1183,8 +1183,8 @@ reading them.
 | M74 | The tech tree earns its cost | **58 of 72 techs do nothing** beyond satisfying the era-breadth gate and nudging the AI's `researchOpportunity` term (ADR-12, re-derived). Grow `BuildingDef.techBoost`'s `applies` vocabulary by the four kinds ADR-12 named — `storage` (Warehouse ← Warehouse Design), `service` (Tavern, Well), `garrison` (Barracks), `defense` (Wall/Gatehouse/Tower/Keep) — which also re-attaches the eight claims ADR-12 deleted. Then wire `TechDef.modifiers` on M73's per-kingdom board for the branch-wide effects no single building can carry | ≥36 of 72 techs (half the tree) have an effect measurable in a test, counted the ADR-12 way (from the def that reads them, not from `unlocks` declarations) · no tech GATES a building — ADR-12's buff-not-gate rule holds |
 | M75 | Player agency & Gate P10 | The two ADR-recorded surfaces the player cannot reach. **Advisor appointment** (ADR-11): `kingdom.appoint` works, offices carry real modifiers, advisors draw a daily salary line — with zero UI callers, leaving vision pillar 1 ("its people are real") with *no* player-facing implementation at 1.x. **`army.withdraw`** (ADR-10): the one shipped battle order is injector-only, so GDD §8's "battles you can influence" is the second half without the first. Both are panels, not systems. Then Gate P10 | injector-free walkthrough: seat an advisor and observe the modifier land; withdraw from a battle in progress · Gate P10 recorded in this doc in Gate P8/P8.1/P9 format |
 
-**M69 scoping note (shipped 2026-08-02) — HALF the milestone shipped; the victory half is
-RE-SCOPED, not delivered.**
+**M69 scoping note (shipped 2026-08-02) — BOTH halves shipped; the victory half via a route the
+charter did not anticipate, because the charter's premise for it was wrong.**
 
 *Shipped: event codes no longer reach any content-addressable surface.* The charter said "hash
 event IDs by string." That was necessary and NOT sufficient. The positional code also leaked into
@@ -1224,16 +1224,50 @@ stream by coincidence, which is worth recording as its own finding:
    event. Widened to 40,000 rather than re-seeded — a wider window survives ANY future stream
    change, where seed-hunting only re-anchors the same coincidence.
 
-*Re-scoped: the victory half was chartered against a wrong premise.* Gate P9's structural finding
-(1) said the victory tracker is not a hash source. It is, and has been since M37 — see the
-correction recorded at that finding. Registering it is a no-op, so **M69 delivers nothing here**.
-The underlying defect is real but different: no fixture window is long enough for victory state to
-diverge, so no golden or corpus can detect a victory regression in practice. Fixing THAT means a
-long-window fixture (a 20-year campaign golden is ~175k ticks, ≈40 s at the measured 0.22 ms/tick,
-which is affordable) or an explicit decision that `bench:balance --real` is the sole guard and the
-docs say so. Either is a milestone-sized choice with a real cost, and neither is what R7 ratified —
-so it is left OPEN for the owner rather than absorbed silently. **Gate P10 is unaffected: no band
-depends on it.**
+*Delivered, by a different route: `campaign-long`, the first fixture that can see victory at all.*
+Gate P9's structural finding (1) said the victory tracker is not a hash source. It is, and has been
+since M37 — see the correction recorded at that finding — so registering it was a no-op and the
+chartered work did not exist. The DEFECT was real but different: no fixture window is long enough
+for victory state to diverge. Measured rather than argued, by perturbing `DEFAULT_PROSPERITY_HAPPINESS`
+75 → 5 and reading the hash at each horizon:
+
+| ticks | horizon | baseline | happiness 75→5 | |
+|---:|---:|---|---|---|
+| 3,000 | 0.3y | `0x77b06795` | `0x77b06795` | **blind** |
+| 43,200 | 5.0y | `0x590bbee8` | `0x37e25415` | sees it |
+| 86,400 | 10.0y | `0x006583c7` | `0x7867c656` | sees it |
+
+`campaign-long` is therefore campaign-demo's world — same seed, same settings, same compose path —
+run for **10 in-game years** (86,400 ticks, 60 samples, ~14 s each way at the measured
+0.165 ms/tick). Ten rather than five deliberately: 10 is `DEFAULT_HEGEMONY_YEARS`, the shortest
+horizon at which the hegemony path can declare at all. It currently never does — perturbing
+`DEFAULT_HEGEMONY_YEARS` 10 → 3 changes nothing, because no kingdom in this seed ever holds the
+share — and that is the point. **Phase 10 exists to make kingdoms conquer each other**, so a fixture
+sized to today's behaviour would go blind exactly when M71 started working.
+
+*The guard was proven, not assumed.* With the fixture recorded, `DEFAULT_PROSPERITY_HAPPINESS`
+75 → 5 was re-applied: all four pre-existing goldens pass GREEN and `campaign-long` FAILS,
+bracketed to tick 37,440 (year 4.3). That is M69's chartered T objective — "a deliberately-introduced
+victory-logic change is caught by `replay:verify` where it previously passed green" — executed
+literally. `packages/app/src/scenarios.test.ts` adds three recipe guards so the horizon cannot be
+silently shortened back into blindness, the seeds cannot drift apart, and a duplicate scenario name
+cannot quietly overwrite a fixture.
+
+*Recording it was purely ADDITIVE* — one new file, zero existing fixtures touched, verified through
+`git status`. Unlike part 1's re-record, nothing was overwritten.
+
+*Cost, stated plainly.* `replay:verify` and `replay:record` each gain ~14 s. That is the price of
+the only fixture in the repo that can see a victory-logic regression, and it is worth naming rather
+than discovering in CI.
+
+*What this still does NOT cover.* Hegemony, conquest and wonder victories are all unexercised in
+this seed — the fixture watches the prosperity-streak, defeat and founding paths only. It is a
+guard against regression, NOT evidence that the other three paths work.
+
+*(Process note: this half was first written up as "re-scoped, not delivered" and handed to the owner
+as a choice between a long-window fixture and relying on `bench:balance --real`. The owner chose the
+fixture, same session — the interim write-up's 20-year/0.22 ms-per-tick sizing was superseded by the
+5-year sensitivity measurement above, which showed a shorter and cheaper fixture suffices.)*
 
 *Lesson for the phase.* The one charter item written from a code read rather than a measurement was
 the one that was wrong, and it survived a release review, a gate assessment, and a ratified charter
