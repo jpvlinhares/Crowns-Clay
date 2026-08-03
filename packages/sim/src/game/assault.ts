@@ -48,6 +48,23 @@ export const ASSAULT_WALL_DAMAGE = 30;
  * payoff); these are only the fallbacks for a tower def that carries none. */
 export const TOWER_ATTACK = 12;
 export const TOWER_RANGE = 6; // Chebyshev, from the tower's origin tile
+/**
+ * M78: the column size below which tower fire stops CONCENTRATING.
+ *
+ * Tower damage is deliberately count-relative — "a volley into 20 raiders bites hard, the same
+ * volley into a 100-man host mostly chips morale" — but `towerDamage / attackerCount` DIVERGES as
+ * the column shrinks, and the losses feed straight back into the count. That is a death spiral,
+ * and the M78 probe measured its end state: columns of 33, 36 and 41 men annihilated **to the last
+ * man** on the approach to castles holding **no garrison at all**, while every column that reached
+ * the keep took it with 2.5-3× the strength required. Forty men take `12/40` per tower per round;
+ * four men take `12/4` — ten times the morale damage into a tenth of the force.
+ *
+ * Flooring the divisor keeps the whole intended curve (a small raiding party still suffers far more
+ * per man than a host) and removes only the divergence: at or below the floor, fire concentrates no
+ * further. It is deliberately NOT a cap on total damage — a tower that fires all day should still
+ * grind a stalled column down; what it must not do is accelerate as it succeeds.
+ */
+export const TOWER_EXPOSURE_FLOOR = 20;
 /** Garrison fights from prepared ground (GDD §7 defender advantage). */
 export const GARRISON_DEFENCE_BONUS = 1.5;
 /** Posts this close to a clash join the defending line — mutual support, so a ring
@@ -430,9 +447,12 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
 
     // tower fire on the column, every round it stands in range — COUNT-relative, not
     // defense-relative: a volley into 20 raiders bites hard, the same volley into a
-    // 100-man host mostly chips morale (towers deter raids; armies soak them)
+    // 100-man host mostly chips morale (towers deter raids; armies soak them).
+    // M78: the divisor is FLOORED at `TOWER_EXPOSURE_FLOOR` so fire stops concentrating on a
+    // column that is already dying — see that constant for the measurement behind it.
     for (const tower of towersInRange(at)) {
-      const damage = (tower.damage / Math.max(1, attackerCount())) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
+      const exposure = Math.max(TOWER_EXPOSURE_FLOOR, attackerCount());
+      const damage = (tower.damage / exposure) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
       damageAttacker(damage);
       step('tower', tower.y * size + tower.x);
     }

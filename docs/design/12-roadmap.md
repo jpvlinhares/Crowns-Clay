@@ -1943,6 +1943,60 @@ matrix numbers in its scoping note, on the shipped clock.**
 rejected by measurement. In each case the measurement was cheap and the reasoning was confident.
 The probe that overturned this one cost eight minutes.
 
+**M78 scoping note (shipped 2026-08-03) — the tower death spiral is fixed. It was NOT M77's
+blocker, and this note exists mostly to record how the wrong cause was chosen twice in a row.**
+
+*What shipped.* `TOWER_EXPOSURE_FLOOR = 20` floors the divisor in the tower volley:
+
+```
+exposure = max(TOWER_EXPOSURE_FLOOR, attackerCount())
+damage   = tower.damage / exposure * BASE_MORALE_DAMAGE * jitter
+```
+
+The pre-M78 form divided by the LIVE count, so damage per round diverged as men fell and fed
+straight back into the casualty term. The M78 probe measured its end state: columns of 33, 36 and 41
+men wiped **to the last man** on the approach, against castles holding **no garrison at all**, while
+every column that reached the keep took it with 2.5–3× the strength required. Flooring the divisor
+keeps the entire intended curve — a raiding party still suffers far more per man than a host, all
+the way down to the floor — and removes only the divergence. Chosen over capping total damage (a
+tower firing all day *should* grind a stalled column down; it must not accelerate as it succeeds)
+and over a withdrawal rule (truncates the spiral without fixing it, and a withdrawn column still
+fails the assault). A property test pins the curve rather than an outcome, because outcomes here sit
+on a knife-edge — captures reached the keep at round 47, wipes were still advancing at 51–58 — and
+an outcome test would be flaky by construction.
+
+*Measured, on the shipped clock, both ways.*
+
+| | adult p10 | floor | monoculture | earliest | changing hands | green |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline | 43.0% | 15.5% | 44% | y10 | 93.8% | **4 of 5** |
+| tower fix alone | 43.0% | 15.5% | 44% | y10 | 93.8% | **4 of 5** |
+| M77 alone | 32.9% | 9.0% | 56% | y25 | 38% | 2 of 5 |
+| **tower fix + M77** | 32.9% | 9.0% | 56% | y25 | 38% | **2 of 5** |
+
+Inert on the shipping tree, and **inert on M77 too** — sieges 114, assaults 18, repelled 14,
+capitals fallen 4, identical to M77 without it. Shipped anyway: it is a real unbounded-divergence
+defect in a damage model, it is tested, it is fixture-neutral, and it would bite the moment anything
+raises assault frequency. But it buys **no band**, and this note says so rather than implying value
+it does not have.
+
+*The actual blocker, which was visible in M77's own telemetry all along.* `114 sieges begun, 18
+assaults resolved` — **at least 96 sieges never produced an assault at all.** Under the M72 baseline
+the ratio is 39 assaults from 55 sieges (71%); under M77 it is 16%. The AI besieges and then holds.
+`assaultAdvice` (campaign.ts, M54) counsels `assault` only when believed own strength ≥ estimated
+resistance, `lift` when hopeless, and `hold` otherwise — so tripling the number of sieges against
+capitals it must now actually storm parks almost all of them. **That is close to R7's original
+"armies that mass", and it is the next thing to probe — the sieges that never assault, not the
+assaults that fail.**
+
+*Recorded because the pattern is now the phase's most useful output.* M77's cause has been wrong
+twice: "the AI cannot take a defended castle" (refuted — castles undefended, AI 2.5–3× overstrength)
+and "tower fire annihilates the column" (real, but 14 repulses out of a 96-siege stall). **Both times
+the wrong cause was chosen by measuring the thing that was failing rather than counting the thing
+that never happened.** The 96 missing assaults were in the very first M77 table and went unread. The
+rule this phase has earned: *before explaining a failure, check the denominator — how many attempts
+never reached the step you are explaining?*
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**

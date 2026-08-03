@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { composeCampaign } from '../campaign.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
 import { DEFENCE_KEEP_CENTRE, KEEP_DEF, defenceFootprintOf, originFromCentre } from './defence.js';
+import { TOWER_ATTACK, TOWER_EXPOSURE_FLOOR } from './assault.js';
 
 const SEED = 0xa55a17;
 
@@ -261,6 +262,23 @@ test('assault: a garrison bleeds the column — and a big one repels it outright
   assert.ok((r['trace'] as { kind: string }[]).some((t) => t.kind === 'clash'), 'the garrison fought');
   assert.equal(r['outcome'], 'repelled', 'a full keep-ring garrison repels a 3-unit column (defender advantage)');
   assert.ok((r['attackerLoss'] as number) > baselineLoss, 'the garrison cost the attacker real casualties');
+});
+
+// M78: tower fire must never ACCELERATE as the column it is shooting shrinks. The pre-M78 volley
+// divided by the live count, so damage per round diverged as men fell and fed straight back into
+// the casualty term — a death spiral whose end state the M78 probe measured: columns of 33, 36 and
+// 41 men wiped TO THE LAST MAN on the approach to castles holding no garrison at all, while every
+// column that reached the keep took it with 2.5-3x the strength needed. This pins the property
+// directly rather than an outcome, because outcomes here sit on a knife-edge (captures reached the
+// keep at round 47; wipes were still advancing at 51-58) and would make a flaky test.
+test('assault: tower fire never concentrates harder as the column dies (no death spiral)', () => {
+  const damageAt = (men: number): number => (TOWER_ATTACK / Math.max(TOWER_EXPOSURE_FLOOR, men)) * 1;
+  // above the floor, fewer men DOES mean a harder-biting volley — the intended curve, kept
+  assert.ok(damageAt(100) < damageAt(40), 'a host soaks a volley a raiding party would not');
+  assert.ok(damageAt(40) < damageAt(TOWER_EXPOSURE_FLOOR), 'the curve still bites down to the floor');
+  // at and below the floor it STOPS concentrating — this is the whole fix
+  assert.equal(damageAt(TOWER_EXPOSURE_FLOOR), damageAt(5), 'fire does not intensify on a dying column');
+  assert.equal(damageAt(5), damageAt(1), 'and not on its last man either');
 });
 
 test('assault: walls must be broken through — the trace shows wall-hits and breaches, and structures really fall', () => {
