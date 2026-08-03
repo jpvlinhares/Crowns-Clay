@@ -942,6 +942,17 @@ and because M53's stated intent is that losing a capital opens a window rather t
 That only fortified, garrisoned capitals receive that window is an accident of where the hook was
 placed, not a recorded design decision.
 
+**Outcome (2026-08-03, recorded after M77 was built and measured).** The implementation took the
+INVERSE route to the one this record specifies: rather than teaching occupation to open the window,
+it made a capital non-occupiable so that every capital loss flows through `siege.capture()`, which
+already calls the hook. Routing occupation into succession was rejected on inspection — succession's
+resolution is siege-centric and would have needed synthesised sieges or a refactor. **M77 was then
+NOT SHIPPED**: it moved earliest victory y10 → y25, confirming this record's diagnosis, but took the
+matrix from 4 of 5 bands to 2 of 5 by collapsing villages-changing-hands 93.8% → 38%. The cause is
+now measured: with the walk-in path removed, 78% of assaults are repelled and 4 capitals fall where
+42 fell before. **The AI cannot storm a defended castle, and the occupation bypass was hiding it.**
+This record's decision stands; its implementation is blocked on AI assault competence.
+
 **Consequences.** Phase 10 gains M77. Until it ships, the earliest-victory band stays red and Gate
 P10 cannot pass — correctly, because the defect is real. This also revises the reading of ADR-5 and
 M66: the war track was described as "effectively dormant until AI war competence rises", but a

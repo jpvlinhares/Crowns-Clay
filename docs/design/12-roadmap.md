@@ -1820,6 +1820,64 @@ changed hands is a behaviour change that moves victory outcomes and will re-reco
 reopens M53's chain and deserves its own milestone rather than being absorbed into a decision
 milestone — the same separation M64a→M65 and M70→M72 used. **Chartered as M77.**
 
+**M77 scoping note (2026-08-03) — BUILT, MEASURED, NOT SHIPPED. The fix is right and cannot land
+until the AI can storm a castle. It removed a crutch and exposed what the crutch was hiding.**
+
+ADR-13 required capital loss to open M53's succession window however the capital changed hands.
+Routing occupation INTO succession was rejected on inspection — succession's resolution is entirely
+siege-centric (it scans `siegeGame.state.all()` for `fallenDeadline`; both its commands require a
+siege record), so it would have meant synthesising sieges or refactoring succession. **The
+implemented route was the inverse: make a capital non-occupiable, so every capital loss flows
+through `siege.capture()`, which already calls the hook.** ADR-13's outcome line records the
+substitution rather than leaving the record describing something that did not ship.
+
+*It worked on its target.* Earliest victory moved **y10 → y25** — direct confirmation of M73's
+diagnosis that the walk-in path was the cause, since nothing else changed.
+
+*And it cost two bands*, measured on the shipped clock:
+
+| Band | baseline | M77 |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 32.9% ✓ |
+| oldest-village floor (≥15%) | 15.5% ✓ | **9.0%** ✗ |
+| monoculture (≤60%) | chronicle 44% ✓ | prosperity 56% ✓ |
+| earliest victory (≥y30) | **y10** ✗ | **y25** ✗ |
+| changing hands (≥50%) | 93.8% ✓ | **38%** ✗ |
+| **green** | **4 of 5** | **2 of 5** |
+
+*Why, and it is the finding of this milestone.* The siege telemetry, against M72's baseline:
+
+| | sieges begun | assaults resolved | repelled | capitals fallen |
+|---|---:|---:|---:|---:|
+| M72 baseline | 55 | 39 | 3 (8%) | **42** |
+| M77 | **114** | 18 | **14 (78%)** | **4** |
+
+Sieges doubled and captures collapsed by an order of magnitude. **The AI cannot take a defended
+castle.** It could not before M77 either — it simply never had to, because an ungarrisoned capital
+could be walked into. Removing the walk-in path did not break the war layer; it revealed that the
+war layer was being carried by a bypass. R7 suspected exactly this and could not prove it, because
+the instrument was blind (M70.5) and the bypass masked it.
+
+*A scoping error of mine, recorded because the measurement caught what the reasoning should have.*
+The first implementation exempted every `applicable` village, not just capitals — a strictly larger
+claim than M73's evidence supported, and I noted the widening in passing without acting on it.
+Narrowing it to the owner's own bound capital produced **byte-identical** matrix results: in
+practice the AI builds keeps only at capitals, so `applicable ⟹ isOwnCapital` throughout. The
+narrowing was right in principle and a no-op in fact — which also retires the "sticky layer"
+consequence I had flagged as a real widening. It was theoretical.
+
+*Not shipped.* Reverted in full — `campaign.ts` and the two tests it moved (`succession.test.ts`'s
+M57 pin, `campaign.test.ts`'s two capital-rebinding tests). Shipping a change that takes the game
+from 4 of 5 bands to 2 of 5 because it is *more correct in principle* is precisely the trade this
+project's discipline forbids. 504/504, all eight fixtures untouched.
+
+**Dependency, now evidenced rather than suspected: M77 needs AI assault competence first.** Not
+reachability (M72 fixed that — the repulses here are at the keep, not at a river), but STRENGTH:
+armies that mass enough to clear `holdStrength` before they commit, or an assault counsel that
+holds until they can. That is R7's original "war that concludes", finally resting on a measurement
+instead of an artifact. Until it exists, capitals must stay occupiable and ADR-13's defect stays
+open — a trade recorded here so nobody re-discovers M77 and ships it.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**
