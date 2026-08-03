@@ -1852,9 +1852,14 @@ diagnosis that the walk-in path was the cause, since nothing else changed.
 | M72 baseline | 55 | 39 | 3 (8%) | **42** |
 | M77 | **114** | 18 | **14 (78%)** | **4** |
 
-Sieges doubled and captures collapsed by an order of magnitude. **The AI cannot take a defended
-castle.** It could not before M77 either — it simply never had to, because an ungarrisoned capital
-could be walked into. Removing the walk-in path did not break the war layer; it revealed that the
+Sieges doubled and captures collapsed by an order of magnitude. ~~**The AI cannot take a defended
+castle.**~~ **WRONG — corrected by the M78 probe (2026-08-03), see the note below.** The castles are
+not defended (garrison zero in every failed assault measured) and the AI arrives with 2.5–3× the
+strength the keep verdict needs. The columns are annihilated by TOWER FIRE on the approach, before
+they ever reach the keep. The claim was made from an aggregate repulse rate without measuring where
+the repulses happened; it should not have been written.**
+It remains true that** the AI never had to storm capitals before M77, because an ungarrisoned
+capital could be walked into. Removing the walk-in path did not break the war layer; it revealed that the
 war layer was being carried by a bypass. R7 suspected exactly this and could not prove it, because
 the instrument was blind (M70.5) and the bypass masked it.
 
@@ -1877,6 +1882,66 @@ armies that mass enough to clear `holdStrength` before they commit, or an assaul
 holds until they can. That is R7's original "war that concludes", finally resting on a measurement
 instead of an artifact. Until it exists, capitals must stay occupiable and ADR-13's defect stays
 open — a trade recorded here so nobody re-discovers M77 and ships it.
+
+**M78 probe (2026-08-03) — FINDING ONLY. The blocker is not AI strength. It is a tower-fire death
+spiral that annihilates the column on the approach, against castles with no garrison at all.**
+
+M77 established that with the walk-in path removed, 14 of 18 assaults are repelled. The M77 note
+concluded "the AI cannot take a defended castle." **That conclusion was wrong, and this probe was
+run precisely because two milestones in a row had been rejected by measurement.** Method: instrument
+the keep verdict and the assault exit reason, re-apply M77's exemption so columns must actually
+storm, and run 100-year campaigns. All telemetry reverted; goldens re-verified green.
+
+*First measurement kills the hypothesis.* Of the assaults in each campaign, only ONE reached the
+keep — and when it did, it arrived overwhelming:
+
+| seed / difficulty | strength | needed (`keepThreshold + rally`) | ratio | men | verdict |
+|---|---:|---:|---:|---:|---|
+| 9000 `fair` | 187 | 60 | **3.12×** | 30 | captured |
+| 9000 `hard` | 200 | 68 | **2.94×** | 32 | captured |
+| 9001 `fair` | 148 | 60 | **2.47×** | 24 | captured |
+
+**Every assault that reaches the keep takes the castle, with two and a half to three times the
+required strength.** Strength is not the problem.
+
+*Where they actually fail.* The exit reason is identical in all three campaigns:
+
+| | outcome | why | rounds | breaches | men before → after | **garrison** | reached keep |
+|---|---|---|---:|---:|---|---:|---|
+| 9000 `fair` | repelled | **attackers wiped** | 58 | 1 | **41 → 0** | **0** | no |
+| 9000 `hard` | repelled | **attackers wiped** | 51 | 1 | **33 → 0** | **0** | no |
+| 9001 `fair` | repelled | **attackers wiped** | 53 | 1 | **36 → 0** | **0** | no |
+| (each campaign's other assault) | captured | — | 47 | 1 | 36–40 → 24–32 | 0–4 | yes |
+
+**A column of 33–41 men is wiped to the LAST MAN against a castle defended by nobody.** The only
+damage source present is tower fire, and it is a death spiral by construction:
+
+```
+damage = tower.damage / max(1, attackerCount()) * BASE_MORALE_DAMAGE * jitter
+```
+
+Damage per round scales INVERSELY with the surviving column, and `damageAttacker` converts that
+morale loss straight into casualties. Forty men take `12/40` per tower per round; four men take
+`12/4` — ten times the morale damage into a tenth of the force. The smaller the column, the faster
+it dies. The intent is documented in the code ("towers deter raids; armies soak them") and the
+deterrence half works; the soak half does not, because nothing bounds the spiral once a column
+starts shrinking.
+
+*It is a knife-edge, not a slope.* Captures reach the keep at round **47**; wipes are still
+advancing at **51–58**. Both break exactly one wall. The difference between taking a castle and
+losing every man is a handful of rounds of extra exposure — which is why the outcome looks random
+in aggregate and produced a plausible-sounding "the AI can't fight" story.
+
+*What M77 actually needs*, restated on evidence: not bigger armies and not better target selection,
+but a tower-fire model that does not annihilate an unopposed column. Candidate directions, none
+measured: cap total tower damage per assault; make the count-relative term saturate rather than
+diverge as the column shrinks; or let a column that has taken heavy losses withdraw with survivors
+instead of being ground to zero. **Any of these is a balance change and gets the M70.5 treatment —
+matrix numbers in its scoping note, on the shipped clock.**
+
+*Recorded because it is the third time in this phase.* M71, M77 and now M77's stated cause were all
+rejected by measurement. In each case the measurement was cheap and the reasoning was confident.
+The probe that overturned this one cost eight minutes.
 
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
