@@ -1997,6 +1997,67 @@ that never happened.** The 96 missing assaults were in the very first M77 table 
 rule this phase has earned: *before explaining a failure, check the denominator — how many attempts
 never reached the step you are explaining?*
 
+**M79 probe (2026-08-03) — FINDING ONLY. TWO independent defects, and the dominant one is a
+strength gate that silently abandons the army's own siege.**
+
+M78 ended by naming the denominator nobody had counted: 114 sieges begun, 18 assaults resolved, so
+**at least 96 sieges never produced an assault**. This probe counted the two places a siege can
+stall — the war-path gates in `ai/military.ts` and every branch of `assaultAdvice` — under M77's
+condition, over 100-year campaigns. All telemetry reverted; goldens re-verified green.
+
+*Defect 1 — the strength gate blocks a besieging army from deciding its own siege. This is the
+whole stall.*
+
+| tally | `fair` 9000 | `hard` 9000 |
+|---|---:|---:|
+| **`GATE: besieging but under WAR_MIN_STRENGTH`** | **13,564** | **8,810** |
+| `gate: field army under WAR_MIN_STRENGTH` | 1,081 | 148 |
+| **reached the siege branch at all** | **40** | **12** |
+
+`ai/military.ts` returns early on `committedCount(armyId) < WAR_MIN_STRENGTH` (20 men), and that
+check sits ABOVE the existing-siege handling. The module already knows a committed army must not be
+abandoned — the PLAN check immediately above it carries exactly that exemption, and its comment says
+so ("a committed army … must see its war through regardless of the plan's second thoughts"). The
+STRENGTH check has no such exemption. So an army musters 20+, marches, begins a siege, takes
+attrition and upkeep desertion below 20 — and is **never consulted about that siege again.** It
+cannot assault. It cannot lift. The siege stands until something else ends it. **Decision ticks lost
+to this outnumber decisions actually made by roughly 340:1 and 730:1.**
+
+*Defect 2 — the resistance estimate measures something the capture verdict does not use.* When the
+counsel IS reached, the numbers are consistent and wrong:
+
+| own | believed garrison | estimated resistance | ratio | branch |
+|---:|---:|---:|---:|---|
+| 171 | **0** | 184 | 0.93 | hold |
+| 174 | 8 | 224 | 0.78 | hold |
+| 236 | **0** | 365 | 0.65 | hold |
+| 138 | **0** | 350 | 0.39 | lift |
+| 254 | **0** | 184 | 1.38 | **assault** |
+
+`estimateAssaultResistance` (game/intel.ts) sums `keepHoldStrength + ESTIMATE_TOWER_RESISTANCE per
+tower + ESTIMATE_WALL_RESISTANCE per wall/gate + believedGarrison × ESTIMATE_STRENGTH_PER_MAN`. But
+the actual capture verdict in `resolveSpatialAssault` is **`strength ≥ keepThreshold + rally`** —
+keep hold plus the SURVIVING GARRISON's defence, and nothing else. **Walls and towers never enter
+the verdict.** They slow and bleed the column on the approach; they do not raise the bar at the
+keep.
+
+So with a believed garrison of ZERO the estimator returns 184–365 against a true requirement of
+**60**. It is inflated three- to six-fold by counting fortification that the verdict ignores. An army
+at `own = 171` — nearly three times what taking the castle actually needs — is told to hold. Counsel
+outcomes across both campaigns: **hold 21, lift 27, assault 4.**
+
+*The two are independent and need different fixes.* Defect 1 is a missing exemption on one
+comparison; defect 2 is a model mismatch between the estimator and the resolver. Fixing 1 alone
+unblocks the decision loop but, with the estimate still inflated, most of those armies would simply
+counsel `lift` — sieges would end instead of stalling, which is better but still not a war. Fixing 2
+alone leaves the armies that most need re-deciding permanently unconsulted. **Both, and in that
+order, is what M77 has been waiting for.**
+
+*Method note, and the reason this probe found it.* M78 earned the rule "before explaining a failure,
+check the denominator". Applied here it took one run: the dominant term was never in the assault
+data at all, because the affected sieges never reached an assault to be measured. Both previous
+causes for M77 were chosen by studying assaults that happened.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**
