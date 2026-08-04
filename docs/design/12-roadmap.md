@@ -2058,6 +2058,58 @@ check the denominator". Applied here it took one run: the dominant term was neve
 data at all, because the affected sieges never reached an assault to be measured. Both previous
 causes for M77 were chosen by studying assaults that happened.
 
+**M79 attempt (2026-08-03) — both defects FIXED and NOT SHIPPED. The fixes do exactly what they
+were designed to do; the package costs a band nobody can yet attribute.**
+
+M79's probe named two defects. Both were implemented, measured separately, and reverted.
+
+*Fix 1 — the strength gate.* `committedCount < WAR_MIN_STRENGTH` moved BELOW the existing-siege
+branch, so the floor gates MARCHING and never an army's decision about the siege it is already
+conducting. One statement moved; the exemption the plan check one line above already grants was
+simply missing here.
+
+*Fix 2 — the resistance estimate.* `estimateAssaultResistance` now returns
+`(keepHold + garrison × perMan) × (1 + attrition)` instead of adding tower/wall resistance in
+keep-hold units. The dimensional argument is the justification: the resolver's verdict is
+`strength ≥ keepThreshold + rally` and reads fortification nowhere, so walls and towers cannot
+belong in that sum — what they do is remove a FRACTION of the column on the approach, which is a
+multiplier. First-pass constants (`ESTIMATE_TOWER_ATTRITION = 0.15`, `ESTIMATE_WALL_ATTRITION =
+0.01`) put a 4-tower/32-wall castle at ~115 where it read 184, and an 8-tower/92-wall one at ~187
+where it read 365.
+
+*Measured on the shipped clock, separately and together.*
+
+| Band | baseline | gate only | gate + estimate |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 43.0% ✓ | 35.5% ✓ |
+| **oldest-village floor (≥15%)** | 15.5% ✓ | **10.8%** ✗ | **8.5%** ✗ |
+| monoculture (≤60%) | 44% ✓ | 44% ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | 93.8% (84) ✓ | 93.8% (**57**) ✓ | 87.5% (**78**) ✓ |
+| **green** | **4 of 5** | 3 of 5 | **3 of 5** |
+
+Both fixes behaved exactly as M79 predicted. The gate alone freed the stalled armies and they walked
+away — changes fell 84 → 57, because the estimate was still inflated and the counsel said `lift`.
+Adding the estimate fix converted those lifts back into assaults — changes recovered to 78. The
+mechanism is confirmed end to end.
+
+*And the package is 3 of 5 against a 4 of 5 baseline, on a band I could not attribute.* The
+oldest-village floor is a MIN over every village older than ten years across all sixteen campaigns —
+the noisiest statistic in the set, failed by one village. Probing `fair` seed 9000 found its worst
+old village at **52.3%**, nowhere near the floor, so the 8.5% belongs to a campaign not yet
+identified; the probe timed out before covering the rest.
+
+**Not shipped.** The reasoning that would justify shipping — "more war legitimately costs an old
+village its adults, and the band was ratified when war never happened" — is precisely the
+restate-the-band-to-match-the-outcome move R8 and R9 forbid, and it is the same shape as the three
+causes this phase has already got wrong by asserting instead of measuring. The fixes are correct,
+understood, and cheap to re-apply; what is missing is one measurement.
+
+**Next, and it is small:** find the campaign holding the 8.5% village and determine whether its
+adult collapse is war disruption (legitimate, and then the BAND is the question, to be decided in
+its own ADR) or a separate defect surfaced by armies that now fight (fix that instead). Only after
+that should either fix land.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**
