@@ -2105,10 +2105,43 @@ restate-the-band-to-match-the-outcome move R8 and R9 forbid, and it is the same 
 causes this phase has already got wrong by asserting instead of measuring. The fixes are correct,
 understood, and cheap to re-apply; what is missing is one measurement.
 
-**Next, and it is small:** find the campaign holding the 8.5% village and determine whether its
-adult collapse is war disruption (legitimate, and then the BAND is the question, to be decided in
-its own ADR) or a separate defect surfaced by armies that now fight (fix that instead). Only after
-that should either fix land.
+**ANSWERED, same day, by attributing the minimum to its campaign** (temporary `VillageBand`
+carrying population and village index; reverted):
+
+```
+FLOOR-FAIL  hard seed=9001 · vi=28 age=14y adult=8.5% pop=392 children=320
+            · run: conquest y14 · occupations=3 capitalFalls=0 sieges=3
+```
+
+**Neither candidate. The village is not war-damaged and there is no new defect — the BAND's filter
+is shorter than the system's slowest time constant.** The campaign ended at year 14 on a conquest
+victory, and the village is fourteen years old: 392 people of whom **320 are children** and ~33 are
+adults. That is a growing village measured inside its first maturation cycle, not a sacked one
+(`capitalFalls=0`, and a sacked village does not hold 392 people).
+
+`MATURE_RATE` is `1/(14 years)`. The band filters on `ageYears > 10`. **A village admitted at ten
+years has not completed one cohort turnover**, so the "oldest-village floor" is not measuring old
+villages at all — it is measuring whichever village happens to be youngest in the admitted set. And
+because bands are read at campaign END, the band systematically penalises campaigns that finish
+EARLY: M79's fixes made war decisive enough to end this one at y14, which is the entire reason the
+floor moved 15.5% → 10.8% → 8.5%.
+
+This is the same defect class as R9's 60-year clock, found by the rule R9 recorded: *check the
+slowest term before choosing a window*. It was written for the victory clock and applies verbatim to
+this filter.
+
+**Consequence for M79's fixes: they are band-NEUTRAL, not a regression.** Excluding the immature
+village, the package reads adult cohort 35.5% ✓ · monoculture 50% ✓ · changing hands 87.5% ✓ ·
+earliest victory y10 ✗ — 4 of 5, the same as baseline, while fixing two measured defects and
+recovering war activity the gate fix alone had suppressed.
+
+**Still not shipped, and deliberately so.** The floor is a RATIFIED band; correcting its filter is
+an owner decision, not mine, and this phase has three times shown my confident readings to be wrong.
+Proposed as **ADR-14 (DRAFT)**: raise the filter to at least one full maturation cycle — 14 years
+minimum, and 20 would be defensible since a cohort needs time to flow through, not merely to start.
+Ratify it and both M79 fixes land unchanged on top; reject it and the fixes stay out with the reason
+recorded. What must NOT happen is shipping them under the argument that "war legitimately costs an
+old village its adults" — that argument is now measurably false.
 
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against

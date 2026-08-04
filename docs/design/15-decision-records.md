@@ -960,3 +960,47 @@ substantial share of kingdom deaths in the matrix are not conquests at all — t
 capitals being walked into. M70.5's instrument correction and this record together mean **no
 statement about this project's war outcomes made before 2026-08-03 should be trusted without
 re-measurement.**
+
+---
+
+## ADR-14 — DRAFT (2026-08-03), from M79: the oldest-village floor filters at ten years, and one maturation cycle is fourteen
+
+**Context.** M62's ratified band set includes a hard floor: no village older than ten years may sit
+below 15% adults. M79's two war fixes appeared to break it (15.5% → 10.8% → 8.5%) and were withheld
+on that basis. Attributing the minimum to its campaign shows the failure is in the band:
+
+```
+hard seed=9001 · vi=28 age=14y adult=8.5% pop=392 children=320 · run: conquest y14
+```
+
+The campaign ended at year 14 on a conquest victory; the village is fourteen years old, holds 392
+people of whom **320 are children**, and its campaign recorded **zero capital falls**. It is a
+growing village caught mid-transient, not a war casualty.
+
+**The measurement error.** `MATURE_RATE` is `1/(14 years)`. A village admitted to the band at ten
+years has not completed a single cohort turnover, so the floor does not measure settled villages —
+it measures whichever admitted village is youngest. Because bands are read at campaign END, the
+band therefore penalises campaigns that finish EARLY, and any change that makes war more decisive
+will appear to break it. M79's fixes did exactly that.
+
+This is the same class as R9's 60-year clock and was found by the rule R9 recorded — *check the
+slowest term before choosing a window*. M70.6 had already measured that villages remain in
+demographic transient well past year 60; that finding applies to this filter and was not carried
+across.
+
+**Proposed decision.** Raise the filter to at least one full maturation cycle: **`ageYears > 14`
+minimum, `> 20` preferred** — a cohort needs time to flow through, not merely to begin. The floor's
+VALUE (15%) is not proposed for change; only the admission threshold, which was never the subject of
+the M62 measurement that set the value.
+
+**Why this is not restating a band to match an outcome.** The argument is independent of M79: the
+threshold is shorter than the model's own slowest constant, which was true when M62 ratified it and
+would be true if no fix had ever been attempted. The outcome-matching argument — "more war
+legitimately costs an old village its adults" — was the tempting one and is measurably FALSE here:
+the failing village lost nothing, it had simply not grown up yet.
+
+**Consequences if ratified.** M79's gate and estimate fixes land unchanged and the matrix reads 4 of
+5, equal to baseline, with two real defects closed and war activity restored. If rejected, both
+fixes stay out and this record says why. Either way `bench-balance.ts`'s band computation should
+carry village population and index so a future floor failure can be attributed in one run rather
+than sixteen probes.
