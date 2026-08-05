@@ -2135,13 +2135,34 @@ village, the package reads adult cohort 35.5% ✓ · monoculture 50% ✓ · chan
 earliest victory y10 ✗ — 4 of 5, the same as baseline, while fixing two measured defects and
 recovering war activity the gate fix alone had suppressed.
 
-**Still not shipped, and deliberately so.** The floor is a RATIFIED band; correcting its filter is
-an owner decision, not mine, and this phase has three times shown my confident readings to be wrong.
-Proposed as **ADR-14 (DRAFT)**: raise the filter to at least one full maturation cycle — 14 years
-minimum, and 20 would be defensible since a cohort needs time to flow through, not merely to start.
-Ratify it and both M79 fixes land unchanged on top; reject it and the fixes stay out with the reason
-recorded. What must NOT happen is shipping them under the argument that "war legitimately costs an
-old village its adults" — that argument is now measurably false.
+**SHIPPED, after ADR-14 was ratified (owner decision 2026-08-03).** The band's filter rose to
+`SETTLED_VILLAGE_YEARS = 20` — one maturation cycle plus room for a cohort to flow through — with
+the 15% value untouched, and both M79 fixes landed unchanged on top. `bench-balance.ts` now names
+the village defining the floor on every run, which ADR-14 required and which a `min` band cannot do
+without.
+
+| Band | baseline | shipped |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 35.5% ✓ |
+| settled-village floor (≥15%) | 15.5% ✓ | **21.8%** ✓ |
+| monoculture (≤60%) | 44% ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | 93.8% (84) ✓ | 87.5% (78) ✓ |
+| **green** | **4 of 5** | **4 of 5** |
+
+The war telemetry is where the fixes show: **47 sieges begun, 37 assaults resolved, 6 repelled, 33
+capitals fallen**, against M79's stalled `114 / 18 / 14 / 4`. Armies now decide the sieges they are
+conducting, and assault when they can actually win rather than holding against an estimate that read
+fortification the verdict never uses.
+
+**The promised check came back HALF satisfied, and is recorded as a limitation rather than a pass.**
+The floor was to hold because villages are genuinely mature, not because a number moved. The village
+now defining it is `age 27y, pop 246, children 172` — 21.8%, clearing 15% by 6.8 points. But M70.6
+measured settled villages at **46–66%** adults, so 27 years is still visibly climbing toward
+equilibrium. 20 years is closer to settled than 10; it is not settled. See ADR-14's limitation
+paragraph for what would actually eliminate the effect (≈40-year admission, age-normalisation, or
+reading bands at a fixed campaign year rather than at campaign end) — all larger than this scope, and
+none of them attempted here.
 
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against

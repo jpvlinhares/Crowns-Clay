@@ -963,7 +963,7 @@ re-measurement.**
 
 ---
 
-## ADR-14 — DRAFT (2026-08-03), from M79: the oldest-village floor filters at ten years, and one maturation cycle is fourteen
+## ADR-14 — ACCEPTED (2026-08-03), from M79: the oldest-village floor filters at ten years, and one maturation cycle is fourteen
 
 **Context.** M62's ratified band set includes a hard floor: no village older than ten years may sit
 below 15% adults. M79's two war fixes appeared to break it (15.5% → 10.8% → 8.5%) and were withheld
@@ -999,8 +999,25 @@ would be true if no fix had ever been attempted. The outcome-matching argument �
 legitimately costs an old village its adults" — was the tempting one and is measurably FALSE here:
 the failing village lost nothing, it had simply not grown up yet.
 
-**Consequences if ratified.** M79's gate and estimate fixes land unchanged and the matrix reads 4 of
-5, equal to baseline, with two real defects closed and war activity restored. If rejected, both
-fixes stay out and this record says why. Either way `bench-balance.ts`'s band computation should
-carry village population and index so a future floor failure can be attributed in one run rather
-than sixteen probes.
+**Ratified 2026-08-03 and measured.** `SETTLED_VILLAGE_YEARS = 20` shipped, the 15% value untouched,
+and `bench-balance.ts` now carries village population/children/index and NAMES the village defining
+the floor on every run — a `min` band is unattributable without it, and M79 spent a full bisection
+learning that. M79's gate and estimate fixes landed unchanged on top: the matrix reads **4 of 5**
+(adult cohort 35.5% · floor 21.8% · monoculture 50% · changing hands 87.5%), equal to baseline, with
+sieges moving from `114 begun / 18 resolved / 4 capitals fallen` to `47 / 37 / 33`.
+
+**Known limitation, recorded rather than declared solved: 20 years MITIGATES the effect, it does not
+eliminate it.** The village now defining the floor is `age 27y, pop 246, children 172` — 21.8%
+adults, passing with 6.8 points of margin. But M70.6 measured settled villages at **46–66%** adults,
+so a 27-year-old village is still visibly climbing toward equilibrium, not sitting at it. Two
+maturation cycles is closer than one; it is not "settled". A campaign ending around year 21–25 will
+still photograph a fairly young village, and the band will still be reading a transient — just a
+milder one.
+
+What would eliminate it rather than mitigate it: admit only villages past **two to three** full
+cycles (~40y), or normalise adult fraction against village age, or read the bands at a FIXED campaign
+year instead of at campaign end so the measurement stops depending on when the game happens to
+finish. All three are larger changes than this record's scope and none is proposed here. The reason
+this limitation is acceptable for now is that the band's purpose — catching the M61.5 collapse to
+~20 children per adult — is served at any of these thresholds; what it must not do is fail villages
+that are merely young, and at 20 years it no longer does within the measured matrix.

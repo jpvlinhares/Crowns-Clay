@@ -39,6 +39,19 @@ const argValue = (flag: string, fallback: number): number => {
   return Number.isFinite(v) ? v : fallback;
 };
 
+/**
+ * ADR-14: a village is only SETTLED once a birth cohort has flowed through to adulthood.
+ * `MATURE_RATE` is `1/(14 years)`, so the pre-ADR-14 filter of 10 years admitted villages that
+ * cannot yet HAVE a healthy adult fraction — births pile into the child bucket for over a decade
+ * before maturation delivers. The floor was therefore measuring whichever admitted village was
+ * YOUNGEST, and since bands are read at campaign END it penalised campaigns that finished early:
+ * `hard` seed 9001 ended on a y14 conquest and its 14-year-old village (392 people, 320 of them
+ * children, ZERO capital falls in the run) failed a band it was arithmetically unable to pass.
+ * 20 years, not the bare 14, so a cohort has time to flow through rather than merely begin.
+ * The floor's VALUE (15%) is untouched — only this threshold, which M62's measurement never set.
+ */
+export const SETTLED_VILLAGE_YEARS = 20;
+
 const YEARS = argValue('--years', DEFAULT_YEAR_LIMIT);
 const KINGDOMS = argValue('--kingdoms', 4);
 const SEEDS = argValue('--seeds', 3);
@@ -68,6 +81,10 @@ const index = (id: number): number => id & 0x3fffff;
  * run's final tick — age in years since `village.founded`, and the adult share of its cohorts.
  * Feeds the adult-cohort band below; not itself a pass/fail record. */
 interface VillageBand {
+  /** ADR-14: carried so a floor failure is attributable in ONE run instead of sixteen probes. */
+  readonly total: number;
+  readonly children: number;
+  readonly vi: number;
   readonly ageYears: number;
   readonly adultFraction: number;
 }
@@ -228,7 +245,7 @@ function runOne(seed: number, level: DifficultyLevel, kingdomCount: number): Run
       const total = children + adults + elders;
       if (total < 1) return; // razed/never-populated slot — nothing to measure
       const founded = foundedTick.get(vi) ?? 0;
-      villageBands.push({ ageYears: (currentTick - founded) / TICKS_PER_YEAR, adultFraction: adults / total });
+      villageBands.push({ ageYears: (currentTick - founded) / TICKS_PER_YEAR, adultFraction: adults / total, total, children, vi });
     });
 
     return {
@@ -358,8 +375,11 @@ if (REAL) {
   const allBands = clean.flatMap((r) => r.villageBands);
   const fractions = allBands.map((b) => b.adultFraction).sort((a, b) => a - b);
   const p10AdultFraction = percentile(fractions, 10);
-  const oldVillages = allBands.filter((b) => b.ageYears > 10);
+  const oldVillages = allBands.filter((b) => b.ageYears > SETTLED_VILLAGE_YEARS);
   const minOldFraction = oldVillages.length > 0 ? Math.min(...oldVillages.map((b) => b.adultFraction)) : null;
+  // ADR-14: name the village that DEFINES the floor, every run — the band is a `min`, so without
+  // this a failure costs a bisection to attribute (M79 spent one finding a 14-year-old village).
+  const floorVillage = oldVillages.reduce<VillageBand | null>((a, b) => (a === null || b.adultFraction < a.adultFraction ? b : a), null);
 
   // M70.5: `capitalFalls` belongs in this band and its absence was silently deflating it. A
   // capital that falls to an assault IS a village changing hands — it just publishes
@@ -387,7 +407,7 @@ if (REAL) {
 
   console.log(
     `\nM62 bands — adult cohort: p10 ${(p10AdultFraction * 100).toFixed(1)}% ` +
-      `(oldest-village floor ${minOldFraction === null ? 'n/a, no village >10y' : `${(minOldFraction * 100).toFixed(1)}%`}) · ` +
+      `(settled-village floor ${minOldFraction === null ? `n/a, no village >${SETTLED_VILLAGE_YEARS}y` : `${(minOldFraction * 100).toFixed(1)}% — vi=${String(floorVillage?.vi)} age=${floorVillage?.ageYears.toFixed(0)}y pop=${floorVillage?.total.toFixed(0)} children=${floorVillage?.children.toFixed(0)}`}) · ` +
       `war: ${changedHandsRuns}/${clean.length} campaign(s) saw a village change hands ` +
       `(${totalChanges} total changes — reported, not gated) · ` +
       `victory timing: earliest year ${minWinYear ?? 'n/a'}, median ${medianWinYear ?? 'n/a'} (reported) · ` +
@@ -399,7 +419,7 @@ if (REAL) {
     m62Failures.push(`adult-cohort p10 ${(p10AdultFraction * 100).toFixed(1)}% < 30% floor`);
   }
   if (minOldFraction !== null && minOldFraction < 0.15) {
-    m62Failures.push(`a village older than 10y has adult fraction ${(minOldFraction * 100).toFixed(1)}% < 15% hard floor`);
+    m62Failures.push(`a SETTLED village (>${SETTLED_VILLAGE_YEARS}y) has adult fraction ${(minOldFraction * 100).toFixed(1)}% < 15% hard floor — vi=${String(floorVillage?.vi)} age=${floorVillage?.ageYears.toFixed(0)}y pop=${floorVillage?.total.toFixed(0)}`);
   }
   if (changedHandsShare < 0.5) {
     m62Failures.push(`only ${(changedHandsShare * 100).toFixed(0)}% of campaigns saw a village change hands (need ≥50%)`);

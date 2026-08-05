@@ -447,8 +447,16 @@ export function registerAiMilitaryManager(
       const atWarTargets = diplomacy === undefined ? [] : allTargets.filter((t) => diplomacy.isAtWar(t.kingdomId as EntityId));
       const committedToWar = existingSiege !== undefined || atWarTargets.length > 0;
       if (!initiatesWar && !committedToWar) return;
-      if (committedCount(armyId) < WAR_MIN_STRENGTH) return;
 
+      // M79: the strength floor gates MARCHING, never an army's decision about the siege it is
+      // ALREADY conducting — so it sits BELOW the existing-siege branch, not above it.
+      //
+      // Above it, a besieging army that took attrition or upkeep desertion below WAR_MIN_STRENGTH
+      // was never consulted about its own siege again: it could not assault, could not lift, and
+      // the siege stood until something else ended it. Measured over 100-year campaigns, decision
+      // ticks lost this way outnumbered decisions actually made by ~340:1 and ~730:1 — the whole of
+      // M78's "96 sieges that never produced an assault". The exemption the plan check immediately
+      // above already grants ("a committed army must see its war through") was missing here.
       if (existingSiege !== undefined) {
         // M53: a fallen capital's fate belongs to succession — the army waits
         if (existingSiege.fallenDeadline !== 0) return;
@@ -471,6 +479,9 @@ export function registerAiMilitaryManager(
         }
         return;
       }
+
+      // M79: mustering floor for MARCHING — a field army needs real weight before it sets out.
+      if (committedCount(armyId) < WAR_MIN_STRENGTH) return;
 
       // ConquestWar/PunitiveRaid may march on any known enemy (declaring war below as needed); a
       // MilitaryBuildup continuation marches ONLY on enemies it is already at war with, so it
