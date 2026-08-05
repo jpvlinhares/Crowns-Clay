@@ -2164,6 +2164,60 @@ paragraph for what would actually eliminate the effect (≈40-year admission, ag
 reading bands at a fixed campaign year rather than at campaign end) — all larger than this scope, and
 none of them attempted here.
 
+**M77 re-measure (2026-08-03) — REJECTED A SECOND TIME, now on unambiguous evidence. It causes a
+demographic collapse in genuinely settled villages, and ADR-14's instrumentation is what proved the
+difference.**
+
+M77 was retried because the reason it failed first had since been fixed: with the walk-in path
+closed the AI had to storm capitals it used to walk into, and `114 sieges begun / 18 assaults
+resolved / 4 capitals fallen` said it could not. Both causes were fixed and shipped (M79), and the
+same telemetry now reads `47 / 37 / 33`. **A precondition genuinely changing is the only honest
+reason to retry a rejected milestone**, and it did.
+
+| Band | shipped (M79) | M77 retry |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 35.5% ✓ | **14.7%** ✗ |
+| settled-village floor (≥15%) | 21.8% ✓ | **4.9%** ✗ |
+| monoculture (≤60%) | 50% ✓ | **63%** ✗ |
+| earliest victory (≥y30) | y10 ✗ | **y25** ✗ |
+| changing hands (≥50%) | 87.5% ✓ | **31%** ✗ |
+| **green** | **4 of 5** | **1 of 5** |
+
+*The finding, and it is not a band artifact this time:*
+
+```
+settled-village floor 4.9% — vi=28 age=100y pop=551 children=492
+```
+
+**A HUNDRED-year-old village at 4.9% adults** — 492 children to roughly 50 adults. That is the
+M61.5 disaster signature (~20 children per adult) returning in a village seven maturation cycles
+old. Nothing about it is transient.
+
+*ADR-14 paid for itself here, immediately.* Under the old `ageYears > 10` filter this would have
+been indistinguishable from M79's 14-year-old village — both just "a low number". The permanent
+attribution names `age=100y` and settles it in one line: last time the band was wrong, this time the
+game is.
+
+*What it does confirm.* Earliest victory moved **y10 → y25** again, reproducing the M77 result
+exactly and independently re-confirming ADR-13's diagnosis: the y10 victories ARE ungarrisoned
+capitals being walked into. The defect is real; this remains the wrong cure.
+
+*Mechanism — a hypothesis, explicitly NOT a finding.* Changing hands fell to 31%, so wars that
+cannot conclude persist, and a persistent war recruits continuously at 10 adults a unit. Sustained
+war would then drain adults indefinitely, which fits both the cohort collapse and the settled-village
+floor. **This is not measured.** M70.6 refuted war-consumption as the driver of an adult-fraction
+fall once already, on a different tree, and this phase has produced four wrong causes by reasoning
+ahead of measurement. It needs the M70.6 treatment — per-village cohort accounting under M77 —
+before anyone acts on it.
+
+*Not shipped, for the second time.* ADR-13's defect stays open and its record already says the
+implementation is blocked. What is now known that was not before: the block is not AI competence
+(M79 fixed that and the retry still failed), and the cost is not a measurement artifact (the village
+is 100 years old). **Closing ADR-13 requires a route that does not stop capitals changing hands** —
+teaching occupation to open the succession window, which M77 rejected on inspection because
+succession is siege-centric, is the remaining candidate and is a larger piece of work than either
+attempt so far.
+
 **Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
 premise that measurement dissolved; these are ratified now, before the fixes they measure, against
 what is actually known.**

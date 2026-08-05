@@ -953,6 +953,17 @@ now measured: with the walk-in path removed, 78% of assaults are repelled and 4 
 42 fell before. **The AI cannot storm a defended castle, and the occupation bypass was hiding it.**
 This record's decision stands; its implementation is blocked on AI assault competence.
 
+**Second outcome (2026-08-03), after that block was cleared.** M79 fixed the assault competence this
+record was waiting on (sieges moved from `114 begun / 18 resolved / 4 capitals fallen` to
+`47 / 37 / 33`) and M77 was retried on that tree. It failed again, harder: **1 of 5 bands**, with a
+**hundred-year-old village at 4.9% adults** (551 people, 492 of them children) — the M61.5 disaster
+signature in a village seven maturation cycles old, so not a measurement artifact. Changing hands
+fell 87.5% → 31%. Earliest victory again moved y10 → y25, re-confirming this record's DIAGNOSIS for
+a second time. **The decision stands and the implementation route does not: making capitals
+non-occupiable stops capitals changing hands.** The remaining candidate is the one M77 rejected on
+inspection — teaching the occupation path to open the succession window, which needs succession
+decoupled from its siege-centric resolution first, and is larger than either attempt so far.
+
 **Consequences.** Phase 10 gains M77. Until it ships, the earliest-victory band stays red and Gate
 P10 cannot pass — correctly, because the defect is real. This also revises the reading of ADR-5 and
 M66: the war track was described as "effectively dormant until AI war competence rises", but a
