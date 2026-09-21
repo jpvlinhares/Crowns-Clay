@@ -23,8 +23,12 @@ export const TENSION_EVENT_WEIGHTS: Readonly<Record<string, number>> = {
   'diplomacy.warDeclared': 0.3,
   'diplomacy.joinedWar': 0.2,
   'siege.begun': 0.5,
-  'siege.assaultBegun': 0.4,
+  // M70.5: was `siege.assaultBegun` — an event NO code in this repository publishes, so this
+  // weight had never once contributed heat. The real event is `siege.assaultResolved` (assault.ts),
+  // and it fires on repulse as well as capture, which is the right moment for the music to spike.
+  'siege.assaultResolved': 0.4,
   'siege.sortieBegun': 0.3,
+  'siege.capitalFallen': 0.5,
   'battle.resolved': 0.35,
   'defeat.kingdom': 0.2,
   'village.starving': 0.15,

@@ -105,6 +105,12 @@ export interface EconomyGameplay {
   /** Per-building local storage (doc 06 §2 `inventory`; code → amount). */
   readonly BuildingInventory: ObjectComponent<Map<number, number>>;
   readonly ledger: ResourceLedger;
+  /** Late-bound research hook: does the kingdom owning `villageIndex` know `techId`?
+   * Economy registers BEFORE research in `composeCampaign`, so this is set afterwards —
+   * the same late-binding pattern `setOwnershipGuard` and `registerUnitExtension` use.
+   * UNSET (terra, the AI harness, most tests) ⇒ no boost ever applies, so those
+   * compositions stay byte-identical. */
+  setKnowsTech(fn: (villageIndex: number, techId: string) => boolean): void;
   /** Effective cap for a resource in a village (storage ∧ player limit). */
   capOf(villageIndex: number, resourceCode: number): number;
   /**
@@ -124,6 +130,9 @@ export function registerEconomyGameplay(
   game: VillageGameplay,
   mods: StatModifierView = INERT_MODIFIERS,
 ): EconomyGameplay {
+  // M-era research reward (BuildingDef.techBoost, applies: 'output'): set by campaign.ts once
+  // research exists. The 'research' variant is applied by game/research.ts, which owns that rate.
+  let knowsTech: ((villageIndex: number, techId: string) => boolean) | null = null;
   const { VillageCore, Stockpile, BuildingCore } = game.comps;
   const ledger = new ResourceLedger();
 
@@ -219,6 +228,13 @@ export function registerEconomyGameplay(
         const vi = index(b.village[i] as number);
         const inventory = inventories.tryGet((entity as number) & 0x3fffff);
         if (inventory === undefined) return;
+        // M-era: a researched yield boost multiplies this def's OUTPUTS only (inputs are
+        // untouched — it is a better harvest, not a cheaper recipe). 1 whenever the hook is
+        // unset (terra/harness) or the tech is unknown, so this is inert by default.
+        const boost =
+          def.techBoost?.applies === 'output' && knowsTech !== null && knowsTech(vi, def.techBoost.tech)
+            ? def.techBoost.multiplier
+            : 1;
         for (const recipe of def.recipes) {
           // one batch fraction for the whole recipe: efficiency ∧ inputs ∧ outbox headroom
           let fraction = efficiency;
@@ -229,10 +245,12 @@ export function registerEconomyGameplay(
             fraction = Math.min(fraction, (inventory.get(code) ?? 0) / perTick);
           }
           for (const y of recipe.outputs) {
-            const perTick = y.perDay / TICKS_PER_DAY;
+            const perTick = (y.perDay * boost) / TICKS_PER_DAY;
             if (perTick <= 0) continue;
             const code = game.ops.resourceCode(y.resource) as number;
-            const outboxCap = y.perDay * OUTBOX_DAYS;
+            // the buffer holds the same NUMBER OF DAYS of output, so it scales with the boost —
+            // otherwise the cap would throttle a boosted building straight back to base yield
+            const outboxCap = y.perDay * boost * OUTBOX_DAYS;
             fraction = Math.min(fraction, Math.max(0, outboxCap - (inventory.get(code) ?? 0)) / perTick);
           }
           if (fraction <= 0) continue;
@@ -244,7 +262,7 @@ export function registerEconomyGameplay(
           }
           for (const y of recipe.outputs) {
             const code = game.ops.resourceCode(y.resource) as number;
-            const amount = (y.perDay / TICKS_PER_DAY) * fraction;
+            const amount = ((y.perDay * boost) / TICKS_PER_DAY) * fraction;
             inventory.set(code, (inventory.get(code) ?? 0) + amount);
             ledger.record(vi, code, 'produced', amount);
           }
@@ -309,6 +327,7 @@ export function registerEconomyGameplay(
   kernel.registerSystem(spoilage);
 
   return {
+    setKnowsTech(fn): void { knowsTech = fn; },
     StockLimits,
     BuildingInventory,
     ledger,

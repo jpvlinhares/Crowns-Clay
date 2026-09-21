@@ -442,7 +442,12 @@ snowballs.
 **Purpose.** Give campaigns endings worth pursuing while honouring sandbox players.
 
 **Player interactions.** Chosen at world creation (any subset enabled): 
-- **Conquest** — control ≥N% of settled villages or eliminate all rivals.
+- **Conquest** — eliminate all rivals (defeated or vassalised). *M66 delta (doc 12 Phase 9;
+  ADR-5's outcome): the "control ≥N% of settled villages" half is RETIRED. Village share let a
+  realm win the war track by out-settling — a measured campaign declared conquest in year 9 with
+  zero captures, zero occupations and zero eliminations. Re-basing the share on villages taken by
+  force was tried and fired in 0 of 16 campaigns at the shipped AI's war competence, so
+  elimination is now the whole rule.*
 - **Hegemony** — all surviving kingdoms are allies or vassals for X years.
 - **Legacy** — complete the Grand Wonder chain (massive multi-era economic project).
 - **Prosperity** — reach prosperity/happiness thresholds realm-wide for X years.

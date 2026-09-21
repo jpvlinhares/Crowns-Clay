@@ -125,6 +125,119 @@
     ],
     "tags": ["tutorial"],
   },
+  // ---- M67 (doc 12 Phase 9; ADR-6): REACHABILITY steps. ADR-6 trimmed onboarding from a
+  // guided tutorial to "name the panel and its gate" — the M61.5 review found a build with
+  // thirteen panels whose tutorial stopped at taxes, so the entire campaign half of the game
+  // (diplomacy, war, research, victory, and the castle layer) was undiscoverable. These do NOT
+  // teach the systems; each one says where the panel is and what unlocks it. Deliberately no
+  // material reward (`effects: []`) — being shown a menu should not pay you, unlike the year-0
+  // economy steps above, which grant a nudge because they ask for real work.
+  //
+  // ALL five are gated behind `village.tier >= 2`, which is not arbitrary: the Keep's own
+  // `requires.villageTier: 2` makes the castle layer literally unreachable before then, and
+  // recruiting drains an adult workforce a tier-1 hamlet cannot spare. Tier 2 is also the
+  // earliest thing the closed DSL can say that means "a going concern" — the obvious
+  // `village.happiness` gate defers NOTHING, because a fresh village is already content (an
+  // earlier draft fired the diplomacy step on day 1, ahead of the welcome message, and in the
+  // single-kingdom terra sandbox where there are no neighbours to talk to). Distinct season terms
+  // spread the cluster over the calendar instead of dumping five notices in one week.
+  //
+  // KNOWN LIMITATION: the DSL (OQ-3, DSL-only) has no predicate for "this composition has rival
+  // kingdoms", so a terra sandbox that reaches tier 2 will still see the campaign-half hints.
+  // Tier 2 at least makes them late and rare there rather than immediate.
+  {
+    "id": "base:event.tutorial.diplomacy",
+    "name": "The Neighbours",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    // Tier-2 gated with the rest of the campaign-half cluster. A fresh village is already
+    // CONTENT, so the obvious `village.happiness` gate defers nothing — it fired on day 1, ahead
+    // of the welcome step, and in the single-kingdom terra sandbox where there are no neighbours
+    // at all. Tier 2 is the earliest signal in the closed DSL that means "a going concern".
+    "trigger": { "all": [{ "stat": "village.tier", "gte": 2 }, { "season": "autumn" }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.diplomacy.title",
+      "body": "event.tutorial.diplomacy.body",
+    },
+    "choices": [
+      { "id": "ack", "text": "event.tutorial.diplomacy.choice.ack", "effects": [] },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.research",
+    "name": "Scholars and Scribes",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    // The only one of the five without a season term — it fills whichever gap the other four
+    // leave, so the cluster arrives spread out rather than four notices in one week.
+    "trigger": { "all": [{ "stat": "village.tier", "gte": 2 }, { "stat": "village.foodSecurity", "gte": 0.9 }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.research.title",
+      "body": "event.tutorial.research.body",
+    },
+    "choices": [
+      { "id": "ack", "text": "event.tutorial.research.choice.ack", "effects": [] },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.castle",
+    "name": "The Keep and the Ground Beyond It",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    // THE important one. The defence layer — the whole of Phases 8 and 8.1 — is gated on a
+    // single village-map building, and until now nothing told the player that.
+    "trigger": { "all": [{ "stat": "village.tier", "gte": 2 }, { "season": "spring" }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.castle.title",
+      "body": "event.tutorial.castle.body",
+    },
+    "choices": [
+      { "id": "ack", "text": "event.tutorial.castle.choice.ack", "effects": [] },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.military",
+    "name": "Levies and Their Cost",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "all": [{ "stat": "village.tier", "gte": 2 }, { "season": "winter" }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.military.title",
+      "body": "event.tutorial.military.body",
+    },
+    "choices": [
+      { "id": "ack", "text": "event.tutorial.military.choice.ack", "effects": [] },
+    ],
+    "tags": ["tutorial"],
+  },
+  {
+    "id": "base:event.tutorial.victory",
+    "name": "How This Ends",
+    "pool": "tutorial",
+    "scope": "kingdom",
+    "trigger": { "all": [{ "stat": "village.tier", "gte": 2 }, { "season": "summer" }] },
+    "weight": 40,
+    "once": true,
+    "text": {
+      "title": "event.tutorial.victory.title",
+      "body": "event.tutorial.victory.body",
+    },
+    "choices": [
+      { "id": "ack", "text": "event.tutorial.victory.choice.ack", "effects": [] },
+    ],
+    "tags": ["tutorial"],
+  },
   {
     "id": "base:event.tutorial.complete",
     "name": "A Kingdom, Not Just a Village",

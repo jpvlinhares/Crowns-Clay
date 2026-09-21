@@ -38,10 +38,24 @@ const index = (id: number): number => id & 0x3fffff;
 /** Attack strength one garrisoned man adds to the resistance estimate — mirrors the
  * resolver's `count × stats.attack` keep verdict at the spearman baseline (attack 5). */
 export const ESTIMATE_STRENGTH_PER_MAN = 5;
-/** Estimated resistance a standing tower adds (chip fire over the approach). */
-export const ESTIMATE_TOWER_RESISTANCE = 15;
-/** Estimated resistance a wall segment adds (time under fire while breaking it). */
-export const ESTIMATE_WALL_RESISTANCE = 2;
+/**
+ * M79: fortification scales the estimate MULTIPLICATIVELY, because that is what it does.
+ *
+ * The pre-M79 form added `15` per tower and `2` per wall in the SAME UNITS as the keep's hold
+ * threshold. The resolver's verdict is `strength >= keepThreshold + rally` — keep hold plus the
+ * SURVIVING GARRISON's defence, and nothing else. Walls and towers never enter it; they bleed the
+ * column on the approach. Measured, that mismatch inflated the estimate three- to six-fold: with a
+ * believed garrison of ZERO it returned 184-365 against a true requirement of 60, so an army at
+ * strength 171 was counselled to hold. Counsel outcomes were hold 21, lift 27, assault 4.
+ *
+ * The honest shape is a fraction of the column removed before it arrives, not a second keep to
+ * beat: `(keepHold + garrison) x (1 + attrition)`. Towers dominate (fire every round in range);
+ * walls cost only the time spent breaking them. Values are first-pass, set against the measured
+ * spread and confirmed by matrix run rather than derived from the damage model.
+ */
+export const ESTIMATE_TOWER_ATTRITION = 0.15;
+/** Walls only cost the column the time it spends breaking them — an order below a tower's fire. */
+export const ESTIMATE_WALL_ATTRITION = 0.01;
 /** Below this fraction of the estimated resistance the escalade is HOPELESS —
  * the AI's counsel becomes 'lift' (walk away) rather than an eternal parked siege. */
 export const ASSAULT_HOPELESS_FRACTION = 0.5;
@@ -122,14 +136,17 @@ export function estimateAssaultResistance(
   defOf: (defId: string) => BuildingDef | undefined,
   keepHoldStrength: number,
 ): number {
-  let resistance = keepHoldStrength;
+  // M79: mirror the resolver's verdict — keep hold plus what the garrison musters — then scale by
+  // the approach attrition the fortification is expected to inflict. See the constants above.
+  const atKeep = keepHoldStrength + Math.max(0, believedGarrison) * ESTIMATE_STRENGTH_PER_MAN;
+  let attrition = 0;
   for (const s of structures) {
     const def = defOf(s.def);
     const kind = def?.defense?.kind;
-    if (kind === 'tower') resistance += ESTIMATE_TOWER_RESISTANCE;
-    else if (kind === 'wall' || kind === 'gate') resistance += ESTIMATE_WALL_RESISTANCE;
+    if (kind === 'tower') attrition += ESTIMATE_TOWER_ATTRITION;
+    else if (kind === 'wall' || kind === 'gate') attrition += ESTIMATE_WALL_ATTRITION;
   }
-  return resistance + Math.max(0, believedGarrison) * ESTIMATE_STRENGTH_PER_MAN;
+  return atKeep * (1 + attrition);
 }
 
 // ---------------------------------------------------------------- registrar

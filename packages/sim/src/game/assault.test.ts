@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { composeCampaign } from '../campaign.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
 import { DEFENCE_KEEP_CENTRE, KEEP_DEF, defenceFootprintOf, originFromCentre } from './defence.js';
+import { TOWER_ATTACK, TOWER_EXPOSURE_FLOOR } from './assault.js';
 
 const SEED = 0xa55a17;
 
@@ -163,6 +164,52 @@ test('assault: a strong column takes an unwalled capital; ownership and capital 
   assert.equal(d.c.villageOf(1), null, 'the loser owned only its capital — binding deleted');
 });
 
+// M72 (the M70 finding): a river across one approach must not make a castle unassailable.
+// Pre-M72 the column only ever considered `input.origin`; when no tile on that edge could reach
+// the keep it entered there anyway, `pickWallTarget` returned null (nothing to break — the wall
+// it assumed does not exist), and the assault was "repelled" in round one having struck no blow
+// and taken no casualty. Nothing was damaged, so the next attempt was identical, forever: M70
+// measured one campaign spending NINETEEN assaults that way and taking the castle none of them.
+// Measured over 800 base defence maps, at most two of four approaches are ever severed, so
+// marching around is always possible — and is what a besieging army would obviously do.
+test('assault: a severed approach makes the column march around, not fail without a fight', () => {
+  const d = driver(compose());
+  const { v1, armyId } = besiegeCapital(d, 3); // the same column that captures from an open edge
+
+  // sever the LEFT approach with a full-height water strip, exactly as `generateDefenceMap` can
+  const map = d.c.defenceGame.mapOf(v1);
+  assert.ok(map !== undefined, 'the capital has a defence layer');
+  const cut = 6; // inside the map, outside the keep's guaranteed clearing
+  for (let y = 0; y < DEFENCE_MAP_SIZE; y++) {
+    for (let w = 0; w < 3; w++) map.tiles[y * DEFENCE_MAP_SIZE + cut + w] = DEFENCE_TILE.water;
+  }
+
+  d.submit('siege.assault', { armyId, origin: 'left' }, 1);
+  const r = d.resolved();
+  assert.ok(r !== undefined, 'the assault resolved');
+  assert.notEqual(r['origin'], 'left', 'the column reports the edge it ACTUALLY entered by');
+  assert.equal(r['outcome'], 'captured', 'a river delays the column; it does not defeat it');
+  assert.ok(d.events.some((e) => e.type === 'siege.captured'), 'castle captured');
+});
+
+// The guard that would have caught M70 directly: every assault must DO something. M70's failure
+// traced `enter` → `repelled` and nothing else — no keep reached, no wall struck, no garrison met,
+// no casualty on either side. A null event dressed as a defeat, and repeatable forever because it
+// changed no state. Note this deliberately does NOT assert that a repulse costs casualties: a
+// column that walks to an undefended keep and is turned away under `holdStrength` legitimately
+// costs nothing (the test above pins that rule). What must never happen is arriving nowhere.
+test('assault: every assault reaches something — no null repulse', () => {
+  const d = driver(compose());
+  const { armyId } = besiegeCapital(d, 1); // 10 men, strength 50 < holdStrength 60 — genuinely repelled
+  d.submit('siege.assault', { armyId, origin: 'left' }, 1);
+  const r = d.resolved();
+  assert.ok(r !== undefined);
+  assert.equal(r['outcome'], 'repelled');
+  const kinds = new Set((r['trace'] as { kind: string }[]).map((t) => t.kind));
+  const engaged = ['keep', 'wall', 'breach', 'clash', 'tower'].filter((k) => kinds.has(k));
+  assert.ok(engaged.length > 0, `the column must reach the keep or meet a defence, saw only [${[...kinds].join(', ')}]`);
+});
+
 test('assault: a token column is repelled at the keep threshold; the siege stands', () => {
   const d = driver(compose());
   const { armyId } = besiegeCapital(d, 1); // 10 men, strength 50 < holdStrength 60
@@ -215,6 +262,23 @@ test('assault: a garrison bleeds the column — and a big one repels it outright
   assert.ok((r['trace'] as { kind: string }[]).some((t) => t.kind === 'clash'), 'the garrison fought');
   assert.equal(r['outcome'], 'repelled', 'a full keep-ring garrison repels a 3-unit column (defender advantage)');
   assert.ok((r['attackerLoss'] as number) > baselineLoss, 'the garrison cost the attacker real casualties');
+});
+
+// M78: tower fire must never ACCELERATE as the column it is shooting shrinks. The pre-M78 volley
+// divided by the live count, so damage per round diverged as men fell and fed straight back into
+// the casualty term — a death spiral whose end state the M78 probe measured: columns of 33, 36 and
+// 41 men wiped TO THE LAST MAN on the approach to castles holding no garrison at all, while every
+// column that reached the keep took it with 2.5-3x the strength needed. This pins the property
+// directly rather than an outcome, because outcomes here sit on a knife-edge (captures reached the
+// keep at round 47; wipes were still advancing at 51-58) and would make a flaky test.
+test('assault: tower fire never concentrates harder as the column dies (no death spiral)', () => {
+  const damageAt = (men: number): number => (TOWER_ATTACK / Math.max(TOWER_EXPOSURE_FLOOR, men)) * 1;
+  // above the floor, fewer men DOES mean a harder-biting volley — the intended curve, kept
+  assert.ok(damageAt(100) < damageAt(40), 'a host soaks a volley a raiding party would not');
+  assert.ok(damageAt(40) < damageAt(TOWER_EXPOSURE_FLOOR), 'the curve still bites down to the floor');
+  // at and below the floor it STOPS concentrating — this is the whole fix
+  assert.equal(damageAt(TOWER_EXPOSURE_FLOOR), damageAt(5), 'fire does not intensify on a dying column');
+  assert.equal(damageAt(5), damageAt(1), 'and not on its last man either');
 });
 
 test('assault: walls must be broken through — the trace shows wall-hits and breaches, and structures really fall', () => {

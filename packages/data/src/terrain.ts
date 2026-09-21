@@ -196,6 +196,23 @@ export class DefinitionDatabase {
         integrity.push(`unit '${u.id}' requiresTech references unknown tech '${u.requiresTech}'`);
       }
     }
+    // M-era: same referential rule for a building's research yield boost — a typo'd tech id
+    // would otherwise fail SILENTLY (the boost simply never applies), which is exactly the
+    // class of inert-content bug the tech tree's own unenforced `unlocks` demonstrated.
+    // The `applies` discriminator gets the same treatment: boosting an output on a def with
+    // no recipes (or research on a def that generates none) is inert in exactly that way.
+    for (const b of buildings) {
+      if (b.techBoost === undefined) continue;
+      if (!techMap.has(b.techBoost.tech)) {
+        integrity.push(`building '${b.id}' techBoost references unknown tech '${b.techBoost.tech}'`);
+      }
+      if (b.techBoost.applies === 'output' && b.recipes === undefined) {
+        integrity.push(`building '${b.id}' techBoost applies to 'output' but the def has no recipes`);
+      }
+      if (b.techBoost.applies === 'research' && b.research === undefined) {
+        integrity.push(`building '${b.id}' techBoost applies to 'research' but the def has no research yield`);
+      }
+    }
     for (const t of techs) {
       for (const preId of t.prerequisites) {
         const pre = techMap.get(preId);

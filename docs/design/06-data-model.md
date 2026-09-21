@@ -340,9 +340,14 @@ relational class keyed by kingdom EntityId — same reasoning as `DiplomacyState
 per-kingdom defaults need no genesis-system ordering. One kingdom researches one tech at a
 time (`kingdom.setActiveResearch`); **era gates** (GDD §9 "require breadth") check the
 CONTENT's actual per-era tech count — `ERA_BREADTH_FRACTION` (0.6) of the prior era must be
-known before starting the next. `unlocks` are validated referentially but NOT enforced against
-`village.build`/`army.recruitUnit` yet (`hasUnlocked` is a queryable convenience) — the same
-"data now, active later" precedent M25 set for `BuildingDef.military.garrisonCap`. `ransom`
+known before starting the next. `unlocks` is validated referentially but is **advisory only** —
+nothing enforces it and no UI shows it (`hasUnlocked` is a queryable convenience with no callers).
+Buildings are not gated by tech **at all**: ADR-12 deleted every `unlocks.buildings` claim in base
+content and replaced the honest ones with `BuildingDef.techBoost { tech, multiplier, applies }`,
+which multiplies a def's recipe outputs (`applies: 'output'`) or its `research.pointsPerDay`
+(`applies: 'research'`) once the OWNING kingdom knows the tech — a reward, never a gate. Units are
+gated for real, but by the separate `UnitDef.requiresTech` (M45), not by `unlocks.units`; edicts are
+gated by nothing. `ransom`
 (GDD §9 diplomacy acquisition) stays out of scope (Characters, M34); the era pacing sim T
 objective is proven in game/research.test.ts (a bounded budget reaches real coverage without
 ever completing a later-era tech before its era's breadth gate clears).

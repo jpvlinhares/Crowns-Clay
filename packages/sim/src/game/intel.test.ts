@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { composeCampaign } from '../campaign.js';
 import { TICKS_PER_DAY } from '../time.js';
 import { SCOUT_REVEAL_RADIUS } from '../ai/scouting.js';
-import { estimateAssaultResistance, ESTIMATE_TOWER_RESISTANCE, ESTIMATE_WALL_RESISTANCE, ESTIMATE_STRENGTH_PER_MAN } from './intel.js';
+import { estimateAssaultResistance, ESTIMATE_TOWER_ATTRITION, ESTIMATE_WALL_ATTRITION, ESTIMATE_STRENGTH_PER_MAN } from './intel.js';
 import { DEFENCE_KEEP_CENTRE, KEEP_DEF } from './defence.js';
 import { DEFENCE_MAP_SIZE, DEFENCE_TILE } from '../worldgen/defenceMap.js';
 
@@ -183,7 +183,10 @@ test('garrison belief: exact at fresh contact (confidence 1 ⇒ no noise), absen
   assert.equal(c.believedGarrisonOf(0, 1), 10, 'freshly observed garrison is exact');
 });
 
-test('estimateAssaultResistance: keep + walls + towers + believed men, and nothing else', () => {
+// M79: the estimate mirrors the RESOLVER's verdict — `keepHold + garrison` — scaled by the approach
+// attrition the fortification inflicts. It used to ADD tower/wall resistance in keep-hold units,
+// which the verdict never reads.
+test('estimateAssaultResistance: mirrors the keep verdict, scaled by fortification attrition', () => {
   const c = compose();
   const holdStrength = c.db.buildings.get(KEEP_DEF)?.defense?.holdStrength ?? 0;
   assert.ok(holdStrength > 0);
@@ -193,14 +196,18 @@ test('estimateAssaultResistance: keep + walls + towers + believed men, and nothi
   assert.equal(c.db.buildings.get('base:building.tower')?.defense?.kind, 'tower');
 
   assert.equal(estimateAssaultResistance([], 0, defOf, holdStrength), holdStrength);
+  // garrison enters in the verdict's own units
+  assert.equal(estimateAssaultResistance([], 20, defOf, holdStrength), holdStrength + 20 * ESTIMATE_STRENGTH_PER_MAN);
+  // fortification SCALES that requirement rather than adding to it
   assert.equal(
     estimateAssaultResistance([wall, wall], 0, defOf, holdStrength),
-    holdStrength + 2 * ESTIMATE_WALL_RESISTANCE,
+    holdStrength * (1 + 2 * ESTIMATE_WALL_ATTRITION),
   );
   assert.equal(
     estimateAssaultResistance([tower], 20, defOf, holdStrength),
-    holdStrength + ESTIMATE_TOWER_RESISTANCE + 20 * ESTIMATE_STRENGTH_PER_MAN,
+    (holdStrength + 20 * ESTIMATE_STRENGTH_PER_MAN) * (1 + ESTIMATE_TOWER_ATTRITION),
   );
+  assert.ok(ESTIMATE_TOWER_ATTRITION > ESTIMATE_WALL_ATTRITION * 5, 'a tower dominates a wall');
 });
 
 test('intel survives save/load: snapshot identical, sessions stay in lockstep', () => {

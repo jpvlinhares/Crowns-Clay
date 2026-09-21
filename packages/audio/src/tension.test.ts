@@ -22,7 +22,7 @@ test('tension: a single mid-weight event crosses into tense but not combat', () 
   const t = new TensionTracker();
   t.push(ev('diplomacy.warDeclared', 1)); // weight 0.3, just under TENSE_ENTER (0.35)... plus decay
   assert.equal(t.current(), 'calm');
-  t.push(ev('siege.assaultBegun', 2)); // +0.4 → well past TENSE_ENTER, short of COMBAT_ENTER
+  t.push(ev('siege.assaultResolved', 2)); // +0.4 → well past TENSE_ENTER, short of COMBAT_ENTER
   assert.equal(t.current(), 'tense');
   assert.ok(t.currentHeat() < COMBAT_ENTER);
 });

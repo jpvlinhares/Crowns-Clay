@@ -10,7 +10,7 @@
 import type { AudioCatalog, CampaignSettings, FromSimMessage, ModReconciliation, ModReport, PanelArmyRec, PanelDefencePostRec, PanelDefenceState, PanelDefenceStructureRec, PanelEnemyIntelRec, PanelKingdomRec, PanelUnitRec, PlayerPanels, TerrainSnapshot, ToSimMessage, TransportPort, UICatalog, WorldMeta } from '@crowns/protocol';
 import { EXAMPLE_MOD_FILES, parseModManifestPreview, type DefinitionDatabase, type LoadReport, type ModSource } from '@crowns/data';
 import {
-  DEFENCE_MAP_SIZE, STANCES, TickDriver, composeCampaign, defenceFootprintOf, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
+  DEFENCE_MAP_SIZE, STANCES, TickDriver, calendarFromTick, composeCampaign, defenceFootprintOf, difficultyFromSettings, encodeDefenceMap, reconcileModManifest, modReconciliationHasFindings, victoryFromSettings,
   type CampaignComposition, type CampaignSave, type Kernel, type SaveManager, type TickResult, type World,
 } from '@crowns/sim';
 import type { EntityId, Locale } from '@crowns/core';
@@ -18,7 +18,7 @@ import { choiceOutcomes } from './eventOutcomes.js';
 import { SnapshotEmitter } from './snapshots.js';
 import { BuildingEmitter, RoadEmitter, TerritoryEmitter, VillageStatsEmitter } from './buildingEmitter.js';
 import { composeTerra, type ModSelection, type SandboxOptions } from './terra.js';
-import { autosaveSlot, estimateStorage, getSlot, isStorageTight, pruneAutosaveRing, putSlot, requestPersistence } from './saveStore.js';
+import { autosaveSlot, estimateStorage, getSlot, isStorageTight, listSlots, pruneAutosaveRing, putSlot, requestPersistence } from './saveStore.js';
 
 /** Every mod bundled with this build, available for the Mods screen to enable (roadmap M39). */
 export const AVAILABLE_MODS: readonly { readonly dir: string; readonly id: string; readonly name: string; readonly version: string; readonly tags: readonly string[] }[] =
@@ -434,6 +434,15 @@ export function createSession(
     });
     return home;
   };
+  // The Joy panel's food factor must come from TODAY's fed fraction, not from
+  // `Population.foodSecurity` (a ~7-day EMA that drives births and starvation deaths).
+  // population.ts already publishes exactly that as `village.fed`, so the emitter LISTENS
+  // rather than the component gaining a new hashed field — this stays presentation-only and
+  // hash-inert (no fixture, save-schema or migration impact).
+  const villageEmitter = new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods, c.kingdomGame);
+  c.kernel.subscribe<{ village: number; eaten: number; need: number }>('village.fed', (event) => {
+    villageEmitter.noteFed(event.data.village & 0x3fffff, event.data.eaten, event.data.need);
+  });
   return {
     panels,
     catalog,
@@ -477,7 +486,7 @@ export function createSession(
     terrain,
     world: c.world,
     buildingEmitter: new BuildingEmitter(c.world, c.game),
-    villageEmitter: new VillageStatsEmitter(c.world, c.game, c.popGame.Population, c.db, c.statMods, c.kingdomGame),
+    villageEmitter: villageEmitter,
     roadEmitter: new RoadEmitter(c.logiGame.roads),
     territoryEmitter: new TerritoryEmitter(c.world, c.game, c.kingdomGame, fog),
     saves: c.saves,
@@ -731,6 +740,30 @@ export function connectKernelToPort(port: TransportPort, clock?: () => number): 
           return;
         case 'exportSave':
           if (session !== null) send({ kind: 'exportResult', payload: JSON.stringify(session.saves.snapshot()) });
+          return;
+        case 'listSlots':
+          void listSlots().then((names) =>
+            Promise.all(
+              names.map(async (slot) => {
+                const payload = await getSlot(slot);
+                if (payload === undefined) return { slot, bytes: 0 };
+                // a peek at the header only — never hydrates. Any parse failure (corrupt or
+                // foreign payload) still lists the slot by name/size, just without the detail.
+                try {
+                  const save = JSON.parse(payload) as CampaignSave;
+                  const date = calendarFromTick(save.header.tick);
+                  return {
+                    slot,
+                    bytes: payload.length,
+                    date: `Year ${date.year} · ${date.seasonName} · day ${date.day + 1}`,
+                    kingdomCount: save.header.campaign?.kingdomCount ?? 1,
+                  };
+                } catch {
+                  return { slot, bytes: payload.length };
+                }
+              }),
+            ),
+          ).then((slots) => send({ kind: 'slotsList', slots }));
           return;
         case 'importSave':
           loadFromPayload(message.payload);

@@ -48,6 +48,23 @@ export const ASSAULT_WALL_DAMAGE = 30;
  * payoff); these are only the fallbacks for a tower def that carries none. */
 export const TOWER_ATTACK = 12;
 export const TOWER_RANGE = 6; // Chebyshev, from the tower's origin tile
+/**
+ * M78: the column size below which tower fire stops CONCENTRATING.
+ *
+ * Tower damage is deliberately count-relative — "a volley into 20 raiders bites hard, the same
+ * volley into a 100-man host mostly chips morale" — but `towerDamage / attackerCount` DIVERGES as
+ * the column shrinks, and the losses feed straight back into the count. That is a death spiral,
+ * and the M78 probe measured its end state: columns of 33, 36 and 41 men annihilated **to the last
+ * man** on the approach to castles holding **no garrison at all**, while every column that reached
+ * the keep took it with 2.5-3× the strength required. Forty men take `12/40` per tower per round;
+ * four men take `12/4` — ten times the morale damage into a tenth of the force.
+ *
+ * Flooring the divisor keeps the whole intended curve (a small raiding party still suffers far more
+ * per man than a host) and removes only the divergence: at or below the floor, fire concentrates no
+ * further. It is deliberately NOT a cap on total damage — a tower that fires all day should still
+ * grind a stalled column down; what it must not do is accelerate as it succeeds.
+ */
+export const TOWER_EXPOSURE_FLOOR = 20;
 /** Garrison fights from prepared ground (GDD §7 defender advantage). */
 export const GARRISON_DEFENCE_BONUS = 1.5;
 /** Posts this close to a clash join the defending line — mutual support, so a ring
@@ -254,30 +271,70 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
   };
   rebuildField();
 
-  // ---- entry: the origin edge's best passable tile (lowest distance, then lowest index) ----
-  const edgeTiles = (): number[] => {
+  // ---- entry: the best passable, REACHABLE tile on the chosen edge ----
+  const edgeTilesOf = (edge: AssaultOrigin): number[] => {
     const out: number[] = [];
     for (let i = 0; i < size; i++) {
       const t =
-        input.origin === 'left' ? i * size
-        : input.origin === 'right' ? i * size + size - 1
-        : input.origin === 'top' ? i
+        edge === 'left' ? i * size
+        : edge === 'right' ? i * size + size - 1
+        : edge === 'top' ? i
         : (size - 1) * size + i;
       if (passable(t)) out.push(t);
     }
     return out;
   };
-  const pickEntry = (): number => {
+  /** Best REACHABLE tile on one edge: lowest flow-field distance, then lowest index. -1 if none. */
+  const bestReachableOn = (edge: AssaultOrigin): number => {
     let best = -1;
-    for (const t of edgeTiles()) {
+    for (const t of edgeTilesOf(edge)) {
       if (dist[t] === -1) continue;
       if (best === -1 || (dist[t] as number) < (dist[best] as number) || ((dist[t] as number) === (dist[best] as number) && t < best)) best = t;
     }
-    if (best !== -1) return best;
-    // fully walled off from this edge: enter at the edge anyway (nearest-to-keep by
-    // straight-line, lowest index) and let wall-breaking open the field
-    const open = edgeTiles();
-    if (open.length === 0) return input.origin === 'left' ? Math.floor(size / 2) * size : Math.floor(size / 2) * size + size - 1;
+    return best;
+  };
+  /**
+   * M72: the column enters where it can actually GET IN, marching around the castle if the side
+   * it arrived on is cut off.
+   *
+   * The pre-M72 code only ever considered `input.origin`, and when no tile on that edge could
+   * reach the keep it entered there anyway — a fallback whose comment ("fully walled off from this
+   * edge ... let wall-breaking open the field") is right for a WALL, which can be broken, and
+   * wrong for WATER, which cannot. M70 measured the consequence: the column entered on an
+   * unreachable tile, `pickWallTarget` returned null because the defender had built no walls, and
+   * the assault was "repelled" in round one having struck no blow and taken no casualty —
+   * identically and forever, because nothing was damaged to change the next attempt. One campaign
+   * spent nineteen assaults that way and took the castle none of the times.
+   *
+   * A castle is not made unassailable by a river, so walking around is the correct behaviour and
+   * not a concession. Measured over 800 kingdom defence maps (200 worlds × 4 kingdoms): 58.9% have
+   * at least one severed approach, 15.8% have two, and **none has three or four** — a reachable
+   * edge always exists. The final fallback below therefore never fires on base content; it is kept
+   * for mods whose maps can enclose a keep entirely.
+   */
+  const EDGE_ORDER: readonly AssaultOrigin[] = ['left', 'right', 'top', 'bottom'];
+  const pickEntry = (): { tile: number; edge: AssaultOrigin } => {
+    const asked = bestReachableOn(input.origin);
+    if (asked !== -1) return { tile: asked, edge: input.origin };
+    // march around: the nearest reachable approach, edges walked in a fixed order for determinism
+    let best = -1;
+    let bestEdge: AssaultOrigin = input.origin;
+    for (const edge of EDGE_ORDER) {
+      if (edge === input.origin) continue;
+      const t = bestReachableOn(edge);
+      if (t === -1) continue;
+      if (best === -1 || (dist[t] as number) < (dist[best] as number) || ((dist[t] as number) === (dist[best] as number) && t < best)) {
+        best = t;
+        bestEdge = edge;
+      }
+    }
+    if (best !== -1) return { tile: best, edge: bestEdge };
+    // no edge reaches the keep at all (mods only — unreachable on base content, measured above):
+    // enter on the asked-for edge and let wall-breaking try to open the field, as before
+    const open = edgeTilesOf(input.origin);
+    if (open.length === 0) {
+      return { tile: input.origin === 'left' ? Math.floor(size / 2) * size : Math.floor(size / 2) * size + size - 1, edge: input.origin };
+    }
     const keepCentre = Math.floor(size / 2);
     let bestOpen = open[0] as number;
     let bestScore = Number.MAX_SAFE_INTEGER;
@@ -288,7 +345,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
         bestOpen = t;
       }
     }
-    return bestOpen;
+    return { tile: bestOpen, edge: input.origin };
   };
 
   // ---- attacker-side reachability, for picking which wall to break ----
@@ -355,7 +412,12 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
   const defenderCountBefore = livePosts().reduce((sum, g) => sum + (u.count[g.pi] as number), 0);
   const attackerCountBefore = attackerCount();
   let breaches = 0;
-  let at = pickEntry();
+  // M72: `entryEdge` is where the column ACTUALLY went in, which is `input.origin` unless that
+  // approach was severed and it marched around. The result reports the effective edge, so a
+  // battle report never claims an attack from a side the army could not reach.
+  const entry = pickEntry();
+  let at = entry.tile;
+  const entryEdge = entry.edge;
   let round = 0;
   const step = (kind: AssaultTraceStep['kind'], tile: number): void => {
     trace.push({ r: round, kind, x: tile % size, y: Math.floor(tile / size) });
@@ -385,9 +447,12 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
 
     // tower fire on the column, every round it stands in range — COUNT-relative, not
     // defense-relative: a volley into 20 raiders bites hard, the same volley into a
-    // 100-man host mostly chips morale (towers deter raids; armies soak them)
+    // 100-man host mostly chips morale (towers deter raids; armies soak them).
+    // M78: the divisor is FLOORED at `TOWER_EXPOSURE_FLOOR` so fire stops concentrating on a
+    // column that is already dying — see that constant for the measurement behind it.
     for (const tower of towersInRange(at)) {
-      const damage = (tower.damage / Math.max(1, attackerCount())) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
+      const exposure = Math.max(TOWER_EXPOSURE_FLOOR, attackerCount());
+      const damage = (tower.damage / exposure) * BASE_MORALE_DAMAGE * (0.85 + rng.nextFloat() * 0.3);
       damageAttacker(damage);
       step('tower', tower.y * size + tower.x);
     }
@@ -493,7 +558,7 @@ export function resolveSpatialAssault(input: AssaultInput): AssaultResult {
 
   const defenderLoss = defenderCountBefore - livePosts().reduce((sum, g) => sum + (u.count[g.pi] as number), 0);
   const attackerLoss = attackerCountBefore - attackerCount();
-  return { outcome, origin: input.origin, attackerLoss, defenderLoss, breaches, trace };
+  return { outcome, origin: entryEdge, attackerLoss, defenderLoss, breaches, trace };
 }
 
 /** Publish helper so siege.ts and tests emit one canonical event shape. */

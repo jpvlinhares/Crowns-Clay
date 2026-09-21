@@ -612,3 +612,423 @@ configs. Perf budgets stay far under headroom (war-max 0.080 ms/tick, ai-8k 0.20
 Gate P8's format). Phase 8.1 — One Castle is closed; ADR-4 §6's "two parallel fortification
 systems must not ship" now holds structurally, not by convention — there is exactly one code path,
 `game/castles.ts` and the legacy assault branch are deleted, not merely unreachable.
+
+---
+
+## ADR-5 — ACCEPTED (2026-07-27): Conquest victory is re-based on TAKEN villages
+
+**Context.** `game/victory.ts`'s Conquest track fires on SHARE of all currently-existing villages
+(`DEFAULT_CONQUEST_SHARE = 0.6`) or on every rival being defeated. The M61.5 review measured the
+consequence directly: a 2-kingdom campaign declared `conquest in year 9` with **0 captures, 0
+occupations, 0 eliminations** — one realm founded a second village while the other stayed at one,
+and two of three villages is 67%. The war-victory track was won by peaceful settlement, in year
+nine, without an army. This is not a tuning miss; the track measures the wrong quantity.
+
+The defect gets STRICTLY WORSE at M63. Once the player can dispatch settlers (GDD §5's surface,
+missing until then), share-based Conquest becomes the player's cheapest win: out-settle three AI
+realms that plateau near 93 souls and take the conquest crown without recruiting a soldier. M66 is
+therefore not independent polish — it is the mandatory counterpart to M63 and must not lag it by
+more than a milestone.
+
+**Options.** (a) Conquest = elimination only — delete the share clause; one line, cleanest fiction,
+but OQ-9 deliberately avoided mop-up endgames. (b) Conquest = share of villages ACQUIRED by capture
+or occupation, never founded — keeps a mid-length military track. (c) Split: Conquest becomes
+elimination-only and the share rule survives as a separate, honestly-named `domination` track.
+
+**Decision.** **(b), with (a)'s clause retained.** The share threshold stays but counts only taken
+villages; "all rivals defeated" remains an independent way to win. Vassal-held villages are
+EXCLUDED — they are not taken, and letting them feed Conquest re-blurs it into Hegemony, which is
+the same conflation that produced the original defect. (c) is rejected as new scope inside a phase
+whose entire premise is that no new systems are added.
+
+**Why (b) is cheap.** The victory tracker already maintains event-fed counters inside its own save
+section — `wondersCompleted` is driven off `building.completed` and persisted there. A
+`villagesTaken` counter fed off `siege.captured` / `village.occupied` is structurally identical:
+an additive field on the victory section, **no ECS component change and no world-section
+migration**. Victory section bumps v1→v2.
+
+**Consequences.** GDD §16's Conquest wording is rewritten at M66. A mid-campaign save carrying
+share-based Conquest progress re-evaluates under the taken-village rule on first load — a one-time
+behaviour snap, accepted and recorded here, same class as OQ-9's re-derivation snap. If M65's war
+tuning leaves the taken-share threshold untunable, falling back to option (a) is a one-line
+deletion — this decision does not foreclose that.
+
+**OUTCOME (recorded at M66 execution, 2026-07-27) — option (b) was implemented, measured, and
+RETIRED in favour of (a); that escape hatch was needed.** The taken-village rule shipped exactly
+as specced (event-fed `takenBy`, victory section v2 + migration, mirroring `wondersCompleted`) and
+then fired in **0 of 16** campaigns: 60% of all villages taken by force is ~8 on a 4-kingdom map,
+and the shipped AI manages ~2 occupations across the entire matrix. (b) was chosen to preserve "a
+mid-length military track"; at the AI's real war competence it preserved nothing, and in practice
+collapsed into (a) anyway. The owner took **(a), elimination-only**, on 2026-07-27.
+
+What that unwound, deliberately rather than by leaving it inert: `DEFAULT_CONQUEST_SHARE`, the
+`conquestShare` option, the `takenBy` history, the v2 section bump and its v1→v2 migration are all
+DELETED — the section stays v1, because the Conquest RULE changed while its STATE did not
+(elimination reads the tracker's existing `defeated` set). Shipping a version bump plus dead
+take-history in every future save, for a clause nothing reads, would have repeated the
+defined-but-mechanically-inert pattern the gatehouse carried from M28 to M59.
+
+Two things this record got right and one it got wrong. Right: the defect diagnosis (out-settling
+winning the war track) and the escape hatch. Wrong: the cost estimate implied (b) was viable
+because it was cheap to BUILD — it was, and that was never the constraint. The constraint was
+whether the AI could ever satisfy it, which this record did not test before choosing. The lesson
+for future victory-condition work: a threshold's reachability at the AI's measured competence is
+part of the design, not a tuning detail to settle afterwards.
+
+**Consequence carried forward:** the war track is effectively dormant until AI war competence
+rises. That is the same root cause as M62's changing-hands band (13%, still failing), and no
+Phase 9 milestone owns it. OQ-9's mop-up concern is weaker than it was in
+2026-07: M53's annexation-on-capital-death seizes an entire realm in one strike and capitulation
+converts hopeless rivals to counted vassals, so elimination no longer implies sixty sieges.
+
+---
+
+## ADR-6 — ACCEPTED (2026-07-27): 1.x ships as a technical / open-development build, not a
+commercial release
+
+**Context.** The M61.5 review found the repository contains **zero art**: no sprites, no textures,
+no audio files. The only raster/vector asset anywhere is `icon.svg`. Everything renders as Pixi
+`Graphics` primitives with category glyphs (doc 10 §1's polish delta) and all audio is synthesised
+at runtime. This is not a discovery — doc 10's placeholder-first doctrine planned for it, TDD §11
+records the Asset Manager as unbuilt, and M45's own README note says plainly that "art integration
+has zero infrastructure to integrate into… there's no artist producing sprites in this process."
+What was never decided is what that means for RELEASE. M45 is nevertheless marked ✅ in the README
+status table against a roadmap line reading "final art integration waves," which is the one place
+the project's otherwise-scrupulous honesty does not hold.
+
+**Options.** (a) Commission a sprite set against doc 10's pipeline and keep a commercial release on
+the table — integration is genuinely a file swap thanks to logical-id indirection, but it adds a
+dependency Phase 9 cannot resolve and a cost this roadmap cannot estimate. (b) Release with no
+commercial framing: a technical / open-development build, art as a post-release track. (c) Defer
+the decision until Phase 9 closes.
+
+**Decision.** **(b).** The build ships and is described as what it is. (c) is rejected because the
+positioning determines how much UX work Phase 9 owes, so deferring it leaves M63 and M67
+unscopeable.
+
+**Consequences.** Two deliberate scope trims follow, both recorded in doc 12's Phase 9 rows:
+M63's save surface becomes named slots plus a plain slot list (GDD §18's map thumbnails and mod
+metadata drop to post-release), and M67's tutorial becomes REACHABILITY rather than teaching — one
+event per major system naming the panel and its gate, not a guided onboarding. What does NOT trim
+is the documentation obligation, and it arguably tightens: an open-development build is read by
+developers, so the docs ARE the product surface, which is why M67's ADR sweep over the five
+unrecorded cuts (markets, village tiers 3–4, specialisation, battle orders, advisor UI) stays in
+scope at full size. The README status table's M45 row is corrected at M67. Marketing-adjacent
+copy must not claim the deeper character promises ADR-1 cut, the belief surface ADR-2 scoped down,
+espionage (OQ-6), or the trade economy — none of which exist.
+
+**What this does NOT change.** The M61.5 verdict. Repositioning removes ONE of five release
+blockers; the remaining four — no player expansion verb, the inverted demographic pyramid, war that
+never concludes, and the victory monoculture — are simulation defects, not presentation ones, and
+are unaffected by how the build is framed. Phase 9 is still required.
+
+---
+
+## ADR-7 — DEFERRED (2026-07-27): markets, prices and the trade economy are not built
+
+**Context.** GDD §3 designs per-market prices that "drift with local supply/demand within
+data-defined bands" and trade pacts that "create scheduled caravans between kingdoms," over a
+resource ladder of raw → processed → finished goods (grain, ore, hides, fish, flour, iron,
+leather, bread, weapons, armour, luxury goods — roughly seventeen resources). None of it exists.
+Shipped: **five** resources (food, wood, stone, planks, tools), one three-deep chain
+(wood→planks→tools), no market, no price, no caravan. `game/diplomacy.ts`'s trade pact is worth a
+flat nominal `TRADE_VALUE = 15` to the deal evaluator and carries, in that module's own words, "no
+real trade-route economy yet (v1)" — it is a diplomatic token with no mechanical consequence.
+
+**Why this was never recorded.** It wasn't a decision; it was an accumulation. M13 shipped a
+3-tier chain as the resource system, M23 shipped pacts as opinion-bearing objects, and no
+milestone after either owned "make trade mean something." The M61.5 review found it as the largest
+undocumented gap between GDD and build.
+
+**Decision.** DEFERRED, not cut. Recorded here so no reader mistakes the trade pact's existence
+for a trade economy, and so doc 02 §3 is read as intent rather than description.
+
+**Consequences.** Geography's economic payoff is unrealised: worldgen already produces resource
+asymmetry that nothing monetises, which is why hauling distance is a cost with no strategic
+counterpart. Diplomacy loses its most natural non-military lever — a trade pact a rival actually
+wants is leverage, and today it is a number. Any marketing or docs copy must not imply market or
+caravan mechanics. Post-release scope; it is the single largest system still owed against GDD §3.
+
+---
+
+## ADR-8 — DEFERRED (2026-07-27): village tiers 3–4 (Town, City) are not built
+
+**Context.** GDD §5 designs a four-rung ladder, Hamlet → Village → Town → City, each tier
+"unlocking building types and larger radius." Shipped: tiers **1 and 2 only** —
+`VILLAGE_RADIUS_T1` (12) and `VILLAGE_RADIUS_T2` (16), with `TIER2_REQUIREMENTS` the only gate and
+`village.upgrade` hard-coded to set `tier = 2`. There is no tier 3 or 4 in code, content, or
+schema.
+
+**Decision.** DEFERRED. The ladder stops at two rungs for 1.x.
+
+**Consequences.** The felt arc GDD §15 promises ("from mud to majesty") is materially shorter than
+designed: a settlement reaches its permanent ceiling within roughly a decade of founding, after
+which it has nothing left to become. This compounds with ADR-9 — with neither higher tiers nor
+specialisation, a mature village is mechanically identical to every other mature village, which is
+a direct cost to the "distinct places with visible character" promise. `requires.villageTier`
+already exists as a content gate and `village.upgrade` already exists as the command, so adding
+tiers is content plus a requirements table rather than new mechanism — the cheapest large
+progression win available post-release.
+
+---
+
+## ADR-9 — DEFERRED (2026-07-27): village specialisation is not built
+
+**Context.** GDD §5 designs designating a village's specialisation (farming, mining, crafting,
+trade) for focus bonuses, and names the wide-vs-tall tension it serves. It does not exist: a
+repository-wide search for `specialis`/`specializ` across sim, data and content finds only the
+word "specialised" inside one tech's flavour text.
+
+**Decision.** DEFERRED.
+
+**Consequences.** Villages are undifferentiated except by the terrain they happen to sit on, so
+the "wide (many villages) vs tall (few big cities)" balance question GDD §5 raises is currently
+unanswerable in either direction — there is no tall, and wide is uniform. Combined with ADR-8 this
+is the bulk of GDD §5's unbuilt depth. Note the mechanism is cheap if revisited: the `Modifier`
+system and per-building `tags` already carry everything a focus bonus needs.
+
+---
+
+## ADR-10 — DEFERRED (2026-07-27), closing OQ-7: the battle order vocabulary stays at `withdraw`
+
+**Context.** GDD §8 gives the player in-battle orders — "advance, hold, flank, target priority,
+withdraw" — and formations/stances before the clash. `game/combat.ts` registers exactly **one**
+command, `army.withdraw`, and doc 07 §3 records why: the other orders "aren't a resolvable choice
+in combat.ts yet (M27's own deferral), so there is nothing for a policy to score between."
+Front/flank/reserve lines and formation selection are likewise absent. OQ-7 required ratification
+against M27 playtest data and was never closed — the M61.5 review found it still open years later.
+
+**Decision.** DEFERRED, and **OQ-7 is CLOSED as deferred** rather than left dangling. The player's
+battle agency at 1.x is pre-battle positioning plus `withdraw`; the resolver is otherwise
+auto-resolved.
+
+**Consequences.** GDD §8's "battles you can influence, not micro-manage" is currently the second
+half without the first. This also caps the AI's tactical ceiling by construction: doc 07 §3's
+battle-layer policy has no vocabulary to choose from, so tactical AI cannot be improved without
+first giving the resolver orders to accept — the two are one work item, not two. `army.withdraw`
+itself has **no UI caller**, so even the one shipped order is injector-only; surfacing it is a
+small, separable win.
+
+---
+
+## ADR-11 — DEFERRED (2026-07-27): advisor appointment has no player surface (and ADR-1 overstated this)
+
+**Context.** GDD §2 has the player appoint advisors to offices (Steward, Marshal, Chancellor,
+Scholar), with skill-scaled bonuses. The sim implements this: `kingdom.appoint` is a registered
+command, offices carry real modifiers, advisors draw a daily `advisor-salary` ledger entry, and
+`MIN_OFFICE_AGE` is enforced. There is **no UI**: `kingdom.appoint` has zero callers in
+`packages/app`, so advisors are seated deterministically at genesis and the player can neither see
+nor change them.
+
+**This corrects ADR-1.** That record justified cutting characters partly on the grounds that "1.0's
+character surface is advisors (kingdom.ts), exactly what the player already sees." The M61.5 review
+verified that claim is false — the player sees a salary line for officials they never meet. ADR-1's
+*decision* stands (characters remain unwired); its *reasoning* was wrong on this point, and the
+correction is recorded here rather than by editing ADR-1's text, matching how ADR-4's A1
+corrections were handled.
+
+**Decision.** DEFERRED. Advisors stay sim-real and player-invisible at 1.x.
+
+**Consequences.** Vision pillar 1 ("named villagers/notables; its people are real") has **no**
+player-facing implementation at 1.x — characters are unwired (ADR-1) and advisors are unreachable
+(this record). Docs and any release copy must not claim either. The gap is small to close: the
+command, the bonuses and the ledger already work, so this is a panel, not a system — which is why
+the M61.5 review ranked it "strongly recommended" rather than a blocker.
+
+---
+
+## ADR-12 — ACCEPTED (2026-07-29): technologies BUFF their buildings; the decorative `unlocks.buildings` claims are deleted
+
+**Context.** All 17 `unlocks.buildings` entries in the base tech tree were inert. `hasUnlocked()`
+(game/research.ts) is their only reader and has **zero callers**; `BuildingDef` has no tech gate
+at all, so every building was placeable from turn one. Nothing surfaced the claim either — no UI
+reads `unlocks`. Doc 06 §8 recorded this as "data now, active later", but the mappings had also
+drifted: Quarry was claimed by Three-Field System (agriculture, **tier 5**), Lumber Camp by
+Selective Breeding (livestock), Dock by Horse Collar, Sawmill by Heavy Plough.
+
+**Decision.** Techs make their buildings **better**, never gate them.
+
+`BuildingDef.techBoost { tech, multiplier, applies }` multiplies one rate on that def once the
+owning kingdom knows `tech`. `applies` is a closed vocabulary — `'output'` (every
+`recipes[].outputs`, inputs untouched) and `'research'` (`research.pointsPerDay`) — chosen over a
+family of `outputBoost`/`researchBoost`/… fields because the boostable set will keep growing
+(storage capacity, service-aura strength and garrison caps are the obvious next three) and a
+modder should learn the concept once. Nine mappings at ×1.5:
+
+| Building | Tech | `applies` | was |
+|---|---|---|---|
+| Farm | Crop Rotation (agri t1) | output | the one claim already semantically right |
+| Lumber Camp | Timber Framing (constr t1) | output | Selective Breeding |
+| Quarry | Mortar & Stone (constr t2) | output | Three-Field System (t5) |
+| Dock | Fish Weirs (agri t3) | output | Horse Collar |
+| Sawmill | Watermills (agri t4) | output | Heavy Plough |
+| Workshop | Workshop Tooling (constr t4) | output | *(same tech, now real)* |
+| Scribe's Hut | Written Records (state t1) | research | *(same tech, now real)* |
+| Library | Scribal Schools (state t3) | research | *(same tech, now real)* |
+| University | University Charters (state t5) | research | *(same tech, now real)* |
+
+All 17 `unlocks.buildings` claims are **deleted** — the nine above are replaced by a real effect,
+and the eight that cannot be expressed as a boost yet (Well, Warehouse, Tavern, Barracks, Wall,
+Gatehouse, Tower, Keep) are removed rather than left as documented lies. Every affected `desc`
+now states the actual effect ("Docks yield +50% food").
+
+**Why buff and not gate.** Enforcing the gates is unshippable at this content. Farm and Lumber
+Camp are survival-critical, stone was behind a tier-5 tech, the AI only researches under TechRace
+(~8% of plan time), and — decisively — the Scribe's Hut is one of only three research sources and
+was claimed by a tech, so gating it would leave research permanently unable to bootstrap itself.
+A locked building starves a village; a merely-unboosted one still works. Base rates are therefore
+**not** nerfed to pay for the boost: this is strictly additive, so no existing balance number moves.
+
+**Why on the building, not the tech.** `MODIFIER_TARGETS` is a closed, *village-wide* vocabulary
+that cannot name one building, and `TechDef.modifiers` is read by nothing (0 of 72 techs use it).
+A `mods` entry would also have been **wrong**: `StatModifiers` is ONE board shared across every
+kingdom (M22), so a tech-granted modifier would leak to rivals. Reading the boost per building
+inside the two loops that already attribute a building to its owner is per-kingdom by construction.
+
+**Consequences.** `hasUnlocked()` is now dead in base content and `unlocks.buildings` is unused —
+kept in the schema (a mod may still declare it) but it remains **advisory**, and doc 06 §8 says so.
+`unlocks.units` (8), `unlocks.edicts` (3) and `unlocks.wallTier` (2) are still decorative in exactly
+the same way: units are really gated by the separate, enforced `UnitDef.requiresTech`, `wallTier`
+has no reader outside the validator, and `kingdom.enactEdict` checks id, duplication, the edict cap
+and the treasury — never a tech.
+
+**Only 14 of the 72 techs have any effect**, and both routes run from the *other* def: 9 via
+`BuildingDef.techBoost` (this record) and 5 via `UnitDef.requiresTech` (M45). `TechDef.modifiers` is
+used by 0 of 72. The remaining **58 do nothing** but satisfy the era-breadth gate and nudge the AI's
+`researchOpportunity` score. Seven of them look effectful and are not — Spear Tactics, Archery Corps
+and Heavy Cavalry name pre-M45 units that carry no `requiresTech`; Corvée Labor, Grain Reserves and
+Library Sciences name ungated edicts; Stone Fortification names an inert `wallTier`. This record does
+not fix that, and the remaining four `applies` kinds (`storage`, `service`, `garrison`, `defense`)
+are the honest path to re-attaching the eight deleted claims. Load-time validation
+rejects an unknown `tech` **and** an `applies` whose backing field is absent, so the inert-content
+bug this record exists to fix cannot recur silently.
+
+---
+
+## ADR-13 — ACCEPTED (2026-08-03), closing M73: the earliest-victory band stands; capital loss must always open the succession window
+
+**Context.** M62 ratified "no victory before year 30" as a gated band. It has never been green in any
+measured tree state (y29 at Gate P9, y28 boosts-off, y10 and y15 since), and R9 established it is
+the ONLY band still failing on the shipped configuration and that it is clock-independent. M73's
+charter was to decide it: green under an honest measurement, or formally restated with reasons.
+
+**What the measurement showed.** Every early victory in the 16-campaign matrix at the shipped
+100-year limit is a `k=2` conquest with an identical signature: **one occupation, zero capitals
+fallen, zero capitulations, zero new lords.** Verified in code, the path is:
+
+1. `game/defence.ts` attaches a defence map to a CAPITAL unconditionally from its first tick, so a
+   capital is siege-eligible from founding.
+2. `campaign.ts` exempts a village from plain occupation only when it is
+   `applicable && (garrisoned || already besieged)` — so an **ungarrisoned** capital may simply be
+   walked into by a field army.
+3. `capitalFall.claim`, M53's capitulate-or-raise-a-new-lord window, is invoked from exactly one
+   call site: `siege.ts`'s `capture()`. The occupation path never reaches it.
+4. The last-village defeat rule (`everFounded && villages === 0`) then marks the kingdom defeated
+   for ANY cause, and Conquest fires on "every rival defeated" — which in a two-kingdom game is one
+   event away.
+
+A realm can therefore be ended without a siege, without an assault, and without ever being offered
+the capitulation M53 exists to provide.
+
+**Decision.** The band is **CORRECT and stands unchanged.** It was reporting a real defect, not a
+measurement artifact. **Capital loss must open the succession window however the capital changed
+hands** — occupation as well as siege. Implementation is chartered as **M77**, not taken here.
+
+**Rejected alternative.** Restating the band per-configuration, on the grounds that a two-kingdom
+duel legitimately resolves quickly. Rejected because `k=2` is a real player configuration (the
+new-game screen permits 1–8 kingdoms); because the same bypass exists at every kingdom count and
+merely fails to END the game at higher counts, so restating would hide it rather than resolve it;
+and because M53's stated intent is that losing a capital opens a window rather than ending a realm.
+That only fortified, garrisoned capitals receive that window is an accident of where the hook was
+placed, not a recorded design decision.
+
+**Outcome (2026-08-03, recorded after M77 was built and measured).** The implementation took the
+INVERSE route to the one this record specifies: rather than teaching occupation to open the window,
+it made a capital non-occupiable so that every capital loss flows through `siege.capture()`, which
+already calls the hook. Routing occupation into succession was rejected on inspection — succession's
+resolution is siege-centric and would have needed synthesised sieges or a refactor. **M77 was then
+NOT SHIPPED**: it moved earliest victory y10 → y25, confirming this record's diagnosis, but took the
+matrix from 4 of 5 bands to 2 of 5 by collapsing villages-changing-hands 93.8% → 38%. The cause is
+now measured: with the walk-in path removed, 78% of assaults are repelled and 4 capitals fall where
+42 fell before. **The AI cannot storm a defended castle, and the occupation bypass was hiding it.**
+This record's decision stands; its implementation is blocked on AI assault competence.
+
+**Second outcome (2026-08-03), after that block was cleared.** M79 fixed the assault competence this
+record was waiting on (sieges moved from `114 begun / 18 resolved / 4 capitals fallen` to
+`47 / 37 / 33`) and M77 was retried on that tree. It failed again, harder: **1 of 5 bands**, with a
+**hundred-year-old village at 4.9% adults** (551 people, 492 of them children) — the M61.5 disaster
+signature in a village seven maturation cycles old, so not a measurement artifact. Changing hands
+fell 87.5% → 31%. Earliest victory again moved y10 → y25, re-confirming this record's DIAGNOSIS for
+a second time. **The decision stands and the implementation route does not: making capitals
+non-occupiable stops capitals changing hands.** The remaining candidate is the one M77 rejected on
+inspection — teaching the occupation path to open the succession window, which needs succession
+decoupled from its siege-centric resolution first, and is larger than either attempt so far.
+
+**Consequences.** Phase 10 gains M77. Until it ships, the earliest-victory band stays red and Gate
+P10 cannot pass — correctly, because the defect is real. This also revises the reading of ADR-5 and
+M66: the war track was described as "effectively dormant until AI war competence rises", but a
+substantial share of kingdom deaths in the matrix are not conquests at all — they are undefended
+capitals being walked into. M70.5's instrument correction and this record together mean **no
+statement about this project's war outcomes made before 2026-08-03 should be trusted without
+re-measurement.**
+
+---
+
+## ADR-14 — ACCEPTED (2026-08-03), from M79: the oldest-village floor filters at ten years, and one maturation cycle is fourteen
+
+**Context.** M62's ratified band set includes a hard floor: no village older than ten years may sit
+below 15% adults. M79's two war fixes appeared to break it (15.5% → 10.8% → 8.5%) and were withheld
+on that basis. Attributing the minimum to its campaign shows the failure is in the band:
+
+```
+hard seed=9001 · vi=28 age=14y adult=8.5% pop=392 children=320 · run: conquest y14
+```
+
+The campaign ended at year 14 on a conquest victory; the village is fourteen years old, holds 392
+people of whom **320 are children**, and its campaign recorded **zero capital falls**. It is a
+growing village caught mid-transient, not a war casualty.
+
+**The measurement error.** `MATURE_RATE` is `1/(14 years)`. A village admitted to the band at ten
+years has not completed a single cohort turnover, so the floor does not measure settled villages —
+it measures whichever admitted village is youngest. Because bands are read at campaign END, the
+band therefore penalises campaigns that finish EARLY, and any change that makes war more decisive
+will appear to break it. M79's fixes did exactly that.
+
+This is the same class as R9's 60-year clock and was found by the rule R9 recorded — *check the
+slowest term before choosing a window*. M70.6 had already measured that villages remain in
+demographic transient well past year 60; that finding applies to this filter and was not carried
+across.
+
+**Proposed decision.** Raise the filter to at least one full maturation cycle: **`ageYears > 14`
+minimum, `> 20` preferred** — a cohort needs time to flow through, not merely to begin. The floor's
+VALUE (15%) is not proposed for change; only the admission threshold, which was never the subject of
+the M62 measurement that set the value.
+
+**Why this is not restating a band to match an outcome.** The argument is independent of M79: the
+threshold is shorter than the model's own slowest constant, which was true when M62 ratified it and
+would be true if no fix had ever been attempted. The outcome-matching argument — "more war
+legitimately costs an old village its adults" — was the tempting one and is measurably FALSE here:
+the failing village lost nothing, it had simply not grown up yet.
+
+**Ratified 2026-08-03 and measured.** `SETTLED_VILLAGE_YEARS = 20` shipped, the 15% value untouched,
+and `bench-balance.ts` now carries village population/children/index and NAMES the village defining
+the floor on every run — a `min` band is unattributable without it, and M79 spent a full bisection
+learning that. M79's gate and estimate fixes landed unchanged on top: the matrix reads **4 of 5**
+(adult cohort 35.5% · floor 21.8% · monoculture 50% · changing hands 87.5%), equal to baseline, with
+sieges moving from `114 begun / 18 resolved / 4 capitals fallen` to `47 / 37 / 33`.
+
+**Known limitation, recorded rather than declared solved: 20 years MITIGATES the effect, it does not
+eliminate it.** The village now defining the floor is `age 27y, pop 246, children 172` — 21.8%
+adults, passing with 6.8 points of margin. But M70.6 measured settled villages at **46–66%** adults,
+so a 27-year-old village is still visibly climbing toward equilibrium, not sitting at it. Two
+maturation cycles is closer than one; it is not "settled". A campaign ending around year 21–25 will
+still photograph a fairly young village, and the band will still be reading a transient — just a
+milder one.
+
+What would eliminate it rather than mitigate it: admit only villages past **two to three** full
+cycles (~40y), or normalise adult fraction against village age, or read the bands at a FIXED campaign
+year instead of at campaign end so the measurement stops depending on when the game happens to
+finish. All three are larger changes than this record's scope and none is proposed here. The reason
+this limitation is acceptable for now is that the band's purpose — catching the M61.5 collapse to
+~20 children per adult — is served at any of these thresholds; what it must not do is fail villages
+that are merely young, and at 20 years it no longer does within the measured matrix.

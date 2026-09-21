@@ -7,17 +7,12 @@
   {
     "id": "base:tech.statecraft-t1-1",
     "name": "Written Records",
-    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "desc": "Ledgers, tallies, and a hand trained to keep them. Scribe's Huts yield +50% research.",
     "branch": "statecraft",
     "tier": 1,
     "era": "early",
     "cost": 20,
     "prerequisites": [],
-    "unlocks": {
-      "buildings": [
-        "base:building.scribes-hut"
-      ]
-    },
     "diffusionDiscount": 0.1,
     "tags": []
   },
@@ -103,7 +98,7 @@
   {
     "id": "base:tech.statecraft-t3-2",
     "name": "Scribal Schools",
-    "desc": "A high-medieval advance requiring real institutional investment.",
+    "desc": "Copyists trained by the roomful instead of one apprentice at a time. Libraries yield +50% research.",
     "branch": "statecraft",
     "tier": 3,
     "era": "high",
@@ -112,11 +107,6 @@
       "base:tech.statecraft-t2-2",
       "base:tech.statecraft-t2-3"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.library"
-      ]
-    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -248,7 +238,7 @@
   {
     "id": "base:tech.statecraft-t5-1",
     "name": "University Charters",
-    "desc": "A late-medieval capstone, the branch's most advanced expression.",
+    "desc": "A charter of privileges, and the masters answer to no local lord. Universities yield +50% research.",
     "branch": "statecraft",
     "tier": 5,
     "era": "late",
@@ -257,11 +247,6 @@
       "base:tech.statecraft-t4-1",
       "base:tech.statecraft-t4-2"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.university"
-      ]
-    },
     "diffusionDiscount": 0.3,
     "tags": []
   },

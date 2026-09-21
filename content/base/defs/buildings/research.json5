@@ -6,6 +6,10 @@
 [
   {
     "id": "base:building.scribes-hut",
+    // Written Records (statecraft t1) — the tech it already named, now as a real effect.
+    // Deliberately a boost and NOT a gate: the hut is the only cheap research source, so
+    // locking it behind a tech would make research unable to bootstrap itself at all.
+    "techBoost": { "tech": "base:tech.statecraft-t1-1", "multiplier": 1.5, "applies": "research" },
     "name": "Scribe's Hut",
     "category": "service",
     "footprint": { "w": 1, "h": 1 },
@@ -17,6 +21,8 @@
   },
   {
     "id": "base:building.library",
+    // Scribal Schools (statecraft t3) — the tech it already named, now as a real effect.
+    "techBoost": { "tech": "base:tech.statecraft-t3-2", "multiplier": 1.5, "applies": "research" },
     "name": "Library",
     "category": "service",
     "footprint": { "w": 2, "h": 1 },
@@ -29,6 +35,8 @@
   },
   {
     "id": "base:building.university",
+    // University Charters (statecraft t5) — the tech it already named, now as a real effect.
+    "techBoost": { "tech": "base:tech.statecraft-t5-1", "multiplier": 1.5, "applies": "research" },
     "name": "University",
     "category": "service",
     "footprint": { "w": 2, "h": 2 },

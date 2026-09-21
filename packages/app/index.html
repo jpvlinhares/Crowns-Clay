@@ -201,8 +201,10 @@
     </div>
     <span class="group" id="ui-toolbar" role="toolbar" aria-label="Panels"></span>
     <span class="group" role="toolbar" aria-label="Save and load">
-      <button id="btn-save" title="Save to slot 'manual'" aria-label="Save to slot 'manual'">💾</button>
-      <button id="btn-load" title="Load slot 'manual'" aria-label="Load slot 'manual'">📂</button>
+      <input id="slot-name" type="text" value="manual" size="10" aria-label="Save slot name" title="Name for the slot 'Save' writes to" />
+      <button id="btn-save" title="Save to the named slot" aria-label="Save to the named slot">💾</button>
+      <select id="slot-list" aria-label="Saved slots"><option value="">— saved slots —</option></select>
+      <button id="btn-load" title="Load the selected slot" aria-label="Load the selected slot">📂</button>
       <button id="btn-export" title="Export .crown file" aria-label="Export .crown file">⇩</button>
       <button id="btn-import" title="Import .crown file" aria-label="Import .crown file">⇧</button>
       <input id="import-file" type="file" accept=".crown,.json" style="display:none" />

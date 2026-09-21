@@ -120,6 +120,10 @@ export class VillageStatsEmitter {
   private readonly last = new Map<number, string>();
   /** interned resource code → display name, food excluded (it has its own slot). */
   private readonly goodsNames = new Map<number, string>();
+  /** village index → TODAY's fed fraction (`eaten / need`), fed from the sim's own
+   * `village.fed` event. This is the value the SIM uses for joy; `Population.foodSecurity`
+   * is a ~7-day EMA of it and is NOT interchangeable — see `noteFed` for why that mattered. */
+  private readonly nutrition = new Map<number, number>();
 
   constructor(
     private readonly world: World,
@@ -133,6 +137,23 @@ export class VillageStatsEmitter {
       if (id === 'base:resource.food') continue;
       this.goodsNames.set(this.game.ops.resourceCode(id) as number, def.name.toLowerCase());
     }
+  }
+
+  /**
+   * Record TODAY's fed fraction from the sim's `village.fed` event (population.ts publishes
+   * `{ village, eaten, need }` every daily needs pass).
+   *
+   * Why this exists: the Joy panel used to read `Population.foodSecurity` as its "nutrition"
+   * input. That field is deliberately a ~7-day EMA (`HAPPINESS_ALPHA` 0.08) of real, un-floored
+   * nutrition — it drives births and starvation deaths — whereas the sim's joy target is built
+   * from TODAY's `eaten / need`, forage-floored. Feeding the EMA into the same shared helper
+   * made the panel over-report the food contribution by up to 36 points during exactly the
+   * moment a player opens it: a well-fed village whose granary just emptied showed a decaying
+   * 64 → 33 while the sim had already dropped to the 28-point forage floor. Same helper,
+   * different input — the two agree only in steady state, and diverge in a crisis.
+   */
+  noteFed(villageIndex: number, eaten: number, need: number): void {
+    this.nutrition.set(villageIndex, need > 0 ? eaten / need : 1);
   }
 
   delta(): NonNullable<Extract<import('@crowns/protocol').FromSimMessage, { kind: 'snapshotDelta' }>['villageStats']> {
@@ -179,7 +200,10 @@ export class VillageStatsEmitter {
       const total = (pop.children[vi] as number) + (pop.adults[vi] as number) + (pop.elders[vi] as number);
       const housingCap = housingByV.get(vi) ?? 0;
       const shelter = total > 0 ? Math.min(1, housingCap / total) : 1;
-      const nutrition = pop.foodSecurity[vi] as number;
+      // TODAY's fed fraction — the same input population.ts builds its joy target from.
+      // Falls back to the EMA only before the first `village.fed` of the session (a freshly
+      // composed or just-loaded world, where the daily needs pass has not run yet).
+      const nutrition = this.nutrition.get(vi) ?? (pop.foodSecurity[vi] as number);
       const serviceJoy = serviceJoyByV.get(vi) ?? 0;
       const happiness = pop.happiness[vi] as number;
       const contrib = joyContributions(nutrition, shelter, serviceJoy, drift);

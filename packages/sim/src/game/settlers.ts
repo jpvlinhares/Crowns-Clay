@@ -264,6 +264,15 @@ export function registerSettlerGameplay(
   kernel.registerCommand<{ villageId: number; x: number; y: number; name: string }>(
     'village.sendSettlers',
     (ctx, p, command) => {
+      // M63 (doc 12 Phase 9): `village.upgrade` has always checked this guard (below); this
+      // command never did, despite `setOwnershipGuard` being wired for it from genesis
+      // (campaign.ts) — a gap that only mattered once a player-facing dispatch UI could reach
+      // it. AI issuers are unaffected: `ai/planner.ts` always dispatches with its own kingdom
+      // as issuer, from a village it owns.
+      if (ownershipGuard !== null && !ownershipGuard(command.issuer, p.villageId | 0)) {
+        ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.sendSettlers', reason: 'not your village', issuer: command.issuer } });
+        return;
+      }
       const result = dispatch(ctx, p.villageId | 0, p.x | 0, p.y | 0, String(p.name ?? 'Newholm'));
       if (typeof result === 'string') {
         ctx.events.publish({ type: 'village.rejected', tick: ctx.tick, data: { what: 'village.sendSettlers', reason: result, issuer: command.issuer } });

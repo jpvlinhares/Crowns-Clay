@@ -103,7 +103,51 @@ export const campaignDemo: ReplayScenario = {
   },
 };
 
-export const scenarios: readonly ReplayScenario[] = [calendarBaseline, wanderers, terraDemo, campaignDemo];
+// ---------------------------------------------------------------- scenario 5
+
+/**
+ * "campaign-long" (M69): the SAME world as `campaign-demo` — same seed, same settings, same
+ * compose path — run for TEN IN-GAME YEARS instead of 125 days. It exists for one reason:
+ * `campaign-demo` is too SHORT to see the victory tracker.
+ *
+ * The tracker has folded into `stateHash()` since M37, but victory state needs YEARS to diverge
+ * (90 realm population, a 15-year prosperity streak, a 10-year hegemony), so at 3000 ticks it is
+ * always empty and always identical. Gate P9 read that as "victory is not a hash source"; M69
+ * measured it instead. Dropping `DEFAULT_PROSPERITY_HAPPINESS` 75 → 5 moves NOTHING at 3000 ticks
+ * and moves every horizon from 5 years on:
+ *
+ *   ticks    horizon   baseline     happiness 75→5
+ *    3,000      0.3y   0x77b06795   0x77b06795   ← blind
+ *   43,200      5.0y   0x590bbee8   0x37e25415
+ *   86,400     10.0y   0x006583c7   0x7867c656
+ *
+ * TEN years rather than five, deliberately: 10 is `DEFAULT_HEGEMONY_YEARS`, so this is the
+ * shortest horizon at which the hegemony path CAN declare at all. It currently never does —
+ * perturbing `DEFAULT_HEGEMONY_YEARS` 10 → 3 changes nothing here, because no kingdom in this
+ * seed ever holds the required share — and that is precisely the point: Phase 10 exists to make
+ * kingdoms conquer each other, so a fixture that stopped short of 10 years would go blind exactly
+ * when M71 started working. Sized so it stops being blind rather than sized to today's behaviour.
+ *
+ * Cost: ~14 s to record and ~14 s to verify, measured at 0.165 ms/tick. That is the price of the
+ * only fixture in the repo that can see a victory-logic regression at all.
+ */
+export const campaignLong: ReplayScenario = {
+  name: 'campaign-long',
+  seed: 0xca47a1, // deliberately campaign-demo's seed: the first 3000 ticks must agree with it
+  ticks: TICKS_PER_DAY * 360 * 10,
+  hashEvery: 1440, // one sample per two in-game months — 60 samples bracket a regression tightly
+  build(): Kernel {
+    return composeCampaignForApp(this.seed, DEFAULT_CAMPAIGN_SETTINGS).kernel;
+  },
+};
+
+export const scenarios: readonly ReplayScenario[] = [
+  calendarBaseline,
+  wanderers,
+  terraDemo,
+  campaignDemo,
+  campaignLong,
+];
 
 export function scenarioByName(name: string): ReplayScenario | undefined {
   return scenarios.find((s) => s.name === name);

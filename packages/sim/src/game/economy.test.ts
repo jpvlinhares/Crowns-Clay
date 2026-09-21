@@ -321,3 +321,66 @@ test('economy: identical histories hash identically', () => {
   };
   assert.equal(run(), run());
 });
+
+// ---------------------------------------------------------------- research yield boost
+
+// `BuildingDef.techBoost` with `applies: 'output'` (M-era): a researched tech multiplies a
+// def's recipe OUTPUTS. (The `'research'` sibling is covered in game/research.test.ts.)
+// Deliberately a BUFF over unchanged base output rather than a gate — a locked building
+// starves a village, an unboosted one still works. Nothing else guards this: the goldens and
+// corpus cannot see it (no kingdom researches these techs inside their windows), so this test
+// is the only thing standing between the feature and a silent regression.
+test('techBoost/output: a known tech multiplies recipe OUTPUT, and the hook is inert when unset', () => {
+  const measure = (grantBoost: boolean): number => {
+    const e = makeEconomy({ buildings: ['base:building.farm'] });
+    if (grantBoost) e.econ.setKnowsTech((_vi, techId) => techId === 'base:tech.agriculture-t1-1');
+    e.days(30); // let the farm finish building and staff up
+    const foodCode = e.code('base:resource.food');
+    // drain stockpile AND farm inventories each tick so neither the food cap nor the outbox
+    // headroom throttles production — this isolates the recipe rate itself
+    const stocks = e.world.readObj(e.game.comps.Stockpile);
+    const invs = e.world.readObj(e.econ.BuildingInventory);
+    e.econ.ledger.drain();
+    for (let t = 0; t < 30 * TICKS_PER_DAY; t++) {
+      stocks.get(e.vi).set(foodCode, 0);
+      e.world.query([e.game.comps.BuildingCore]).forEach((_i, entity) => {
+        const inv = invs.tryGet((entity as number) & 0x3fffff);
+        if (inv !== undefined) inv.set(foodCode, 0);
+      });
+      e.kernel.step();
+    }
+    return e.econ.ledger.of(e.vi).get(foodCode)?.produced ?? 0;
+  };
+
+  const base = measure(false);
+  const boosted = measure(true);
+  assert.ok(base > 0, 'the farm produced something to compare against');
+  // base output is UNCHANGED by this feature (buff-only, no compensating nerf)
+  assert.ok(
+    Math.abs(boosted / base - 1.5) < 0.01,
+    `known tech should multiply farm output by 1.5, got ${(boosted / base).toFixed(3)}`,
+  );
+});
+
+test('techBoost/output: an unknown tech leaves output at base (no penalty for un-researched)', () => {
+  const e = makeEconomy({ buildings: ['base:building.farm'] });
+  e.econ.setKnowsTech(() => false); // hook wired, tech NOT known
+  e.days(30);
+  const foodCode = e.code('base:resource.food');
+  const stocks = e.world.readObj(e.game.comps.Stockpile);
+  const invs = e.world.readObj(e.econ.BuildingInventory);
+  e.econ.ledger.drain();
+  for (let t = 0; t < 10 * TICKS_PER_DAY; t++) {
+    stocks.get(e.vi).set(foodCode, 0);
+    e.world.query([e.game.comps.BuildingCore]).forEach((_i, entity) => {
+      const inv = invs.tryGet((entity as number) & 0x3fffff);
+      if (inv !== undefined) inv.set(foodCode, 0);
+    });
+    e.kernel.step();
+  }
+  const produced = e.econ.ledger.of(e.vi).get(foodCode)?.produced ?? 0;
+  const farm = e.db.buildings.get('base:building.farm');
+  const perDay = farm?.recipes?.[0]?.outputs[0]?.perDay ?? 0;
+  // one fully-staffed farm at base rate over 10 days, within staffing noise
+  assert.ok(produced > 0 && produced <= perDay * 10 * 1.01, `unboosted output stayed at base, got ${produced}`);
+});

@@ -210,6 +210,44 @@ test('daily accrual: scholar buildings fund progress until the active tech compl
   assert.equal(researchGame.activeResearch(kingdomId as never), undefined);
 });
 
+// `BuildingDef.techBoost` with `applies: 'research'` (M-era): the scholar chain's own techs
+// make the scholar buildings better instead of pretending to unlock them. Written Records
+// boosts the Scribe's Hut, so the effect is measurable with the default 3-hut harness.
+// Per-kingdom by construction — the accrual loop already attributes each building to its
+// owner, unlike a `mods` entry, which shares ONE board across all kingdoms (M22).
+test('techBoost/research: knowing the named tech multiplies a scholar building\'s daily points', () => {
+  const db = DefinitionDatabase.load(BASE_CONTENT_FILES);
+  const target = db.techs.get('base:tech.agriculture-t1-1') as TechDef;
+  const booster = db.techs.get('base:tech.statecraft-t1-1') as TechDef;
+  const hut = db.buildings.get('base:building.scribes-hut');
+  assert.equal(hut?.techBoost?.tech, booster.id, 'the hut is boosted by Written Records');
+  assert.equal(hut?.techBoost?.applies, 'research');
+
+  // one day of accrual with the boosting tech UNKNOWN
+  const plainRun = makeKingdom({ huts: 3 });
+  plainRun.days(10); // construction completes
+  plainRun.submit('kingdom.setActiveResearch', 1, { techId: target.id });
+  plainRun.days(1);
+  const base = plainRun.researchGame.activeResearch(plainRun.kingdomId as never)?.progress ?? 0;
+
+  // same day of accrual with it KNOWN — research it first, then re-measure on the same target
+  const boostedRun = makeKingdom({ huts: 3 });
+  boostedRun.days(10);
+  boostedRun.submit('kingdom.setActiveResearch', 1, { techId: booster.id });
+  boostedRun.days(10); // 6 pts/day clears cost 20 well inside 10 days
+  assert.ok(boostedRun.researchGame.isKnown(boostedRun.kingdomId as never, booster.id), 'booster researched');
+  boostedRun.submit('kingdom.setActiveResearch', 1, { techId: target.id });
+  boostedRun.days(1);
+  const boosted = boostedRun.researchGame.activeResearch(boostedRun.kingdomId as never)?.progress ?? 0;
+
+  assert.ok(base > 0, 'the unboosted huts accrued something to compare against');
+  const multiplier = hut?.techBoost?.multiplier as number;
+  assert.ok(
+    Math.abs(boosted / base - multiplier) < 1e-6,
+    `expected x${multiplier} daily research, got ${(boosted / base).toFixed(4)} (${base} -> ${boosted})`,
+  );
+});
+
 test('switching active research abandons progress on the old one (v1 simplification)', () => {
   const { submit, days, researchGame, kingdomId } = makeKingdom({ huts: 3 });
   days(10);

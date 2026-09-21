@@ -112,6 +112,26 @@
   "event.tutorial.edicts.body": "\"The treasury can bear an edict now, if you'd enact one from the Kingdom panel — each is a standing bonus with a daily upkeep, plain in its ledger line. Hover one to see exactly what it changes; nothing in this court hides its numbers.\"",
   "event.tutorial.edicts.choice.ack": "Show me the ledger.",
 
+  "event.tutorial.diplomacy.title": "The Neighbours",
+  "event.tutorial.diplomacy.body": "\"Your realm is a going concern now, my liege, so look outward. The Diplomacy panel lists every court we have discovered. Gifts buy goodwill, pacts buy quiet, and a declaration buys neither. Opinion is remembered — and so is oathbreaking, by everyone, for the rest of your reign.\"",
+  "event.tutorial.diplomacy.choice.ack": "Who are they, then?",
+
+  "event.tutorial.research.title": "Scholars and Scribes",
+  "event.tutorial.research.body": "\"With the harvest secure we can afford thinkers. Raise a Scribe's Hut and the Research panel comes alive — pick one study at a time and it accrues on its own. The cheap roots come quickly; the crowning works are the labour of reigns.\"",
+  "event.tutorial.research.choice.ack": "Set them to work.",
+
+  "event.tutorial.castle.title": "The Keep and the Ground Beyond It",
+  "event.tutorial.castle.body": "\"Tier two permits a Keep, my liege, and you should understand what that stone buys. Raise one and this village gains its own defence ground — walls, towers and a gate, laid out on the Castle panel and manned by soldiers you post there. Without a Keep a village is open country: an enemy simply walks in and holds it. With one, they must come through the walls.\"",
+  "event.tutorial.castle.choice.ack": "Then we build.",
+
+  "event.tutorial.military.title": "Levies and Their Cost",
+  "event.tutorial.military.body": "\"The Military panel raises troops, but count the price: every soldier is a grown worker taken from the fields, and they draw coin and grain each season whether or not a war comes. A Barracks first, then recruits, then an army to march. Raise no more than your harvest can carry.\"",
+  "event.tutorial.military.choice.ack": "Sparingly, then.",
+
+  "event.tutorial.victory.title": "How This Ends",
+  "event.tutorial.victory.body": "\"You should know what you are playing toward. The Victory panel shows the paths this world was made with — prosperity held for a generation, wonders raised, every rival bent or broken, or simply the finest realm when the chronicle closes. Others are chasing them too.\"",
+  "event.tutorial.victory.choice.ack": "Let them chase.",
+
   "event.tutorial.complete.title": "A Kingdom, Not Just a Village",
   "event.tutorial.complete.body": "\"Tier two, my liege — fed, sheltered, and built up on your own judgment. That's a stable, growing kingdom by any Steward's reckoning. Everything from here is the same craft at a larger scale. Well governed.\"",
   "event.tutorial.complete.choice.ack": "Onward.",

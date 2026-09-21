@@ -116,12 +116,6 @@
       "base:tech.warfare-t2-2",
       "base:tech.warfare-t2-3"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.wall",
-        "base:building.gatehouse"
-      ]
-    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -137,11 +131,6 @@
       "base:tech.warfare-t2-3",
       "base:tech.warfare-t2-1"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.barracks"
-      ]
-    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -212,11 +201,6 @@
       "base:tech.warfare-t3-2",
       "base:tech.warfare-t3-3"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.tower"
-      ]
-    },
     "diffusionDiscount": 0.25,
     "tags": []
   },
@@ -309,11 +293,6 @@
       "base:tech.warfare-t4-2",
       "base:tech.warfare-t4-3"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.keep"
-      ]
-    },
     "diffusionDiscount": 0.3,
     "tags": []
   },

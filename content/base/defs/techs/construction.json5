@@ -7,17 +7,12 @@
   {
     "id": "base:tech.construction-t1-1",
     "name": "Timber Framing",
-    "desc": "An early foundation for the branch, cheap and broadly useful.",
+    "desc": "Squared frames and better saws. Lumber Camps yield +50% wood.",
     "branch": "construction",
     "tier": 1,
     "era": "early",
     "cost": 20,
     "prerequisites": [],
-    "unlocks": {
-      "buildings": [
-        "base:building.well"
-      ]
-    },
     "diffusionDiscount": 0.1,
     "tags": []
   },
@@ -36,7 +31,7 @@
   {
     "id": "base:tech.construction-t2-1",
     "name": "Mortar & Stone",
-    "desc": "Builds on early basics with practical, low-risk improvements.",
+    "desc": "Lime mortar and dressed blocks. Quarries yield +50% stone.",
     "branch": "construction",
     "tier": 2,
     "era": "early",
@@ -44,11 +39,6 @@
     "prerequisites": [
       "base:tech.construction-t1-1"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.granary"
-      ]
-    },
     "diffusionDiscount": 0.15,
     "tags": []
   },
@@ -68,7 +58,7 @@
   },
   {
     "id": "base:tech.construction-t2-3",
-    "name": "Granary Design",
+    "name": "Warehouse Design",
     "desc": "Builds on early basics with practical, low-risk improvements.",
     "branch": "construction",
     "tier": 2,
@@ -107,11 +97,6 @@
       "base:tech.construction-t2-2",
       "base:tech.construction-t2-3"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.tavern"
-      ]
-    },
     "diffusionDiscount": 0.2,
     "tags": []
   },
@@ -163,7 +148,7 @@
   {
     "id": "base:tech.construction-t4-1",
     "name": "Workshop Tooling",
-    "desc": "A mature high-medieval capability, expensive and specialised.",
+    "desc": "Jigs, vices and a bench built for the work rather than around it. Workshops yield +50% tools.",
     "branch": "construction",
     "tier": 4,
     "era": "high",
@@ -172,11 +157,6 @@
       "base:tech.construction-t3-1",
       "base:tech.construction-t3-2"
     ],
-    "unlocks": {
-      "buildings": [
-        "base:building.workshop"
-      ]
-    },
     "diffusionDiscount": 0.25,
     "tags": []
   },

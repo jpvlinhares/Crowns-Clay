@@ -664,6 +664,1617 @@ M60 (saves & corpus) deliberately follows M59 so it absorbs the footprint change
 
 ---
 
+## Phase 9 — The Game (M61.5–M67, post-1.0 — added by revision R5, CHARTERED)
+
+Chartered by the **M61.5 release review** (2026-07-27) with ADR-5 and ADR-6 (doc 15). The verdict was
+**Not Ready for Release**, on the same shape of finding as M47.5's: the letter of the roadmap is
+satisfied and its substance is not. M47.5 found every Phase 3–5 system verified only in a standalone
+harness. M61.5 found the successor failure one level up — systems verified only as FUNCTIONS. The
+496-test suite, four byte-stable golden replays, four corpus saves and three benchmark scenes
+between them never ask whether the COMPOSED GAME produces a good outcome, and the one tool that does
+(`bench:balance --real`) was never a gate.
+
+What that hid, measured on the shipping composition (16 campaigns × 60 years, 4 difficulties, 2
+seeds): **11 wars declared, 4 sieges begun, 0 assaults resolved, 0 castles captured, 0 villages
+occupied in 14 of 16 runs, 0 kingdoms eliminated, 0 capitulations, 0 new lords risen.** 13 of 16
+campaigns end in a Prosperity victory in year 18–20 at EVERY difficulty. Villages stabilise around
+~20:1 children-to-adults (measured: 374 children to 18 adults at year 40), so the adult workforce —
+and with it food security, recruitment and war — never reaches scale. And `village.sendSettlers` has
+no player surface at all, so the player is a permanent one-village kingdom while AI realms expand.
+
+Consequence: Phases 4, 8 and 8.1 — the whole military/siege/castle investment, thirteen milestones —
+are complete, tested, and never reached to a conclusion in the shipping game.
+
+**Phase 9 adds NO new systems.** Every milestone repairs, surfaces, or measures something already
+built. The M12 playability rule and ADR-3's composition rule bind as everywhere else.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M61.5 | Release review (M1–M61) | formal internal review of the shipped game against the design set; four SIMULATION blockers named (no player expansion verb · inverted demographic pyramid · war that never concludes · victory monoculture); the art gap closed by repositioning rather than by work (ADR-6); Conquest's share rule ruled a defect (ADR-5) | review delivered; R5 ratified; ADR-5 and ADR-6 recorded |
+| M62 | Balance instrumentation as a gate | `bench:balance --real` asserts outcome BANDS and exits non-zero; added to CI. Bands ratified 2026-07-27: (1) adult cohort — 10th-percentile village ≥30%, hard floor 15% on any village older than 10y; (2) war — ≥1 village changes hands in ≥50% of campaigns (GATED), aggregate rate REPORTED not gated; (3) victory timing — no victory before year 30 (GATED), median REPORTED; (4) monoculture — no single victory type in >60% of campaigns | the tool fails against HEAD on all four bands, and its failure report names which band broke — a gate written before the fixes cannot be reshaped to match them |
+| M63 | The player's missing verbs | settler dispatch from the Village panel (target picker reusing the road-tool/footprint-preview pattern), surfacing `sendSettlers`' existing rejection vocabulary; **the missing ownership guard on `village.sendSettlers`** (`village.upgrade` has one, settlers.ts:264 does not — without it a player could dispatch settlers out of a rival's village); named save slots + a plain slot list (map thumbnails and mod metadata drop to post-release under ADR-6) | injector-free walkthrough: found a second village, save to a named slot, reload, resume · goldens and corpus verify BYTE-IDENTICAL (the guard is inert for AI issuers — verify, do not assume) |
+| M64a | Demographic diagnosis | instrument the daily population update's per-village births / matured / senesced / deaths / migration / dispatch deltas and reconcile them against observed cohort change over 40 years. **Output is a written cause, not a fix** — nothing committed but a finding. Chartered separately because the review could NOT close the causal chain: the model's own constants imply a stable child:adult ratio of 1.3–2.5, not 20, and with 374 children maturation alone should feed ~27 adults/year into a cohort sitting at 18. Something removes adults that has not been found, and only two code paths write `pop.adults[]` | the observed cohort trajectory is fully explained by named terms; recalibrate-vs-redesign is DETERMINED, not guessed |
+| ~~M64b~~ | *merged into M65 (owner-directed 2026-07-27, after the M64a finding)* | M64a proved the demographic inversion and the never-massing army are ONE defect — an unbounded recruiting policy — so splitting them would have paid two fixture re-records to fix one cause, and neither half's bands could go green without the other's change. The genuinely population-side residue (`SETTLER_PARTY`'s age mix, `FAMINE_MORTALITY`'s slope) folds into M65 as secondary scope | — |
+| M65 | The military economy (was: war that concludes) | **Primary, per the M64a finding: give recruiting a CEILING.** Today every recruit gate is a FLOOR (`RECRUIT_MIN_ADULTS_REMAINING` 12, `RECRUIT_MIN_POPULATION_FLOOR` 20, `RECRUIT_MIN_FOOD_SECURITY` 0.95) with no notion of how large an army this kingdom should have, so it recruits at 10 adults/unit until it hits the floor, forever. Two coupled additions, both in `ai/military.ts`, no new system: (1) a WORKFORCE ceiling — army headcount capped as a fraction of the realm's adults, which is what makes M62's adult-cohort band structurally reachable; (2) an AFFORDABILITY ceiling — do not recruit what current upkeep capacity cannot sustain, which is what stops the recruit→desert→recruit churn (`military-upkeep` returned +695 adults to one village in 20 years; that is the churn, measured) and lets an army actually persist long enough to march. GDD §6's "standing army cost must force guns-vs-butter tension" is the design intent both serve. Secondary: `SETTLER_PARTY`'s 67%-adult mix; `FAMINE_MORTALITY`'s slope at mild hunger; `WAR_MIN_STRENGTH` (20) re-checked against what a capped army can actually field. Deferred unless the matrix demands them: the `MilitaryBuildup` plan monoculture (81% of plan-choices) and garrison-hold — both are war-CADENCE levers, and the cadence question cannot be read honestly until armies stop dissolving | M62's adult-cohort AND war bands both green — they are one fix, so they pass or fail together · 50-year age-structure property test green · food security ≥0.95 sustained in a developed village. Named baselines: flat harness 24 sieges begun / 23 captured (Gate P8.1); `--real` 4 begun / **0 captured**, 0/16 campaigns saw a village change hands (M61.5/M62) |
+| M66 | Victory semantics & pacing | **SHIPPED as elimination-only Conquest + a re-paced Prosperity** (the taken-village share of ADR-5's option (b) was built, measured at 0 wins in 16 campaigns, and deleted — owner decision 2026-07-27; see the M66 scoping note). Prosperity happiness 80→75 and realm population 60→90, both set against measured joy/heads rather than guessed | M62's monoculture band GREEN (prosperity 56%); the year-30 and changing-hands bands hand to M67 · no fixture re-record — correct outcome, WRONG REASON as recorded ("victory state is not hashed"); it is hashed, but no fixture window is long enough for it to diverge. Corrected by M69 |
+| M67 | Onboarding, docs & Gate P9 (INHERITS M66's two open bands) | tutorial extended for REACHABILITY (one event per major system naming the panel and its gate — the Keep→castle gate above all, currently thirteen milestones hidden behind an unexplained precondition); ADR sweep for the five cuts M61.5 found with no decision record — **markets & the trade economy, village tiers 3–4, village specialisation, the battle order vocabulary (OQ-7 was never ratified against M27 data as its own record required), the advisor appointment UI**; README status table brought to M61 + Phase 9; doc 07 §3's now-stale "roster adoption is INERT" note corrected (measured: the AI does raise barracks and does recruit a mixed roster); Gate P9. **Inherited from M66:** the earliest-victory floor (a y29 prosperity, one year under — weigh that the matrix runs 60y while the shipped cap is 100 before touching a ratified band) and the changing-hands band (13%, needs AI war competence, which no Phase 9 milestone owns) | every cut is either recorded or scheduled; docs carry no claim the build does not honour; Gate P9 recorded in this doc in Gate P8/P8.1 format |
+
+**Phase 9 sequencing note — ordered by FIXTURE COST, not by importance.** M62, M63 and M64a are
+hash-inert (tooling, app/UI, and a throwaway probe), so the whole first wave costs zero fixture
+walks and no Opus fixture session. **M65 and M66** each move behaviour and each carries ONE
+re-record. The two are deliberately **not batched with each other**: folding them into a single
+re-record would save one diff walk and cost single-cause attribution on every moved hash — and a
+wrong balance change hiding behind a right one inside a green re-recorded fixture is precisely the
+silent-failure mode this project's hard-stop-before-record rule exists to catch.
+
+*Revised after the M64a finding (2026-07-27):* the original three-re-record plan assumed M64b
+(population) and M65 (war) were separate causes. They are not, so merging them REMOVES a re-record
+rather than batching two — the merged M65 still has exactly one attributable cause, which is the
+property the no-batching rule protects. Predicted scope: **M65** moves `terra-demo` +
+`campaign-demo` and all four corpus resume hashes (recruiting changes AI behaviour in campaign
+compositions; the settler/famine secondary scope reaches terra too — constants and gating only,
+**no schema change, no migration**); **M66** moves `campaign-demo` + `campaign-tick500-v1` only,
+plus a victory-section v1→v2 bump, and if a terra fixture moves under M66 that is a signal to stop,
+not a nuisance to record.
+
+*Corrected by M65's actual execution (2026-07-27):* M65 moved **two** fixtures, not six —
+`campaign-demo` and `campaign-tick500-v1`. Terra stayed byte-identical because the settler/famine
+secondary scope was never started (it defers with M64b's inherited scope), and because the
+recruiting ceilings proved entirely hash-inert: no committed fixture runs long enough (3000 ticks
+≈ 125 days) for a barracks to exist, let alone a recruit. The prediction was right in KIND and
+wrong in BREADTH, on the safe side — the diff walk checked a wider set than actually moved.
+
+**M67 scoping note (shipped 2026-07-27):** the phase's truth pass. Five ADRs recorded for cuts the
+build had been carrying undocumented — **ADR-7** markets/prices/trade economy, **ADR-8** village
+tiers 3–4, **ADR-9** village specialisation, **ADR-10** the battle order vocabulary (which also
+CLOSES OQ-7, dangling since M27), **ADR-11** the advisor appointment UI. Every one was re-verified
+against the code before being written, not trusted from the review's notes. ADR-11 additionally
+CORRECTS ADR-1, which had justified cutting characters partly on the claim that advisors were
+"exactly what the player already sees" — they are not: `kingdom.appoint` has zero callers in
+`packages/app`, so the player sees a salary line for officials they can never meet. Recorded as a
+correction rather than by editing ADR-1, matching how ADR-4's A1 corrections were handled.
+
+Doc 07 §3's "roster adoption is currently INERT" caveat is retired: it claimed the AI never raises
+a barracks, and M64a measured 190 units recruited across 4 kingdoms in 20 years as a genuine mixed
+roster. README's status table, frozen at M54, now runs to M67 (13 rows, including M61.5 and all of
+Phase 9).
+
+**Reachability tutorial** — five steps naming the panels the old six-step economy tutorial never
+mentioned (diplomacy, research, military, victory, and above all the KEEP, which gates the entire
+castle layer and which nothing previously told the player about). The first trigger design was
+WRONG and measurement caught it: `village.happiness >= 55` defers nothing, because a fresh village
+is already content, so the diplomacy step fired at tick 10 — day one, ahead of the welcome message,
+and inside the single-kingdom terra sandbox where there are no neighbours to talk to. All five are
+now gated on `village.tier >= 2`, which is also the mechanically correct anchor (the Keep's own
+`requires.villageTier: 2`), spread across distinct seasons. Known limitation recorded in the content
+file: the DSL (OQ-3, DSL-only) has no predicate for "this composition has rivals", so a terra
+sandbox reaching tier 2 still sees the campaign-half hints — tier 2 at least makes them late and
+rare there.
+
+**Fixtures re-recorded INTENTIONALLY (6).** Cause is event-code RE-INTERNING, not events firing:
+`game/events.ts` assigns codes by position in `[...db.events.keys()].sort()` and folds those raw
+code numbers into a registered hash source (`onceFired`/`lastFired`/`pending`), so five new ids
+sorting into the middle of the block renumber every event after them. Verified directly that no new
+tutorial event fires inside the 3000-tick window — only `welcome`/`happiness`/`economy`, exactly as
+before — and that the two fixtures with no fired events (`calendar-baseline`, `wanderers`) are
+untouched. Predicted six, moved exactly six.
+
+**M68 scoping note (shipped 2026-07-29):** un-chartered follow-up work, raised by the owner
+after M67 while reading the research panel. Three defects, one theme — content that claims an
+effect it does not have.
+
+1. *The joy panel's food factor read an EMA, not today's meal* (fixed in `buildingEmitter.ts`;
+   food at 0 still showed +40.8 joy because the panel fed `foodSecurity` — a smoothed average —
+   into the same helper the sim feeds today's `eaten/need`). Reproduced at +36.4 points on day 1.
+2. *"Granary" renamed to "Warehouse"* (display name and the "Warehouse Design" tech; the id
+   `base:building.granary` is unchanged, so no save or fixture sees it).
+3. *Every `unlocks.buildings` claim in the tech tree was inert* — see **ADR-12**. Nine became real
+   `BuildingDef.techBoost` effects at ×1.5; the other eight were deleted. The generalised
+   `{ tech, multiplier, applies }` shape replaced the `outputBoost` field shipped hours earlier in
+   the same phase: the Scribe's Hut has no recipes to boost, and rather than grow a second
+   near-identical field (and then a third for storage, a fourth for garrisons) the discriminator
+   went in while exactly two content entries and two tests depended on it.
+
+**No fixture re-record.** Verified, not assumed: all 4 golden replays and all 4 corpus saves are
+byte-identical. **(M70's isolation run later proved this was true and MEANINGLESS as evidence — see
+the M70 isolation note. M68 moved four of five M62 bands over 60 years; the fixtures run 125 days.
+The milestone's "no existing balance moves" claim was false and `bench:balance` was never run.)** Techs are coded by id (positional over `[...db.techs.keys()]`), and no id, tier,
+cost or prerequisite moved — only `unlocks`, `desc`, and new `techBoost` fields, none of which is
+folded into a hash source. The behavioural risk was Written Records: a tier-1, cost-20 tech that
+now boosts the Scribe's Hut, and therefore plausibly *is* researched inside a fixture window.
+It is not — `campaign-demo` and `campaign-tick500-v1` both verified green.
+
+**What this milestone does NOT fix.** **58 of the 72 techs do nothing** beyond counting toward the
+era-breadth gate and nudging the AI's `researchOpportunity` score, and eight buildings lost their
+(fake) tech association without gaining a real one. Only two routes from a tech to a game effect
+are wired at all: `BuildingDef.techBoost` (9 techs, new here) and `UnitDef.requiresTech` (5 techs,
+M45). `TechDef.modifiers` is used by 0 of 72; `unlocks.edicts` (3) is not checked by
+`kingdom.enactEdict`; `unlocks.wallTier` (2) has no reader outside the validator; and of the 8
+`unlocks.units` claims only the 5 that coincide with a real `requiresTech` gate bite — Spear
+Tactics, Archery Corps and Heavy Cavalry name pre-M45 units that were never gated.
+
+The honest path for those eight buildings is the remaining four `applies` kinds — `storage`
+(Warehouse ← Warehouse Design, a tech named for a building it never touched), `service` (Tavern,
+Well), `garrison` (Barracks) and `defense` (Wall/Gatehouse/Tower/Keep) — each a real sim change in
+a different system, deliberately not bundled here. ADR-12 records this rather than leaving it
+implied.
+
+*(A first pass at this note said 51. That count credited every tech declaring an `unlocks` block
+with having an effect — which is precisely the assumption ADR-12 exists to refute. Re-derived from
+content: 72 − |techBoost ∪ requiresTech| = 72 − 14 = 58.)*
+
+---
+
+**Gate P9 (assessed 2026-07-27) — NOT PASSED: 3 of 5 ratified bands green. Phase 9 is NOT closed.**
+
+All eight milestones shipped (M61.5 · M62 · M63 · M64a · M65 · M66 · M67, with M64b merged into M65
+by R6). Global DoD checks are green: `npm run build` clean · `npm run lint` clean · full suite
+**496/496** · `npm run replay:verify` all four goldens byte-stable · `npm run save-corpus:verify`
+all four corpus saves resume clean with **0 migrations** · `npm run save-corpus:torture` 5
+save/load cycles per entry, hash stable throughout. Doc 11 §2 sim budgets
+(`npm run bench:scenes all`): war-max 0.159 ms/tick, ai-8k 0.303, late-campaign 0.220 — all ≤10 ms,
+AI share ≤10.3% of a 30% budget. `npm run bench:assault` holds the M54 bands unchanged: garrisoned
+templates repel raids, a keep-only village falls to a host, 0% max origin deviation.
+
+**The gate criterion is M62's five bands, ratified BEFORE the fixes they measure. Final state
+(`bench:balance --real --years 60 --seeds 2`, run on the shipping tree):**
+
+| Band | M62 baseline | Gate P9 | |
+|---|---:|---:|:--|
+| adult cohort p10 (≥30%) | 6.8% | **46.1%** | ✓ |
+| oldest-village floor (≥15%) | 5.1% | **35.5%** | ✓ |
+| monoculture (≤60% any type) | prosperity 88% | **prosperity 56%** | ✓ |
+| earliest victory (≥y30) | y9 | y29 | ✗ |
+| campaigns changing hands (≥50%) | 0% | 13% | ✗ |
+
+**What Phase 9 achieved.** The three demographic and victory-shape bands went from catastrophic to
+comfortable. Villages are staffed by adults instead of being 95% children; the player can found
+villages at all (M63 — the build shipped 1.0 with no expansion verb); victory outcomes are genuinely
+mixed rather than a single track winning 88-94% of campaigns; and `story/9000 k=4` produced
+`destroyed 1, risen 2`, meaning M53's kingdom-death and new-lords machinery executed in the shipping
+composition for the first time since it was written at Phase 8.
+
+**Why it is not closed, stated plainly.** Two ratified bands fail, and neither was tuned to pass —
+that discipline held throughout the phase.
+
+- *Earliest victory y29 (need ≥30)* is a one-year miss on one campaign of sixteen. It is NOT closed
+  by nudging Prosperity, because prosperity wins must land inside [30, 60] for this matrix and five
+  already land at y54 with two at y58; making Prosperity harder risks pushing them past the cap and
+  breaking the monoculture band M66 just fixed. Note the matrix runs `--years 60` while the shipped
+  `DEFAULT_YEAR_LIMIT` is **100** — this squeeze is partly an artifact of the short matrix, and any
+  fix should weigh that before touching a ratified band.
+- *Changing hands 13% (need ≥50%)* is the real one, and it is **owned by no milestone in this
+  roadmap**. It needs AI war competence — armies that mass, march, and take a defended castle. R5
+  chartered Phase 9 as "NO new systems", so this was structurally out of scope from the day the
+  phase was written. It is the same root cause that made ADR-5's taken-village Conquest unreachable
+  (0 wins in 16 campaigns) and that leaves the entire Phase 8 + 8.1 castle layer — thirteen
+  milestones — still unexercised to a conclusion in the shipping game.
+
+**Two structural findings this phase surfaced, recorded for whoever works here next.**
+
+1. ~~*The victory tracker is not a `kernel.addHashSource` contributor.*~~ **WRONG AS STATED —
+   corrected by M69 (2026-08-02); the conclusion survives, the reason does not.** `victory.ts` HAS
+   registered `addHashSource('victory', …)` since **M37**, unconditionally, and `composeCampaign`
+   registers victory unconditionally too. The fold is thorough (winner, defeated, everFounded, both
+   streak maps, wonders). Verified three ways rather than re-read: adding `fold(4242)` to that
+   source diverges `campaign-demo` at tick 100, so it IS reached; yet dropping
+   `DEFAULT_PROSPERITY_HAPPINESS` 75 → 5 moves NOTHING. The real defect is **window length** —
+   `campaign-demo` runs 3000 ticks = **125 days**, and victory needs years (90 realm population,
+   multi-year streaks, a 10-year hegemony), so tracker state never diverges that early. The
+   practical conclusion is unchanged and still binding: **do not read a green corpus as evidence
+   about victory behaviour** — `victory.test.ts` and `bench:balance` remain that subsystem's only
+   guards. But the fix is a LONG-WINDOW fixture (or an explicit decision to rely on
+   `bench:balance`), not a hash source, and M69 was chartered against the wrong one. See the M69
+   scoping note. This correction is recorded here rather than by silently rewriting the finding,
+   matching how R4 handled ADR-4's A1 predictions.
+2. *Event codes are positional.* Adding any event renumbers every event sorting after it and
+   invalidates every content-bearing fixture, even when the new events never fire. Hashing the event
+   ID string rather than its sorted index would make content additions fixture-neutral. Same class
+   as M56's "re-homing `Fortification` moved its registration order."
+
+**The decision this gate hands to the owner.** Phase 9 delivered its milestones and did not meet its
+own criterion; declaring it closed anyway would be precisely the M47.5 failure mode — the letter
+satisfied, the substance missed — that this project's whole review culture exists to prevent. Three
+ways forward, none of them mine to take: (a) charter a Phase 10 owning AI war competence, which is
+the only path that makes the changing-hands band, ADR-5's retired Conquest share, and the dormant
+castle layer all reachable by one body of work; (b) accept the two bands as unmet and ship on ADR-6's
+technical-build framing, with the war layer documented as dormant — defensible, provided the docs say
+so plainly; (c) re-ratify the bands themselves, which is legitimate only as an explicit owner
+decision and never as a way to turn a failing gate green.
+
+**M66 scoping note (shipped 2026-07-27) — CLOSED on the monoculture band; two bands hand to
+M67.** Two changes shipped, both in `game/victory.ts`:
+
+1. *Conquest is ELIMINATION-ONLY* (owner decision 2026-07-27, superseding ADR-5's option (b)).
+   ADR-5 re-based the share clause on villages TAKEN BY FORCE to preserve a mid-length military
+   track. That was built, measured, and retired in the same milestone: 60% of all villages taken
+   by force is ~8 on a 4-kingdom map and the shipped AI manages ~2 occupations across the whole
+   16-campaign matrix, so the clause fired in **0 of 16** runs. Option (b) did not survive contact
+   with the AI's actual war competence. `DEFAULT_CONQUEST_SHARE`, the `conquestShare` option, and
+   the `takenBy` take-history were all DELETED rather than left inert — a defined-but-dead lever is
+   exactly the confusion the gatehouse carried from M28 to M59. Conquest progress is now "rivals
+   defeated / rivals total", so contestability still broadcasts as a realm closes on the last
+   holdout. Consequence accepted and recorded: the war track stays effectively dormant until AI
+   war competence rises, which is the same root cause as the still-failing changing-hands band.
+2. *Prosperity re-paced*: happiness 80 → 75, realm population 60 → 90. Measured first, not
+   guessed: under M65's tax baseline a peaceful realm runs joy 77-83 and a high-tax warlike one
+   61-68, so an 80 bar sat at the very top of the range and could never be held 15 consecutive
+   years — Prosperity had stopped firing ENTIRELY and chronicle took 94% of wins by default. 75
+   stays comfortably clear of the ~70 fed-only baseline M47.8 warned about, so it still demands
+   real investment, while discriminating builder from warmonger the way the track intends.
+
+**Measured (`bench:balance --real --years 60 --seeds 2`):**
+
+| Band | M62 baseline | M65 | M66 |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 6.8% ✗ | 45.1% ✓ | **46.1% ✓** |
+| oldest-village floor (≥15%) | 5.1% ✗ | 27.9% ✓ | **35.5% ✓** |
+| monoculture (≤60%) | prosperity 88% ✗ | chronicle 94% ✗ | **prosperity 56% ✓** |
+| earliest victory (≥y30) | y9 ✗ | y29 ✗ | y29 ✗ |
+| campaigns changing hands (≥50%) | 0% ✗ | 13% ✗ | 13% ✗ |
+
+**Three of five bands now pass.** Victory outcomes are genuinely mixed for the first time —
+prosperity 9, chronicle 7, firing at years 29/34/38/54/54/54/58/58 instead of never. And
+`story/9000 k=4` produced **`destroyed 1, risen 2`** alongside 2 sieges and an occupation: M53's
+kingdom-death and new-lords-rising machinery executing in the shipping composition for the first
+time since it was written.
+
+**A predicted null result, verified rather than assumed.** Removing the share clause was expected
+to change matrix OUTCOMES not at all, because the clause already won nothing. The re-run
+reproduced the previous run line-for-line — same winner, year, and populations in all 16
+campaigns, same four band figures. Stated before running, confirmed after.
+
+**Structural finding — the victory tracker is NOT a `kernel.addHashSource` contributor.** Its
+state never folds into `stateHash()`, so no golden replay and no save-corpus resume hash can
+detect a victory-logic regression, ever. M66's fixture-neutrality is therefore STRUCTURAL, not
+luck, and `victory.test.ts` plus `bench:balance` are the only guards this subsystem has. Worth
+knowing before anyone trusts a green corpus as evidence about victory behaviour.
+
+**A test that passed for the wrong reason, found while changing the rule.** `conquest: controlling
+the required village share wins` kept passing after the rule change — but via the ELIMINATION
+clause, because reassigning every village to one kingdom starves the others into last-village
+defeat. Its name claimed it proved share math; it proved nothing of the kind. Rewritten, and the
+suite now carries an explicit regression test for the original defect (`holding most of the map
+never wins while a rival still stands`).
+
+**Handed to M67:** the two failing bands. *Earliest victory y29* — `hard/9000` fires prosperity
+one year under the floor; a 15-year streak plus a 90-head gate lets a fast realm start its streak
+at y14. Deliberately NOT tuned, because Prosperity wins must land inside [30, 60] for this matrix
+and five already land at y54 with two at y58, so making Prosperity harder risks pushing them past
+the cap and breaking the monoculture band M66 just fixed. Note also that the matrix runs
+`--years 60` while the shipped `DEFAULT_YEAR_LIMIT` is **100** — the squeeze is partly an artifact
+of the short matrix, which M67 should weigh before touching a ratified band. *Changing hands 13%*
+— unchanged from M65 and not victory-shaped at all: it needs AI war competence (armies that mass,
+march, and take a defended castle), which is the war-cadence work no milestone in this phase owns.
+
+**Fixtures: NONE moved.** All four goldens and all four corpus saves byte-identical, no re-record,
+and the victory section stays **v1** — the Conquest rule changed but its STATE did not, since
+elimination reads the tracker's existing `defeated` set. A v2 section plus a `takenBy` migration
+was built for option (b) and removed with it rather than shipped as dead weight in every future
+save.
+
+**M65 scoping note (shipped 2026-07-27) — CLOSED on its two demographic bands; the three
+remaining bands hand to M66.** Three changes shipped, all in the AI layer, all flag-gated
+(`recruitCeilings`, default true, harness wrapper opts out — the same convention every AI feature
+since M47.8 uses):
+
+1. *Workforce ceiling* (`MAX_ARMY_WORKFORCE_FRACTION`, `ai/military.ts`): army headcount homed at
+   a village capped at a fraction of its POTENTIAL workforce (current adults + everyone already
+   serving). This is the direct answer to M64a's finding.
+2. *Affordability ceiling* (`canSustain`, an optional callback supplied by `campaign.ts`): don't
+   recruit what `UPKEEP_SEASONS_BUFFER` (2) seasons of kingdom treasury + village food can't
+   already sustain. `ai/military.ts` has no Kingdom/Stockpile access by design, so the composition
+   computes it — and `extraReads` must carry both components or the access guard throws (a runtime
+   check `tsc` cannot catch; found by running, not reading).
+3. *Peacetime tax baseline* (`ai/economy.ts`): non-warlike plans tax NORMAL instead of NONE. See
+   that module's doc for the full reasoning; this reverses a deliberate prior policy.
+
+**Measured against the M62 bands** (`bench:balance --real --years 60 --seeds 2`):
+
+| Band | M62 baseline | M65 |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 6.8% ✗ | **45.1% ✓** |
+| oldest-village floor (≥15%) | 5.1% ✗ | **27.9% ✓** |
+| campaigns changing hands (≥50%) | 0% ✗ | 13% ✗ |
+| earliest victory (≥y30) | y9 ✗ | y29 ✗ |
+| monoculture (≤60%) | prosperity 88% ✗ | chronicle 94% ✗ |
+
+The two bands M65 was chartered to move are green. War is alive but rare for the first time in the
+real composition — 3 wars declared, 2 eliminations, 2 occupations, and a **`conquest in year 29`**,
+the first territorial victory this composition has ever produced (still 0 sieges: the castle layer
+remains unexercised, inherited). The tax change also stopped Prosperity firing at all — taxation
+costs happiness, so the ≥80-joy streak never sustains — which is why campaigns now run the full 60
+years instead of ending at 18–20, why earliest-victory moved y9→y29, and why the monoculture FLIPPED
+from prosperity to chronicle rather than dissolving. Populations grew markedly (92 → 105–182).
+
+**Why the remaining three hand to M66 rather than staying open here.** All three are victory-shaped:
+the monoculture is now an artifact of Prosperity never firing, and both it and the year-30 floor are
+exactly what M66's Prosperity re-pacing exists to set. Chasing them from the military side would mean
+tuning war constants to compensate for a victory-pacing defect — the wrong lever on the wrong
+milestone. The changing-hands band is genuinely coupled to both (a campaign that ends at year 20
+cannot show conquest; one that runs 60 years just did).
+
+**Recorded against repeating it: the first `MAX_ARMY_WORKFORCE_FRACTION` was 0.15 and was a TOTAL
+RECRUITING BLOCK, not a tight cap.** A fraction ceiling has a minimum viable village baked in —
+the first unit needs `adults >= popCost / fraction`, i.e. 67 adults at 0.15 with `popCost` 10 —
+and the shipping composition's villages hold ~30 adults at genesis and ~50 by year 20. It was
+validated against a medium-map probe whose villages reached 322–343 adults and sailed past the
+threshold. **The check to apply to any future balance constant: verify it against the scale the
+SHIPPING composition actually reaches, not the scale a diagnostic probe reaches.** 0.30 admits the
+first unit near 34 adults and `WAR_MIN_STRENGTH` near 47.
+
+**Found in passing, NOT fixed (out of scope, reported not silently absorbed):** settler-founded
+colonies starve to death within ~3 years. `SETTLER_CARRY`'s 60 food feeds a 30-person colony for
+about 20 days and the construction manager does not raise a farm in time — a traced colony went
+25 → 3 → 0.5 → dead between years 7 and 10 having completed only its village centre. This is
+PRE-EXISTING and unrelated to M65's mechanism; M65 merely surfaces it far more often, because
+richer source villages attempt far more foundings (14 in 20 years vs ~9 in 30 pre-change). It is
+the likeliest remaining drag on the oldest-village floor and belongs with M64b's inherited
+settler scope. Also noted for whoever reads the matrix next: **seed 9000 on `mapSize: 'small'`
+never recruits in ANY configuration, before or after M65** — it is not a war-capable seed, so
+diagnosing recruiting against it alone will mislead.
+
+**Fixture impact — narrower than R6 predicted, and attribution was PROVEN rather than reasoned.**
+Two fixtures move, both campaign-side: `campaign-demo` (diverges at tick 100) and
+`campaign-tick500-v1`. R6 forecast terra fixtures moving too, but that was contingent on the
+settler/famine secondary scope, which M65 did not start. The recruiting ceilings are **provably
+hash-inert**: reverting ONLY the tax baseline while leaving both ceilings live at 0.30 returns all
+eight fixtures to green, so 100% of the movement is the tax policy. Mechanically a village founds
+at NORMAL, the old policy issued a day-1 `village.setTaxRate`→NONE and the new one issues nothing
+(the idempotent check), so the hashed `VillageCore.taxRate` differs from the first sampled tick —
+consistent with divergence at tick 100 (~day 4), far too early for any barracks or recruit.
+
+**M64a FINDING (2026-07-27) — the population model is NOT the defect; AI recruiting is. The
+M61.5 review attributed the symptom to the wrong subsystem.** M64a was chartered because the
+review measured a ~20:1 child-to-adult ratio but could not close the causal chain — its own
+arithmetic said the model's constants imply a stable ratio of 1.3–2.5, and that ~27 adults/year
+of maturation should be refilling a cohort sitting at 18. That instinct was right: **nothing is
+wrong with `population.ts`.**
+
+*Method.* No source was edited. Every tick of a 20-year 4-kingdom campaign (seed 9000, medium map,
+`aiFromIndex: 0`) was sampled for changes to `pop.adults[]`, bucketed by `tick % TICKS_PER_DAY`,
+and each bucket matched to the system or command that owns that phase. Four writers appeared, and
+every one is accounted for. Per-village, over 20 years:
+
+| village | start | `population` (ph 3) | `army.recruitUnit` (ph 8) | `military-upkeep` (ph 5) | settler dispatch (ph 1) | = predicted | actual | children |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 28 | 15 | **+372.9** | **−834** | +695 | −60 | 188.89 | **188.89** | 389 |
+| 30 | 15 | **+368.5** | **−314** | +20 | 0 | 89.51 | **89.51** | 431 |
+| 32 | 15 | **+331.2** | **−306** | 0 | −20 | 20.21 | **20.21** | 340 |
+| 34 | 15 | **+309.2** | **−290** | 0 | −20 | 14.21 | **14.21** | 294 |
+
+Predicted equals actual to the decimal in all four cases — the trajectory is fully explained, which
+is M64a's T objective.
+
+*The cause.* `population.ts`'s daily update is a NET CONTRIBUTOR of +309 to +373 adults per village
+over 20 years. What removes them is the AI military manager recruiting at `UnitDef.popCost` = **10
+adults per unit** (militia/spearman/swordsman/archer/crossbowman all 10), gated only by
+`RECRUIT_MIN_ADULTS_REMAINING = 12` — with **no cap on standing army size relative to workforce**.
+The moment a village's adult cohort reaches ~22 and the food gates pass, 10 adults become a soldier;
+the manager retries daily, so the cohort is clamped into a permanent 12–22 band. 190 units were
+recruited across 4 kingdoms in 20 years. Children accumulate to 294–431 as the mechanical
+consequence: births continue off the surviving adults (joy-scaled), maturation feeds adults, and
+recruiting removes them again — the child cohort is a permanent waiting room.
+
+*This also explains the "bimodality" the review flagged.* Villages 28/30 kept a workforce only
+because their soldiers DESERTED BACK (`military-upkeep` returning +695 / +20 adults); 32/34 got
+nothing back and were bled to 14–20 adults. The difference was never demographic — it was whether
+the army an unaffordable upkeep dissolved happened to return its men.
+
+*Counterfactual, already proven by the accounting:* with recruiting removed, the population system
+alone takes a 15-adult village to ~324–388 adults against 294–431 children — an adult fraction of
+**43–57%**, comfortably inside M62's ≥30% band. **M62's adult-cohort band is therefore not a
+population-model gate at all; it is an AI-recruiting gate.**
+
+*What remains genuinely in `population.ts`/`settlers.ts` scope,* both smaller than chartered and
+neither responsible for the inversion: `SETTLER_PARTY`'s 67%-adult composition (visible above as the
+−60/−20 columns) and `FAMINE_MORTALITY`'s slope at mild hunger (untested here — it was not a
+material term in these runs, since these villages were rarely hungry).
+
+*Consequence for the plan:* M64b and M65 now share one root cause, so their scopes overlap
+substantially — see the M64b/M65 rows and the note below. **Nothing was committed but this
+finding, per M64a's charter.**
+
+**M63 scoping note (shipped 2026-07-27):** both halves shipped as chartered, both TOOLING/APP-LAYER
+only — no golden or corpus re-record needed, confirmed (all four goldens, all four corpus saves,
+byte-identical). *Settle tool:* `village.sendSettlers` never had an ownership guard —
+`village.upgrade` (settlers.ts:431) already checked one, this command (settlers.ts:264) did not,
+despite `campaign.ts:888` already wiring `settlerGame.setOwnershipGuard` for it — a gap that only
+mattered once a player-facing dispatch surface could reach it. Fixed by mirroring
+`village.upgrade`'s exact check; confirmed inert for the AI issuer (`ai/planner.ts`'s
+`ExpandSettle` always dispatches with its own kingdom as issuer, from a village it owns). The
+Village panel gained a "Found Village" armed-click tool (`main.ts`, mirroring the existing
+`armedArmyAction`/`armedBuild` pattern exactly — same arm/disarm, same right-click/Escape cancel,
+same mutual exclusion with Build/Road). **No live valid/invalid preview**: reusing the existing
+`previewBuild` RPC was considered and rejected — it validates placement RELATIVE TO an owning
+village's radius (`ops.validatePlacement(def, x, y, villageId)`), while founding validates a
+GLOBAL site rule with no owning village (`dispatch`'s own call passes `null`) — building an
+accurate live preview needs new sim surface, out of scope for "surface an existing verb." The
+armed tool instead shows a neutral footprint outline (village-center's def size) and the founding
+verdict itself surfaces through the pre-existing `village.rejected` toast, in the sim's own
+words. Verified: build/lint/typecheck clean, full suite 496/496 unchanged, all fixtures
+byte-identical, and a live walkthrough in the browser confirmed the arm→click→disarm cycle
+resolves (the button correctly reverts to "Found Village" only after the click handler's settle
+branch runs) — the sandboxed browser used for this session cannot compose/screenshot the canvas,
+so the exact rejection toast text was not visually re-confirmed this session; `settlers.test.ts`
+(unmodified, still green) is the authority for `dispatch`'s rejection-message behaviour.
+
+*Named save slots:* the IndexedDB slot store (`saveStore.ts`) always supported arbitrary names —
+only the toolbar hardcoded `'manual'`. Per ADR-6's trim, this ships as a plain list, not GDD §18's
+full save browser: a text input names the slot `Save` writes to, and a new `listSlots` protocol
+message (+ `slotsList` response) lets the worker peek at each stored slot's OWN header — `tick`
+(via the already-exported `calendarFromTick`) and `campaign.kingdomCount` — to label the list
+`{slot} — Year N · season · day D · K kingdom(s)`, falling back to a byte count if a slot's
+payload doesn't parse. No new persisted state and no schema change: this is a read-only peek at
+what saves already write. Confirmed live: the autosave that fires at the first season boundary
+appeared in the list automatically with the correct detail line, and the save-result handler
+refreshes the list after every save.
+
+**M62 scoping note (shipped 2026-07-27):** shipped exactly as chartered — `bench-balance.ts` gains
+a `VillageBand` sample (age since `village.founded`, adult fraction of cohorts) taken at each run's
+final tick over every extant village, not just capitals, plus the four band computations and a
+`balance-matrix` CI job (`--real --years 60 --seeds 2`, matching the figures this note records).
+Both halves are TOOLING ONLY — no sim/app behaviour changed, so no golden or corpus re-record was
+needed or attempted. Run against HEAD at the exact CI invocation:
+
+```
+M62 bands — adult cohort: p10 6.8% (oldest-village floor 5.1%) · war: 0/16 campaign(s) saw a
+village change hands (0 total changes) · victory timing: earliest year 9, median 20 · monoculture:
+prosperity at 88% of wins
+M62 BAND FAIL: adult-cohort p10 6.8% < 30% floor · a village older than 10y has adult fraction 5.1%
+< 15% hard floor · only 0% of campaigns saw a village change hands (need ≥50%) · a victory fired in
+year 9 (need ≥30) · prosperity won 88% of campaigns (need ≤60% for any single type)
+```
+
+All four bands fail, exactly as the review predicted and sharper than its own estimates (88%
+Prosperity monoculture measured here vs. ~81% estimated in the M61.5 review; 0% of campaigns saw a
+village change hands, vs. the review's qualitative "0 captures/0 occupations in 14 of 16 runs" —
+this run's larger per-campaign year count, 60 vs. the review's mixed sample, converts that to a
+clean zero). The "earliest year 9" figure is itself Conquest's SHARE defect (a 2-kingdom campaign
+out-settling its rival, ADR-5) — expect this specific number to move at M66 for a different reason
+than the other three bands. **CI job added and EXPECTED RED** on this branch until M64b/M65/M66
+land — recorded here so a future reader finds the explanation in the same place as the number,
+not just in the job's own comment.
+
+---
+
+## Phase 10 — The War (M69–M75, post-1.0 — added by revision R7, CHARTERED)
+
+Chartered from **Gate P9's own handover**, which named three ways forward and did not take one:
+(a) charter a phase owning AI war competence, (b) ship on ADR-6's technical-build framing with the
+war layer documented as dormant, (c) re-ratify the bands. **The owner took option (a) on 2026-08-02;
+R7 is RATIFIED and Phase 10 is chartered.**
+
+**The case for (a) over (b).** Gate P9 failed two of five ratified bands, and one of them —
+`changing hands 13%` against `≥50%` — is downstream of a single missing capability. That same gap
+already forced two other retreats this project has on record: ADR-5's taken-village Conquest clause
+was **built, measured at 0 wins in 16 campaigns, and deleted** (M66), and Conquest is elimination-only
+today not by design but because nothing else was reachable. Behind both sits the standing fact
+Phase 9 opened with and closes with unchanged: **Phases 4, 8 and 8.1 — thirteen milestones of
+military, siege and castle work — are complete, tested, and never reached to a conclusion in the
+shipping game.** One body of work makes the band, the retired Conquest clause, and the dormant
+castle layer all reachable. No other item on the backlog has that leverage.
+
+**The measurement that scopes it.** ~~The assault code is not the defect... the flat harness reaches
+24 sieges begun / 23 captured while the shipping composition reaches 4 begun / 0 captured.~~
+**RETRACTED by M70/M70.5 — see R8 below.** That comparison was two spellings of the same outcome:
+the harness sets `succession: false`, so a capital's fall publishes `siege.captured`, while the
+shipping composition publishes `siege.capitalFallen`. `bench:balance` counted only the former. The
+AI was concluding sieges the whole time, and the "0 assaults" beside it came from subscribing to
+`siege.assaultBegun` — **an event no code in this repository publishes.**
+
+**Phase 10 adds no new player-facing systems.** Unlike Phase 9's "NO new systems" rule, it does
+change ARCHITECTURE in two places — event coding and modifier scope — because Gate P9 named both as
+the standing tax on every other piece of work. Both land at the phase HEAD, before any behaviour
+work, so their fixture cost is paid once. The M12 playability rule and ADR-3's composition rule bind
+as everywhere else.
+
+**Sequencing rationale (the M64a/R6 lesson, applied deliberately).** M70 is a diagnosis milestone
+that commits **no fix** — the same shape as M64a, and for the same reason: Phase 9's one wrong turn
+was a recruiting ceiling specified at 0.15 and validated against a probe at the wrong population
+scale, which measured out as a total recruiting block. Diagnosis-before-fix is this project's proven
+pattern and the phase's highest-risk milestone gets it. Conversely M71 is deliberately NOT split:
+R6 dissolved M64b into M65 because two milestones would have paid two re-records for one root cause,
+and the war-cadence levers M65 explicitly deferred belong to the same cause as the fix that enables
+reading them.
+
+| M | Milestone | Goal / Key work | T (test objective) |
+|---|---|---|---|
+| M69 | **SHIPPED** — Fixture economics & the victory blind spot (half re-scoped: the victory premise was wrong, see its note) | Gate P9's two structural findings, both paid at the phase head so later milestones inherit the cheaper regime. (1) **Hash event IDs by string, not sorted index** — `game/events.ts` codes events by position in `[...db.events.keys()].sort()`, so adding any event renumbers every event after it and invalidates every content-bearing fixture *even when the new events never fire* (M67 paid exactly this for five tutorial events). (2) **Register the victory tracker as a `kernel.addHashSource` contributor** — its state never folds into `stateHash()`, so no golden replay and no corpus resume can EVER detect a victory-logic regression; `victory.test.ts` and `bench:balance` are currently that subsystem's only guards | ONE intentional re-record, predicted hunk-by-hunk before recording · a deliberately-introduced victory-logic change is caught by `replay:verify` where it previously passed green — demonstrate the new guard actually guards · a new event added to base content moves NO fixture |
+| M70 | **SHIPPED** — War diagnosis (finding only) | Explain the 24-begun/23-captured (flat harness) vs 4-begun/0-captured (`--real`) gap in named terms. Candidate paths to instrument, none pre-judged: `MilitaryBuildup` plan monoculture (**81% of plan-choices**, deferred by M65 as unreadable until armies stopped dissolving — they have); garrison-hold (deferred for the same reason, now due); `WAR_MIN_STRENGTH` (20) against what an M65-capped army actually fields; whether hosts mass or trickle; whether a besieger persists long enough to resolve; whether the AI ever chooses to assault at all | the begun-vs-captured gap is fully accounted for by named terms, reconciled against measured counts · recalibrate-vs-redesign is DETERMINED, not guessed · **no behaviour change in the commit** |
+| M70.5 | **SHIPPED** (un-chartered) — Fix the instrument | Every war metric in `bench:balance` was wrong: `assaultsBegun` subscribed to an event **no code publishes**, `siegesCaptured` cannot fire in a composition with succession on, and the changing-hands band inherited both blindnesses | done — see its scoping note |
+| M70.6 | **SHIPPED** (un-chartered) — Demographic diagnosis (finding only) | Settled whether M68's adult-fraction collapse is births or war consumption. **Births.** War refuted: the worst village never saw one | done — see its scoping note |
+| M71 | **Decouple surplus from births** — the phase's real work | M70.6's cause, fixed. `population.ts`: `births = adults × BIRTH_RATE × fed × (0.5 + 0.5·shelter) × joyFactor` scales with food and joy and **saturates at nothing**, while `matured = children × MATURE_RATE` is FLAT. A village rich enough to fund a war therefore breeds children faster than maturation converts them, forever. This is the single coupling that makes the game's two equilibria mutually exclusive. Candidate directions, none pre-judged (M70.6 measured the cause, not the cure): saturate the `fed` term; make `MATURE_RATE` condition-responsive rather than flat; or give surplus a second sink (storage, trade, out-migration) so it need not become people. **Balance-affecting by construction — `bench:balance --real` is part of the DoD, not a follow-up** | **all five M62 bands green SIMULTANEOUSLY with M68's boosts left ON** — no tree state in this project's history has managed more than three (Gate P9: 3 · post-M68: 2 · boosts-off counterfactual: 3) · the matrix numbers appear in the scoping note, per M70.5's lesson |
+| M72 | The severed approach | M70's bug, independent of everything above and confirmed at matrix scale. `resolveSpatialAssault` conflates *blocked by fortification* with *blocked by terrain*: its "fully walled off from this edge, enter anyway" fallback is right for a wall (breakable) and wrong for water (not). The column enters on an unreachable tile, `pickWallTarget` returns null, and the assault is repelled in round 1 with **zero casualties on either side** — identically, forever, because nothing is damaged. **59% of kingdom defence maps** have at least one fully severed approach edge (302 of 1600 edges, measured over 400 maps). The origin never changes either: `siege.ts` derives it from where the army stands. Fix the resolver (reachable origin, path around, or counsel `lift`), and teach the intel counsel to ask whether the keep is REACHABLE before it says `assault` into a river | assault repulse rate ≤50% matrix-wide (M70.5's new counter is the detector: `hard seed=9000` currently reports **19 assaults, 19 repelled**) · no campaign reports a siege with >5 assaults and 0 breaches |
+| M73 | The earliest-victory band, decided | Unchanged from R7. Re-measure against the **shipped `DEFAULT_YEAR_LIMIT` of 100**, not the matrix's `--years 60`. Note this band has NEVER been green in any measured tree state (y29 at Gate P9, y28 boosts-off, y10 boosts-on), which is itself evidence the band or the measurement wants revisiting rather than the game. Output is an ADR either way | band green under an honest measurement, or an ADR records the restatement and why |
+| M74 | Per-kingdom stat modifiers | Unchanged from R7. `StatModifiers` has been ONE board shared across every kingdom since M22 — why `TechDef.modifiers` is used by 0 of 72 techs and why `kingdom.researchYield` is read once outside the per-kingdom loop | a modifier granted to one kingdom is measurably absent from a rival's rollup · fixtures byte-identical while no content grants one (verify, do not assume) |
+| M75 | The tech tree earns its cost | Unchanged from R7. **58 of 72 techs do nothing** (ADR-12). Grow `techBoost`'s `applies` vocabulary by `storage`/`service`/`garrison`/`defense`, then wire `TechDef.modifiers` on M74's per-kingdom board. **Every entry is a balance change — `bench:balance --real` per M70.5's lesson, no exceptions** | ≥36 of 72 techs have a measurable effect · no tech GATES a building (ADR-12's buff-not-gate rule) · M62 bands unmoved |
+| M76 | Player agency & Gate P10 | Unchanged from R7's M75. **Advisor appointment** (ADR-11) and **`army.withdraw`** (ADR-10) — the two ADR-recorded surfaces the player cannot reach. Both are panels, not systems. Then Gate P10 | injector-free walkthrough: seat an advisor and watch the modifier land; withdraw from a battle in progress · Gate P10 recorded in Gate P8/P8.1/P9 format |
+
+**M69 scoping note (shipped 2026-08-02) — BOTH halves shipped; the victory half via a route the
+charter did not anticipate, because the charter's premise for it was wrong.**
+
+*Shipped: event codes no longer reach any content-addressable surface.* The charter said "hash
+event IDs by string." That was necessary and NOT sufficient. The positional code also leaked into
+**three RNG fork names** — `event:${code}:…`, `event-roll:${code}:…`, `event-choose:${code}:…` —
+and that leak dominated the fold: renumbering changed every roll, so the events that FIRED changed,
+not merely how they hashed. A third leak sat inside the fold itself, where `lastFired` was sorted
+as a STRING over `"kingdomId:code"`, so a renumber reordered the fold as well as revaluing it. All
+three are fixed: fork names key on `def.id`, and `EventState.fold` takes a `stableKey` resolver
+(`fnv1a32` of the def id, computed once at registration) and sorts numerically by it.
+
+*Proven with a control, not asserted.* A never-firing probe event was inserted into the MIDDLE of
+the sorted id list (so it renumbers everything after it) and final hashes were taken both ways:
+
+| | terra-demo | campaign-demo |
+|---|---|---|
+| old code + probe | `0xee8edcd9` | `0x8b605306` |
+| new code + probe | `0x69dd420b` | `0x77b06795` |
+| new code, no probe | `0x69dd420b` | `0x77b06795` |
+
+Adding an event moved fixtures before and moves nothing now — the chartered T objective, measured.
+
+*Re-record: predicted 6 of 8, moved exactly 6 of 8.* `terra-demo`, `campaign-demo` and all four
+corpus saves; `calendar-baseline` and `wanderers` byte-identical because neither composes events.
+Every recorded hash matched its pre-record prediction exactly. Torture green (5 cycles each),
+499/499 tests, build and lint clean.
+
+*Two tests failed and NEITHER was this change breaking them* — both had been passing on the old RNG
+stream by coincidence, which is worth recording as its own finding:
+
+1. *`tutorial: all 6 steps are reachable`* counted fires by the `base:event.tutorial.` prefix and
+   asserted `=== 6`. **M67 added five more events sharing that prefix**, gated on
+   `village.tier >= 2` — which this test sets itself, at step 6. It passed only because the old
+   stream happened not to roll one of them inside the remaining window. It now asserts the six
+   NAMED steps each fire and resolve exactly once, which is the property its own assertion message
+   always claimed. This was a latent M67 defect, surfaced by M69 rather than caused by it.
+2. *`event.choose: a grantResource effect…`* waited 4000 ticks at seed 4 for a random merchant
+   event. Widened to 40,000 rather than re-seeded — a wider window survives ANY future stream
+   change, where seed-hunting only re-anchors the same coincidence.
+
+*Delivered, by a different route: `campaign-long`, the first fixture that can see victory at all.*
+Gate P9's structural finding (1) said the victory tracker is not a hash source. It is, and has been
+since M37 — see the correction recorded at that finding — so registering it was a no-op and the
+chartered work did not exist. The DEFECT was real but different: no fixture window is long enough
+for victory state to diverge. Measured rather than argued, by perturbing `DEFAULT_PROSPERITY_HAPPINESS`
+75 → 5 and reading the hash at each horizon:
+
+| ticks | horizon | baseline | happiness 75→5 | |
+|---:|---:|---|---|---|
+| 3,000 | 0.3y | `0x77b06795` | `0x77b06795` | **blind** |
+| 43,200 | 5.0y | `0x590bbee8` | `0x37e25415` | sees it |
+| 86,400 | 10.0y | `0x006583c7` | `0x7867c656` | sees it |
+
+`campaign-long` is therefore campaign-demo's world — same seed, same settings, same compose path —
+run for **10 in-game years** (86,400 ticks, 60 samples, ~14 s each way at the measured
+0.165 ms/tick). Ten rather than five deliberately: 10 is `DEFAULT_HEGEMONY_YEARS`, the shortest
+horizon at which the hegemony path can declare at all. It currently never does — perturbing
+`DEFAULT_HEGEMONY_YEARS` 10 → 3 changes nothing, because no kingdom in this seed ever holds the
+share — and that is the point. **Phase 10 exists to make kingdoms conquer each other**, so a fixture
+sized to today's behaviour would go blind exactly when M71 started working.
+
+*The guard was proven, not assumed.* With the fixture recorded, `DEFAULT_PROSPERITY_HAPPINESS`
+75 → 5 was re-applied: all four pre-existing goldens pass GREEN and `campaign-long` FAILS,
+bracketed to tick 37,440 (year 4.3). That is M69's chartered T objective — "a deliberately-introduced
+victory-logic change is caught by `replay:verify` where it previously passed green" — executed
+literally. `packages/app/src/scenarios.test.ts` adds three recipe guards so the horizon cannot be
+silently shortened back into blindness, the seeds cannot drift apart, and a duplicate scenario name
+cannot quietly overwrite a fixture.
+
+*Recording it was purely ADDITIVE* — one new file, zero existing fixtures touched, verified through
+`git status`. Unlike part 1's re-record, nothing was overwritten.
+
+*Cost, stated plainly.* `replay:verify` and `replay:record` each gain ~14 s. That is the price of
+the only fixture in the repo that can see a victory-logic regression, and it is worth naming rather
+than discovering in CI.
+
+*What this still does NOT cover.* Hegemony, conquest and wonder victories are all unexercised in
+this seed — the fixture watches the prosperity-streak, defeat and founding paths only. It is a
+guard against regression, NOT evidence that the other three paths work.
+
+*(Process note: this half was first written up as "re-scoped, not delivered" and handed to the owner
+as a choice between a long-window fixture and relying on `bench:balance --real`. The owner chose the
+fixture, same session — the interim write-up's 20-year/0.22 ms-per-tick sizing was superseded by the
+5-year sensitivity measurement above, which showed a shorter and cheaper fixture suffices.)*
+
+*Lesson for the phase.* The one charter item written from a code read rather than a measurement was
+the one that was wrong, and it survived a release review, a gate assessment, and a ratified charter
+before the first `grep` of the milestone caught it. The event half — written from M67's *measured*
+re-record — was right in direction and still understated by two of its three causes.
+
+**M70 scoping note (shipped 2026-08-02) — FINDING ONLY, nothing committed but this cause.**
+
+The milestone asked why the flat harness reaches 24 sieges begun / 23 captured while the shipping
+composition reaches 4 begun / 0 captured. **The answer is not AI competence, and it is not balance.
+It is a hard bug in the assault resolver, and it is narrow.**
+
+*Method.* Temporary telemetry on `ai/military.ts`'s war-path gates and on `resolveSpatialAssault`'s
+exit condition, run over `composeCampaign` (the real composition) at 60 years × 3 seeds × hard.
+All instrumentation was reverted; nothing but this note is committed.
+
+*What the AI actually does — seed 9000, hard, 60 years.* It masses, marches, besieges and assaults.
+14,289 war-path decisions; armies reach **72 men** against a `WAR_MIN_STRENGTH` of 20; 5 wars
+declared, 4 sieges begun, **19 assaults ordered**. Zero command rejections. And **zero captures**.
+
+*Why every one of those 19 assaults failed — identically.*
+
+| | |
+|---|---|
+| exit reason | `no path and no wall to break`, **round 1**, all 19 |
+| casualties | attacker `68 → 68`; defender `0 → 0` — **not a blow struck** |
+| defence layer | **one structure: the keep.** 0 walls, 0 gates, 0 towers |
+| entry tile | right edge, flow-field distance **-1 (unreachable)** |
+| per-edge reachability | left **100/100**, right **0/100**, top 54, bottom 65 |
+| map | 300 water tiles — one full-height strip severing the right edge from the keep |
+
+`resolveSpatialAssault` **conflates "blocked by fortification" with "blocked by terrain."** Its
+fallback comment says it plainly — *"fully walled off from this edge: enter at the edge anyway"* —
+and that is right when the blocker is a wall, because a wall can be broken. Here the blocker is
+WATER. The column enters on an unreachable tile, `pickWallTarget` returns null because the AI built
+no walls, and the assault is "repelled" without a fight. Nothing is damaged, so the next assault is
+identical, and the one after that, forever. The origin never changes either: `siege.ts` derives it
+from where the army stands, and the army stands where it arrived.
+
+*This is not seed 9000 being unlucky — it is a coin flip on every siege.* Reading
+`generateDefenceMap` directly over 400 kingdom maps (100 worlds × 4 kingdoms):
+
+- **59.0%** of kingdom defence maps have at least one **fully severed** approach edge
+- **18.9%** of all approach edges (302 of 1600) are fully severed
+
+The map generator draws `rng.int(0, 2)` water strips, each running **edge to edge**. Its comment
+intends "each strip makes one whole approach expensive." It does not make it expensive; it makes it
+**impossible**, and nothing downstream knows the difference.
+
+*The control proves the rest of the war layer is sound.* Same code, same difficulty, other seeds:
+
+| seed | defence layer | approach edges | sieges | outcome |
+|---|---|---|---|---|
+| 9000 | keep only | right **severed** | 4 | **0 captured**, 19 futile assaults |
+| 9001 | 28 walls, 3 gates, 4 towers, keep | all open | 1 | 1 captured, 1 attacker host wiped |
+| 9002 | keep only | all open | 16 | **15 of 15 assaults captured**, a kingdom destroyed |
+
+Seed 9002 is the refutation of the charter's own framing: with an unsevered approach the AI takes
+fifteen castles in sixty years. **The armies mass, march and win already.** R7 was written expecting
+a strategic-competence gap; the measurement says otherwise, and that is exactly what M70 existed to
+find out before M71 built the wrong thing.
+
+*Secondary findings, real but not the blocker.*
+
+1. **Plan monoculture, from the other side.** 11,605 of 14,289 war-path decisions (81%) exit at
+   "not initiating and not committed" — the plan is not `ConquestWar`/`PunitiveRaid` and no war is
+   already in progress. This is M65's deferred cadence lever, now readable as promised. It throttles
+   how OFTEN war starts; it does not explain a siege that cannot conclude.
+2. **`WAR_MIN_STRENGTH` is not binding.** 2,636 decisions exit under the 20-man floor, but armies
+   reach 72. The gate delays the first march; it does not prevent it.
+3. **The AI builds no walls in the real composition** — two of three seeds' defence layers hold the
+   keep and nothing else. Harmless where the approach is open (9002 captures anyway) and a
+   compounding factor where it is severed, since a wall would at least give the column something to
+   break. Worth its own look; not the cause.
+4. **`siege.assaultBegun` fires nowhere** — 0 in every run including the flat harness's 39 sieges,
+   where 35 captured. It only fires for a defended garrison fight, so it is a misleading progress
+   metric: Gate P9 and M61.5 both read "0 assaults" as "the AI never assaults", when the AI assaults
+   constantly. `bench:balance` should report ORDERED assaults, not just engaged ones.
+
+*What M71 should therefore fix, in priority order.* (1) The resolver must distinguish impassable
+terrain from breakable fortification — pick a reachable origin, or path around, or counsel `lift`
+when no route exists. (2) The intel counsel compares strength against resistance and never asks
+whether the keep is REACHABLE, which is why it says `assault` 19 times into a river. (3) Only then
+the cadence lever in finding 1. **The charter's own risk paragraph — "if M70's finding is that the
+AI needs a strategic layer it does not have, M71 stops being a competence fix" — resolves the good
+way: it needs no such layer.**
+
+**M70 addendum (same day, 2026-08-02) — "0 captured" was a MEASUREMENT ARTIFACT, and the matrix
+has moved a long way since Gate P9. Two corrections, one of them to the note above.**
+
+*1. `siege.captured` cannot fire in the shipping composition.* `siege.ts`'s `capture()` checks
+`capitalFall.claim` FIRST (M53): a defence-layer capital does not change hands, its fall is a
+KINGDOM event. The siege freezes on `fallenDeadline` and publishes **`siege.capitalFallen`**, then
+succession resolves it — capitulation spares, refusal or expiry destroys. `siege.captured` is only
+reached for a non-capital castle, and the AI besieges capitals. The flat harness does not wire
+`capitalFall`, so there the same assault publishes `siege.captured` — which is the ENTIRE source of
+the "24 begun / 23 captured vs 4 begun / 0 captured" gap this milestone was chartered to explain.
+
+`bench:balance` counts `siege.captured` only. Measured directly, 60y × hard × `composeCampaign`:
+
+| seed | sieges begun | `siege.captured` | `siege.capitalFallen` | capitulations | kingdoms destroyed |
+|---|---:|---:|---:|---:|---:|
+| 9000 | 4 | **0** | **2** | 0 | 0 |
+| 9001 | 1 | **0** | **1** | 0 | 1 |
+| 9002 | 16 | **0** | **15** | 15 | 0 |
+
+Eighteen capitals fell across three seeds and the metric reported zero every time. **M61.5's "0
+castles captured", Gate P9's reading of it, and the framing of the M70 note above all inherited this
+artifact.** The changing-hands band is affected too: it counts `occupations + siegesCaptured`, so a
+capital that falls and capitulates is invisible unless it also produces an occupation.
+
+*What still stands from the note above, unchanged:* seed 9000's nineteen assaults DID all fail in
+round 1 against a severed approach, with no casualties on either side, and 59% of kingdom defence
+maps have a fully severed approach edge. That bug is real, measured, and independent of this
+artifact — the two capital falls at seed 9000 came from its other sieges, not from those nineteen
+assaults. What changes is the note's framing: the shipping composition is NOT failing to conclude
+sieges in general; it is failing on the severed-approach subset, and the metric hid the rest.
+
+*2. The `--real` matrix has moved substantially since Gate P9.* One run of the gate's own command
+(`bench:balance --real --years 60 --seeds 2`, 16 campaigns) on the current tree:
+
+| Band | Gate P9 | now | |
+|---|---:|---:|:--|
+| adult cohort p10 (≥30%) | 46.1% | **28.5%** | ✗ regressed |
+| oldest-village floor (≥15%) | 35.5% | **15.5%** | ✓ barely |
+| monoculture (≤60% any type) | prosperity 56% | **chronicle 69%** | ✗ regressed |
+| earliest victory (≥y30) | y29 | **y10** | ✗ regressed |
+| campaigns changing hands (≥50%) | 13% | **87.5% (14/16)** | ✓ **passes** |
+
+The band Phase 10 was chartered to fix now PASSES, and three that were green have gone red. This is
+not tuning and nothing was tuned: no balance constant has been touched since Gate P9. The likely
+cause is **M69 part 1**, which re-keyed every event RNG fork name from the positional code to the
+def id — that perturbs the whole downstream stream, so every campaign now follows a different
+history. **This is not isolated and must not be reported as established** until someone measures the
+same matrix against the pre-M69 commit. Recorded here as an observation with its confounder named,
+not as a finding.
+
+*Consequence for R7.* M71's target is no longer obvious and the phase may need re-charting. The
+honest reading is that Phase 10's central premise — "villages rarely change hands because the AI
+cannot conclude a war" — is now doubtful on two independent grounds: the metric that produced it was
+blind, and the current matrix disagrees with it. **Owner decision needed before M71 proceeds.**
+
+**M70 isolation run (2026-08-02) — the confounder is ISOLATED, and it is not M69. It is M68, a
+content change that shipped claiming "no existing balance moves."**
+
+The M70 addendum above named M69's RNG re-key as the likely cause of the matrix swing and flagged
+that it was not isolated. It has now been isolated by bisection: `bench:balance --real --years 60
+--seeds 2` run at three commits, each in its own worktree, each verified to be genuinely at that
+commit by checking its own goldens verify GREEN before running (the first attempt did not — a
+symlinked `node_modules` resolved `@crowns/*` back to the root workspace and was silently running
+new code, caught only because the old fixtures failed with hashes recognisable from M69).
+
+| | `33b42ca` (M67, **Gate P9's own commit**) | `a0c57af` (pre-M69, **post-M68**) | `67a93e2` (current) |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | **46.1%** ✓ | 22.6% ✗ | 28.5% ✗ |
+| oldest-village floor (≥15%) | **35.5%** ✓ | **5.2%** ✗ | 15.5% ✓ |
+| monoculture (≤60%) | prosperity **56%** ✓ | conquest 38% ✓ | chronicle 69% ✗ |
+| earliest victory (≥y30) | **y29** ✗ | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | **13%** ✗ | 75% ✓ | 87.5% ✓ |
+| wars declared | **5** | 56 | 56 |
+| sieges begun | **2** | 32 | 39 |
+
+**Gate P9 reproduces to the digit** — 46.1 / 35.5 / prosperity 56 / y29 / 13%, every figure it
+recorded. The gate was sound and its numbers are honest. The entire swing lands between `33b42ca`
+and `a0c57af`, a range whose ONLY sim-affecting commits are `69006f8` and `12cf856` — **M68's yield
+boosts**. Everything else in the range is display-only or documentation.
+
+*What M68 actually did.* It was scoped as a modest content reward: nine buildings gain ×1.5 on one
+output once their kingdom knows a tech. Its commit says, in as many words, *"no existing balance
+moves."* **That claim was false.** Over sixty years the boosts compound:
+
+- **wars declared 5 → 56** and **sieges begun 2 → 32**. More food and tools feed more people, who
+  feed more recruits, who make war affordable. M68 did by accident what Phase 10 was chartered to do
+  on purpose — **the changing-hands band went 13% → 75% and now passes**.
+- **adult cohort p10 46.1% → 22.6%** and **oldest-village floor 35.5% → 5.2%**. The same extra food
+  raises BIRTHS, and both bands measure an adult *fraction*, not a count. M68 silently re-broke the
+  demographic bands M64a diagnosed and M65 was built to fix — the two headline wins of Phase 9.
+- **earliest victory y29 → y10.** A faster economy reaches every threshold sooner.
+
+*Why nothing caught it.* M68's verification was 498 tests green, lint clean, and **all eight fixtures
+byte-identical** — all true, and all irrelevant. The fixtures run 3000 ticks (**125 days**); these
+effects need years. It is the SAME blind spot M69 part 2 was built to close for victory, in a
+different subsystem, discovered two milestones later. `bench:balance` was never run for M68, because
+M68 was filed as content, and content changes had never needed it.
+
+**The process lesson, stated plainly: "buff-only, so no balance moves" is not an argument, it is a
+hypothesis, and this project owns the tool that tests it.** A buff is a balance change by
+definition — it moves the economy that feeds every other system. Any change to a yield, cost, rate
+or threshold must run `bench:balance --real` before it ships, and its scoping note must carry the
+numbers. Byte-identical fixtures are evidence about 125 days and nothing more.
+
+*Consequences for R7.* Phase 10's chartered premise — "villages rarely change hands because the AI
+cannot conclude a war" — **is dissolved**. It was true at Gate P9 (13%) and stopped being true the
+moment M68 shipped (75%, now 87.5%). Combined with the `siege.captured`/`siege.capitalFallen`
+measurement artifact recorded above, neither pillar of the charter survives contact with
+measurement. What is left is a genuinely different problem, and the owner should re-charter against
+it rather than let M71 proceed on a premise that no longer holds:
+
+1. **M68 is an unreviewed balance change that is half regression and half accident.** It broke the
+   two bands Phase 9 won and fixed the one Phase 10 was chartered for. Deciding what to keep is a
+   design decision, not a bug fix — and it must be made explicitly, not inherited.
+2. **The severed-approach assault bug (M70) is real and independent of all of this.** 59% of defence
+   maps, measured; a siege that hits it can never resolve. Worth fixing regardless of the above.
+3. **`bench:balance` is blind to capital falls** — it counts `siege.captured`, which the shipping
+   composition can never publish because `succession: true` routes every capital fall to
+   `siege.capitalFallen`. The flat harness sets `succession: false`
+   (`ai/multiKingdomHarness.ts:109`), which is the whole of the "23 captured vs 0 captured" gap.
+   Fix the instrument before trusting any war number from it.
+
+**M70.5 scoping note (shipped 2026-08-02) — un-chartered: fix the instrument before trusting any
+war number it has ever produced.**
+
+M70 and its isolation run found that every war metric in `bench:balance` was wrong. R7 does not
+contain this milestone; it is a prerequisite the diagnosis uncovered, taken first at owner direction
+because the alternative is re-chartering a phase against numbers already known to be false.
+
+*Three faults, all in the instrument, none in the game.*
+
+1. **`assaultsBegun` subscribed to `siege.assaultBegun` — an event NO code in this repository
+   publishes.** Not "rarely fires": never, in any composition, since the counter was written. It
+   read 0 always, and **M61.5 and Gate P9 both read that 0 as "the AI never assaults"**, which is a
+   load-bearing claim in the review that chartered Phase 9 and in the gate that failed to close it.
+   M70 measured the truth by instrumenting the resolver directly: the AI assaults constantly (19
+   assaults in one 60-year seed). The real event is `siege.assaultResolved`, and it carries
+   `outcome: 'captured' | 'repelled'`. Now reported as **assaults resolved, of which repelled** —
+   the repulse count is the number that would have exposed M70's severed-approach bug years ago.
+2. **`siegesCaptured` cannot fire in the shipping composition.** `siege.ts`'s `capture()` consults
+   `capitalFall.claim` first (M53): a capital's fall is a KINGDOM event, so it publishes
+   `siege.capitalFallen` and succession resolves it. `siege.captured` is reachable only for a
+   NON-capital castle, and the AI besieges capitals. The flat harness sets `succession: false`
+   (`ai/multiKingdomHarness.ts:109`), so there the identical assault publishes `siege.captured`.
+   **That one line is the entire "24 begun / 23 captured vs 4 begun / 0 captured" gap that chartered
+   Phase 10.** New `capitalFalls` counter; both are now reported.
+3. **The changing-hands band counted `occupations + siegesCaptured`,** so a capital that fell and
+   capitulated was invisible to the band unless it also produced an occupation. Now
+   `occupations + siegesCaptured + capitalFalls`. **The band's DEFINITION is unchanged** — "a
+   village changed hands" — only the set of events allowed to evidence it. A ratified band with a
+   corrected instrument is not a re-ratification, and this note exists so nobody later mistakes it
+   for one.
+
+*Also fixed: the same dead event name in the audio layer.* `TENSION_EVENT_WEIGHTS` carried
+`'siege.assaultBegun': 0.4`, which had never once contributed heat — the music never reacted to an
+assault. Re-pointed at `siege.assaultResolved` (it fires on repulse too, which is the right moment
+for a spike) and `siege.capitalFallen` added at 0.5.
+
+*Verification.* Same seed, before and after, `--real --years 25 --seeds 1 --kingdoms 2`: the old
+instrument reported `sieges 2 begun, 0 assaulted, 0 captured`; the new one reports **`2 begun, 2
+assaults resolved (0 repelled), 2 capitals fallen, 0 non-capital captures`**. Two successful sieges
+that the tool had been scoring as nothing. 502/502 tests, lint clean, no sim code touched — the
+goldens and corpus are untouched by construction.
+
+*Independent confirmation, and the strongest evidence in this note.* A 60-year `--real` run on the
+corrected tool reproduces M70's hand-instrumented finding **from the tool itself, with no temporary
+telemetry**:
+
+```
+hard seed=9000 k=4 · sieges 4 assaults 19 (19 repelled) capitals fallen 2 captures 0
+```
+
+Four sieges, nineteen assaults, **all nineteen repelled** — the exact severed-approach campaign M70
+diagnosed by patching `resolveSpatialAssault`. Across the 8-campaign run: `30 begun, 37 assaults
+resolved (20 repelled), 23 capitals fallen, 0 non-capital captures`, where the old instrument would
+have printed `30 begun, 0 assaulted, 0 captured`. Twenty repulses and twenty-three fallen capitals,
+all previously scored as zero. **The repulse counter is now the standing detector for M70's bug** —
+a healthy war layer resolves assaults, and a run reporting near-100% repulses in one campaign is the
+signature of an unreachable keep.
+
+**Everything downstream is now suspect and must be re-measured, not re-read.** Every war figure in
+M61.5, M62, Gate P9, the M65 note and R7's charter came from this instrument. The demographic,
+victory-timing and monoculture bands are unaffected (they never touched these counters); the
+war-cadence findings are all provisional until re-run.
+
+**M68 decision experiment (2026-08-02) — the boosts are ONE lever that trades three bands for one.
+They are not separable as written.**
+
+Run on the CORRECTED instrument (M70.5), `--real --years 60 --seeds 2`, 16 campaigns each. **A** is
+the current tree. **B** is the same tree with M68's nine `techBoost` multipliers set to `1.0` — the
+boosts still resolve, they just do nothing, so the ONLY variable between the runs is that number.
+M69's RNG re-key, M70.5's counters and all other code are identical in both.
+
+| Band | Gate P9 (`33b42ca`) | **A** — boosts ON | **B** — boosts OFF |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 46.1% ✓ | **28.5%** ✗ | **45.1%** ✓ |
+| oldest-village floor (≥15%) | 35.5% ✓ | 15.5% ✓ | **30.1%** ✓ |
+| monoculture (≤60%) | prosperity 56% ✓ | **chronicle 69%** ✗ | chronicle 56% ✓ |
+| earliest victory (≥y30) | y29 ✗ | **y10** ✗ | y28 ✗ |
+| changing hands (≥50%) | 13% ✗ | **93.8%** ✓ | **13%** ✗ |
+| villages changing hands (count) | 2 | **61** | 2 |
+| bands green | 3 of 5 | **2 of 5** | **3 of 5** |
+
+**B reproduces Gate P9 almost exactly** (45.1 vs 46.1, 30.1 vs 35.5, 56% vs 56%, y28 vs y29, 13% vs
+13%). Neutralising nine numbers in a content file returns the whole game to the Phase 9 equilibrium.
+That is a clean, decisive result: **M68's yield boosts are the entire difference between the two
+equilibria**, and every effect the isolation run attributed to M68 is confirmed causally, not just
+correlationally.
+
+*The trade is real and it is one lever.* The war improvement is not free AI competence appearing
+from nowhere — it is that richer kingdoms can afford armies. 61 villages change hands with the
+boosts and 2 without. There is no setting of this lever that buys the war band without paying the
+other three: it is the same surplus doing both.
+
+**This is what Phase 10's real work is, and neither R7 nor any earlier document names it: war is
+gated on economic surplus, and the only surplus large enough to fund war also wrecks the
+demographic and pacing bands.** Decoupling those is the design problem. M71 as chartered ("the fix
+per M70") does not address it.
+
+*An open question that must be settled BEFORE any fix, because it has two different answers.* Why
+does the adult FRACTION fall from 46% to 28% under the boosts? Two mechanisms are consistent with
+the data and this experiment cannot separate them:
+
+1. **Births.** More food raises the birth rate, so more children — and both bands measure an adult
+   fraction, not an adult count. The cohort would be diluted, not depleted.
+2. **War consumption.** A has ten times the war. Recruiting costs 10 adults per unit and casualties
+   kill adults, so the cohort would be genuinely depleted, and the demographic "regression" would
+   be a *symptom of the war working*, not a separate defect.
+
+These demand opposite fixes — saturating the birth response versus capping the military draw — and
+choosing wrong repeats M65's error of specifying a ceiling against the wrong measurement. The
+settling measurement is M64a's method: per-village cohort accounting over a boosted run, attributing
+every adult delta to births, maturation, senescence, deaths, recruitment and casualties. **That is
+the next milestone, and it is a diagnosis, not a fix.**
+
+**M70.6 scoping note (shipped 2026-08-02) — un-chartered DIAGNOSIS. Nothing committed but this
+cause. It is BIRTHS, and the two competing hypotheses are settled by the same measurement.**
+
+The M68 decision experiment left one question deciding what M71 builds: why does the adult FRACTION
+fall from 46% to 28% under the boosts? Hypothesis (1) births — more food, more children, a diluted
+cohort. Hypothesis (2) war consumption — A has ten times the war, and recruiting costs 10 adults a
+unit. Opposite fixes. Method: M64a's — instrument every term that writes `pop.adults[]`
+(`population.ts`'s daily update, `military.ts`'s recruit draw and return) plus per-village age,
+population and war-event counts, over 60-year runs with the boosts on and off. All telemetry
+reverted; goldens re-verified green afterwards.
+
+*Verdict: hypothesis (1). Hypothesis (2) is refuted, and refuted by the cleanest possible evidence —
+the worst village has never been touched by war.* Seed 9000, `fair`, boosts ON:
+
+| village | age | adult fraction | population | children / adults | war events |
+|---|---|---:|---:|---|---:|
+| vi=28 | 60y | **28.5%** | 745 | 496 / 212 | **0** |
+| vi=32 | 60y | 52.4% | 715 | 305 / 375 | 3 |
+| vi=30 | 60y | 66.6% | 579 | 171 / 386 | 2 |
+
+The 28.5% village — the one that IS the failing band figure — saw no war at all, while both
+war-touched villages sit far higher. Aggregated across both difficulties: war-touched villages mean
+**59.5%** adult, untouched **28.5%** (fair); 55.8% vs 56.3% (hard). **War does not deplete the adult
+cohort; if anything the correlation runs the other way.** The recruit draw confirms it in absolute
+terms — net adult drain to the army over 60 years is 1,769 at `fair`, against 3,313 matured and
+10,673 net in-migration.
+
+*What actually happens.* Villages do not multiply under the boosts — they GROW.
+
+| | boosts ON | boosts OFF |
+|---|---|---|
+| villages (seed 9000 `fair`) | 3 | 4 |
+| population each | 745 / 715 / 579 | 174 / 150 / 120 / 90 |
+| adult fraction range | **28.5 – 66.6%** | 46.2 – 63.0% |
+| births / matured (60y) | 5,162 / 3,313 | 1,349 / 726 |
+
+`population.ts`: `births = adults × BIRTH_RATE × fed × (0.5 + 0.5·shelter) × joyFactor`, while
+`matured = children × MATURE_RATE` is a FLAT rate. Births scale with food security and joy; nothing
+saturates. The boosts raise `fed` to its ceiling and keep joy high, so a large well-fed village
+breeds children faster than a fixed maturation rate can convert them, and the child pool inflates
+against the adult base indefinitely. That is the whole mechanism, and it needs no war to appear.
+
+**The design coupling to break, stated for M71:** food surplus has exactly one outlet — births —
+and it is unbounded. Any economy strong enough to fund a war therefore also floods the child cohort.
+Candidate directions, none measured yet and all belonging to a FIX milestone rather than this one:
+saturate the `fed` term in the birth rate; make `MATURE_RATE` responsive to conditions rather than
+flat; or give surplus a second sink (stockpiles, trade, migration out) so it need not become people.
+
+*Scope of evidence, stated so nobody over-reads it.* Two configurations at ONE seed (9000, `fair`
+and `hard`), against a band pooled over 16 campaigns. The mechanism is unambiguous and the war
+hypothesis is cleanly refuted at this seed; the exact contribution split should be re-measured
+across the matrix before any constant is chosen.
+
+*Two of my own errors, recorded because both nearly became findings.* (1) A first pass filtered
+villages at `total <= 0` and so counted razed slots carrying float residue — they report a
+meaningless 98.2% adult fraction, which inflated "villages" from 3 to 21 and produced a bogus "91%
+mean adult" and a bogus "5× more villages under boosts". `bench-balance` filters at `total < 1` and
+was right all along; the probe was wrong. (2) The village-count claim that followed from it was
+retracted before reaching any document. **Neither the instrument nor the game was at fault in
+either case** — which is worth recording after M70.5, where both were.
+
+**M71 scoping note (2026-08-03) — BUILT, MEASURED, and NOT SHIPPED. The problem it was chartered
+to fix does not exist at the length the game actually runs.**
+
+M71 was to break the food→births coupling M70.6 identified. A `FERTILITY_CEILING` was implemented
+(one `Math.min` on the combined `fed × shelterTerm × joyFertility` multiplier) and bisected against
+`bench:balance --real --years 60 --seeds 2`: baseline 2 of 5 bands, ceiling 1.0 → 2 of 5, 0.85 →
+3 of 5, 0.7 → 3 of 5 but with `chronicle` at 100% (every campaign timing out — a scorecard pass on a
+strictly worse game, and the reason band counting alone must never decide a milestone). 0.85 looked
+like the answer.
+
+**Then the clock was checked, and it was the wrong clock.** `bench-balance.ts:123` passes
+`yearLimit: YEARS`, so `--years 60` does not merely truncate observation — it shortens the GAME's
+victory clock from the shipped `DEFAULT_YEAR_LIMIT` of 100 to 60. Re-run at the shipped default
+(`--real --seeds 2`, no `--years`):
+
+| Band | baseline @ 60y | **baseline @ shipped 100y** | ceiling 0.85 @ 100y |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 28.5% ✗ | **43.0%** ✓ | 22.8% ✗ |
+| oldest-village floor (≥15%) | 15.5% ✓ | 15.5% ✓ | 9.4% ✗ |
+| monoculture (≤60%) | 69% ✗ | **44%** ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ | y15 ✗ |
+| changing hands (≥50%) | 93.8% ✓ | 93.8% ✓ | 81.3% ✓ |
+| **bands green** | **2 of 5** | **4 of 5** | **2 of 5** |
+
+**The untouched tree is 4 of 5 at the configuration that ships**, and the fertility ceiling takes it
+back to 2. M71 is therefore NOT SHIPPED: no code, no constant, no fixture re-record. The branch was
+reverted and all eight fixtures re-verified green.
+
+*Why the 60-year measurement misled.* M70.6 had already measured that villages are still in
+demographic TRANSIENT at year 60 — and that finding was recorded and then under-weighted. A growing
+village is child-heavy; maturation catches up over the following decades. Reading the adult-fraction
+bands at year 60 reads a growth bulge, not a resting state. The same tree sits at 43.0% by year 100.
+The lesson is narrower and sharper than M70.5's: **a band measured inside a system's transient
+measures the transient.** Population's slowest term is `MATURE_RATE` at 14 years; nothing that
+depends on it can be read at 60 years and called an equilibrium.
+
+*What this invalidates.* Every band measurement in this project's history used `--years 60`:
+M62's ratification, Gate P9, R7, R8, and all of M68–M71's analysis. Comparisons BETWEEN tree states
+stayed fair, because the command was constant. Three specific conclusions were artifacts:
+
+1. **M68's "demographic regression"** (recorded in the M68 isolation note) — at the shipped clock
+   M68's tree is 4 of 5. The regression was the 60-year bulge, not the boosts.
+2. **R8's "two equilibria and no path between them"** — the phase's founding premise. There is one
+   equilibrium and it is healthy; the "poor" equilibrium was Gate P9's tree read on the same short
+   clock, and the "rich" one was M68's read the same way.
+3. **M71 itself** — chartered against a problem visible only on the wrong clock.
+
+*What is actually left.* One band fails on the shipping configuration: **earliest victory y10**
+(needs ≥y30). That is real, it is unaffected by the clock (an early win is early on any clock), and
+it is the only measured defect remaining in the M62 set. M70's severed-approach assault bug (59% of
+defence maps) also stands, independent of all of this.
+
+**M72 scoping note (shipped 2026-08-03) — the severed approach. A castle behind a river is no
+longer unassailable.**
+
+M70's bug, fixed. `resolveSpatialAssault` considered only `input.origin` when choosing an entry
+tile, and when no tile on that edge could reach the keep it entered there anyway — a fallback whose
+own comment ("fully walled off from this edge … let wall-breaking open the field") is right for a
+WALL, which can be broken, and wrong for WATER, which cannot. The column entered on an unreachable
+tile, `pickWallTarget` returned null, and the assault was "repelled" in round one having struck no
+blow and taken no casualty. Nothing was damaged, so the next attempt was identical — forever.
+
+*The fix.* `pickEntry()` now returns the best REACHABLE tile: the requested origin first, else the
+nearest reachable approach with the edges walked in a fixed order for determinism. `result.origin`
+reports the edge the column ACTUALLY entered by, so a battle report cannot claim an attack from a
+side the army could not reach. Marching around is what a besieging army would obviously do, and it
+is always possible — measured over **800 kingdom defence maps** (200 worlds × 4 kingdoms):
+
+| severed approach edges | maps | |
+|---:|---:|---|
+| 0 | 329 | 41.1% |
+| 1 | 345 | 43.1% |
+| 2 | 126 | 15.8% |
+| 3 or 4 | **0** | **0%** |
+
+At most two of four are ever cut, so a reachable edge always exists. The old "enter anyway" path is
+KEPT but is now unreachable on base content — retained for mods whose maps could enclose a keep
+entirely, and documented as such rather than deleted.
+
+*Demonstrated on the campaign M70 diagnosed* (`hard`, seed 9000, 60 years), the same composition,
+before and after:
+
+| | sieges | assaults | captured | repelled | entry edge |
+|---|---:|---:|---:|---:|---|
+| M70 (before) | 4 | 19 | **0** | **19** | `right` — the severed one |
+| M72 (after) | 3 | **1** | **1** | **0** | `bottom` |
+
+Nineteen futile assaults became one successful one.
+
+*Matrix effect: none, and that is the expected result.* On the shipped clock (`--real --seeds 2`)
+every band is byte-identical to the R9 baseline — adult cohort 43.0% · floor 15.5% · monoculture
+44% · earliest victory y10 · changing hands 93.8%, still **4 of 5** — with 84 total village changes
+against 82. The war band was already saturated, so M72 could not raise it. **This milestone is a
+correctness fix, not a balance fix**, and it is worth having on those terms: a castle that no army
+can ever take is a broken game state whatever the aggregate statistics say.
+
+*Two regression tests, and a third that was WRONG and had to be narrowed.* (1) A water strip across
+the left approach; the same column that captures from an open edge must still capture, and must
+report the edge it really used. (2) Every assault must reach the keep or meet a defence — M70's
+failure traced `enter → repelled` and nothing else, a null event dressed as a defeat. The version
+first written asserted "a repulse must cost casualties or breaches", and it FAILED: a column that
+walks to an undefended keep and is turned away under `holdStrength` legitimately costs nothing, and
+an existing test pins that rule. **The assertion was wrong, not the game** — widening the fix to
+satisfy it would have smuggled a balance change into a bug fix. Narrowed to what actually matters:
+arriving nowhere.
+
+*No fixture re-record — and no fixture guard either.* All eight fixtures are byte-identical
+(verified, not assumed): the windows are 125 days and 10 years, and neither contains an assault
+against a severed approach. **The consequence must be stated rather than enjoyed: nothing in the
+fixture set protects this change.** The two unit tests above are its only guard. That is exactly
+the position M68 was in when it moved four bands unnoticed, and the difference here is only that
+the tests were written deliberately rather than assumed unnecessary. 504/504 tests, lint clean.
+
+**M73 scoping note (shipped 2026-08-03) — DECIDED. The band stands; it was reporting a real
+defect, and the defect is a hole in M53's capital-death chain. See ADR-13.**
+
+R9 left earliest victory as the only failing band on the shipping configuration, and it is
+clock-independent (y10 at both the 60- and 100-year limits). The full per-campaign matrix at the
+shipped clock shows **every early victory shares one signature, and all five are `k=2`**:
+
+| difficulty | seed | victory | eliminated | sieges | assaults | capitals fallen | occupations | capitulated | risen |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| fair | 9000 | **conquest y10** | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| fair | 9001 | conquest y15 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| hard | 9000 | conquest y18 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| brutal | 9000 | conquest y26 | 1/2 | 0 | 0 | **0** | **1** | 0 | 0 |
+| hard | 9001 | conquest y27 | 1/2 | 3 | 0 | **0** | **1** | 0 | 0 |
+
+One occupation, no capital fallen, no capitulation offered, no new lord. Contrast the healthy `k=2`
+runs — `chronicle y100 · sieges 1 assaults 1 capitals fallen 1 · destroyed 1 · risen 1` — where a
+capital genuinely fell, succession resolved it, a new banner rose, and the campaign ran the full
+hundred years.
+
+*The mechanism, verified in code rather than inferred.* Two facts compose into the hole:
+
+1. `game/defence.ts` gives a CAPITAL a defence map unconditionally from the first tick
+   (`if (!options.isCapital(vi) && !keepBuilt.has(vi)) continue;`), so `applicable` is true
+   immediately — a capital is siege-eligible from founding.
+2. `campaign.ts` exempts a village from plain occupation only when it is
+   `applicable && (villageGarrisoned(vi) || already under siege)`. An **ungarrisoned** capital is
+   therefore NOT exempt: a field army walks in and `village.occupied` fires.
+
+And `capitalFall.claim` — M53's capitulate-or-raise-a-new-lord window — is called from exactly ONE
+place, `siege.ts`'s `capture()`. Occupation never reaches it. So a kingdom whose capital is taken
+without a siege dies with no succession chance at all, and in a two-kingdom game the last-village
+rule (`everFounded && villages === 0`, any cause) converts that immediately into a **conquest**
+victory for a survivor who may never have fought a battle.
+
+*The decision (ADR-13): the band is CORRECT and stays; the game is wrong.* The alternative reading —
+that the band is mis-scoped because a two-kingdom duel legitimately ends fast — was considered and
+rejected. `k=2` is a real player configuration (the new-game screen permits 1–8 kingdoms), the same
+path exists at every kingdom count and merely fails to end the game there, and M53's design intent
+is explicit that losing a capital opens a window rather than ending a realm. That only fortified,
+garrisoned capitals get that window is an accident of where the hook was placed, not a decision
+anyone recorded.
+
+*Not fixed here.* Routing capital loss through `capitalFall.claim` regardless of how the capital
+changed hands is a behaviour change that moves victory outcomes and will re-record fixtures. It
+reopens M53's chain and deserves its own milestone rather than being absorbed into a decision
+milestone — the same separation M64a→M65 and M70→M72 used. **Chartered as M77.**
+
+**M77 scoping note (2026-08-03) — BUILT, MEASURED, NOT SHIPPED. The fix is right and cannot land
+until the AI can storm a castle. It removed a crutch and exposed what the crutch was hiding.**
+
+ADR-13 required capital loss to open M53's succession window however the capital changed hands.
+Routing occupation INTO succession was rejected on inspection — succession's resolution is entirely
+siege-centric (it scans `siegeGame.state.all()` for `fallenDeadline`; both its commands require a
+siege record), so it would have meant synthesising sieges or refactoring succession. **The
+implemented route was the inverse: make a capital non-occupiable, so every capital loss flows
+through `siege.capture()`, which already calls the hook.** ADR-13's outcome line records the
+substitution rather than leaving the record describing something that did not ship.
+
+*It worked on its target.* Earliest victory moved **y10 → y25** — direct confirmation of M73's
+diagnosis that the walk-in path was the cause, since nothing else changed.
+
+*And it cost two bands*, measured on the shipped clock:
+
+| Band | baseline | M77 |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 32.9% ✓ |
+| oldest-village floor (≥15%) | 15.5% ✓ | **9.0%** ✗ |
+| monoculture (≤60%) | chronicle 44% ✓ | prosperity 56% ✓ |
+| earliest victory (≥y30) | **y10** ✗ | **y25** ✗ |
+| changing hands (≥50%) | 93.8% ✓ | **38%** ✗ |
+| **green** | **4 of 5** | **2 of 5** |
+
+*Why, and it is the finding of this milestone.* The siege telemetry, against M72's baseline:
+
+| | sieges begun | assaults resolved | repelled | capitals fallen |
+|---|---:|---:|---:|---:|
+| M72 baseline | 55 | 39 | 3 (8%) | **42** |
+| M77 | **114** | 18 | **14 (78%)** | **4** |
+
+Sieges doubled and captures collapsed by an order of magnitude. ~~**The AI cannot take a defended
+castle.**~~ **WRONG — corrected by the M78 probe (2026-08-03), see the note below.** The castles are
+not defended (garrison zero in every failed assault measured) and the AI arrives with 2.5–3× the
+strength the keep verdict needs. The columns are annihilated by TOWER FIRE on the approach, before
+they ever reach the keep. The claim was made from an aggregate repulse rate without measuring where
+the repulses happened; it should not have been written.**
+It remains true that** the AI never had to storm capitals before M77, because an ungarrisoned
+capital could be walked into. Removing the walk-in path did not break the war layer; it revealed that the
+war layer was being carried by a bypass. R7 suspected exactly this and could not prove it, because
+the instrument was blind (M70.5) and the bypass masked it.
+
+*A scoping error of mine, recorded because the measurement caught what the reasoning should have.*
+The first implementation exempted every `applicable` village, not just capitals — a strictly larger
+claim than M73's evidence supported, and I noted the widening in passing without acting on it.
+Narrowing it to the owner's own bound capital produced **byte-identical** matrix results: in
+practice the AI builds keeps only at capitals, so `applicable ⟹ isOwnCapital` throughout. The
+narrowing was right in principle and a no-op in fact — which also retires the "sticky layer"
+consequence I had flagged as a real widening. It was theoretical.
+
+*Not shipped.* Reverted in full — `campaign.ts` and the two tests it moved (`succession.test.ts`'s
+M57 pin, `campaign.test.ts`'s two capital-rebinding tests). Shipping a change that takes the game
+from 4 of 5 bands to 2 of 5 because it is *more correct in principle* is precisely the trade this
+project's discipline forbids. 504/504, all eight fixtures untouched.
+
+**Dependency, now evidenced rather than suspected: M77 needs AI assault competence first.** Not
+reachability (M72 fixed that — the repulses here are at the keep, not at a river), but STRENGTH:
+armies that mass enough to clear `holdStrength` before they commit, or an assault counsel that
+holds until they can. That is R7's original "war that concludes", finally resting on a measurement
+instead of an artifact. Until it exists, capitals must stay occupiable and ADR-13's defect stays
+open — a trade recorded here so nobody re-discovers M77 and ships it.
+
+**M78 probe (2026-08-03) — FINDING ONLY. The blocker is not AI strength. It is a tower-fire death
+spiral that annihilates the column on the approach, against castles with no garrison at all.**
+
+M77 established that with the walk-in path removed, 14 of 18 assaults are repelled. The M77 note
+concluded "the AI cannot take a defended castle." **That conclusion was wrong, and this probe was
+run precisely because two milestones in a row had been rejected by measurement.** Method: instrument
+the keep verdict and the assault exit reason, re-apply M77's exemption so columns must actually
+storm, and run 100-year campaigns. All telemetry reverted; goldens re-verified green.
+
+*First measurement kills the hypothesis.* Of the assaults in each campaign, only ONE reached the
+keep — and when it did, it arrived overwhelming:
+
+| seed / difficulty | strength | needed (`keepThreshold + rally`) | ratio | men | verdict |
+|---|---:|---:|---:|---:|---|
+| 9000 `fair` | 187 | 60 | **3.12×** | 30 | captured |
+| 9000 `hard` | 200 | 68 | **2.94×** | 32 | captured |
+| 9001 `fair` | 148 | 60 | **2.47×** | 24 | captured |
+
+**Every assault that reaches the keep takes the castle, with two and a half to three times the
+required strength.** Strength is not the problem.
+
+*Where they actually fail.* The exit reason is identical in all three campaigns:
+
+| | outcome | why | rounds | breaches | men before → after | **garrison** | reached keep |
+|---|---|---|---:|---:|---|---:|---|
+| 9000 `fair` | repelled | **attackers wiped** | 58 | 1 | **41 → 0** | **0** | no |
+| 9000 `hard` | repelled | **attackers wiped** | 51 | 1 | **33 → 0** | **0** | no |
+| 9001 `fair` | repelled | **attackers wiped** | 53 | 1 | **36 → 0** | **0** | no |
+| (each campaign's other assault) | captured | — | 47 | 1 | 36–40 → 24–32 | 0–4 | yes |
+
+**A column of 33–41 men is wiped to the LAST MAN against a castle defended by nobody.** The only
+damage source present is tower fire, and it is a death spiral by construction:
+
+```
+damage = tower.damage / max(1, attackerCount()) * BASE_MORALE_DAMAGE * jitter
+```
+
+Damage per round scales INVERSELY with the surviving column, and `damageAttacker` converts that
+morale loss straight into casualties. Forty men take `12/40` per tower per round; four men take
+`12/4` — ten times the morale damage into a tenth of the force. The smaller the column, the faster
+it dies. The intent is documented in the code ("towers deter raids; armies soak them") and the
+deterrence half works; the soak half does not, because nothing bounds the spiral once a column
+starts shrinking.
+
+*It is a knife-edge, not a slope.* Captures reach the keep at round **47**; wipes are still
+advancing at **51–58**. Both break exactly one wall. The difference between taking a castle and
+losing every man is a handful of rounds of extra exposure — which is why the outcome looks random
+in aggregate and produced a plausible-sounding "the AI can't fight" story.
+
+*What M77 actually needs*, restated on evidence: not bigger armies and not better target selection,
+but a tower-fire model that does not annihilate an unopposed column. Candidate directions, none
+measured: cap total tower damage per assault; make the count-relative term saturate rather than
+diverge as the column shrinks; or let a column that has taken heavy losses withdraw with survivors
+instead of being ground to zero. **Any of these is a balance change and gets the M70.5 treatment —
+matrix numbers in its scoping note, on the shipped clock.**
+
+*Recorded because it is the third time in this phase.* M71, M77 and now M77's stated cause were all
+rejected by measurement. In each case the measurement was cheap and the reasoning was confident.
+The probe that overturned this one cost eight minutes.
+
+**M78 scoping note (shipped 2026-08-03) — the tower death spiral is fixed. It was NOT M77's
+blocker, and this note exists mostly to record how the wrong cause was chosen twice in a row.**
+
+*What shipped.* `TOWER_EXPOSURE_FLOOR = 20` floors the divisor in the tower volley:
+
+```
+exposure = max(TOWER_EXPOSURE_FLOOR, attackerCount())
+damage   = tower.damage / exposure * BASE_MORALE_DAMAGE * jitter
+```
+
+The pre-M78 form divided by the LIVE count, so damage per round diverged as men fell and fed
+straight back into the casualty term. The M78 probe measured its end state: columns of 33, 36 and 41
+men wiped **to the last man** on the approach, against castles holding **no garrison at all**, while
+every column that reached the keep took it with 2.5–3× the strength required. Flooring the divisor
+keeps the entire intended curve — a raiding party still suffers far more per man than a host, all
+the way down to the floor — and removes only the divergence. Chosen over capping total damage (a
+tower firing all day *should* grind a stalled column down; it must not accelerate as it succeeds)
+and over a withdrawal rule (truncates the spiral without fixing it, and a withdrawn column still
+fails the assault). A property test pins the curve rather than an outcome, because outcomes here sit
+on a knife-edge — captures reached the keep at round 47, wipes were still advancing at 51–58 — and
+an outcome test would be flaky by construction.
+
+*Measured, on the shipped clock, both ways.*
+
+| | adult p10 | floor | monoculture | earliest | changing hands | green |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline | 43.0% | 15.5% | 44% | y10 | 93.8% | **4 of 5** |
+| tower fix alone | 43.0% | 15.5% | 44% | y10 | 93.8% | **4 of 5** |
+| M77 alone | 32.9% | 9.0% | 56% | y25 | 38% | 2 of 5 |
+| **tower fix + M77** | 32.9% | 9.0% | 56% | y25 | 38% | **2 of 5** |
+
+Inert on the shipping tree, and **inert on M77 too** — sieges 114, assaults 18, repelled 14,
+capitals fallen 4, identical to M77 without it. Shipped anyway: it is a real unbounded-divergence
+defect in a damage model, it is tested, it is fixture-neutral, and it would bite the moment anything
+raises assault frequency. But it buys **no band**, and this note says so rather than implying value
+it does not have.
+
+*The actual blocker, which was visible in M77's own telemetry all along.* `114 sieges begun, 18
+assaults resolved` — **at least 96 sieges never produced an assault at all.** Under the M72 baseline
+the ratio is 39 assaults from 55 sieges (71%); under M77 it is 16%. The AI besieges and then holds.
+`assaultAdvice` (campaign.ts, M54) counsels `assault` only when believed own strength ≥ estimated
+resistance, `lift` when hopeless, and `hold` otherwise — so tripling the number of sieges against
+capitals it must now actually storm parks almost all of them. **That is close to R7's original
+"armies that mass", and it is the next thing to probe — the sieges that never assault, not the
+assaults that fail.**
+
+*Recorded because the pattern is now the phase's most useful output.* M77's cause has been wrong
+twice: "the AI cannot take a defended castle" (refuted — castles undefended, AI 2.5–3× overstrength)
+and "tower fire annihilates the column" (real, but 14 repulses out of a 96-siege stall). **Both times
+the wrong cause was chosen by measuring the thing that was failing rather than counting the thing
+that never happened.** The 96 missing assaults were in the very first M77 table and went unread. The
+rule this phase has earned: *before explaining a failure, check the denominator — how many attempts
+never reached the step you are explaining?*
+
+**M79 probe (2026-08-03) — FINDING ONLY. TWO independent defects, and the dominant one is a
+strength gate that silently abandons the army's own siege.**
+
+M78 ended by naming the denominator nobody had counted: 114 sieges begun, 18 assaults resolved, so
+**at least 96 sieges never produced an assault**. This probe counted the two places a siege can
+stall — the war-path gates in `ai/military.ts` and every branch of `assaultAdvice` — under M77's
+condition, over 100-year campaigns. All telemetry reverted; goldens re-verified green.
+
+*Defect 1 — the strength gate blocks a besieging army from deciding its own siege. This is the
+whole stall.*
+
+| tally | `fair` 9000 | `hard` 9000 |
+|---|---:|---:|
+| **`GATE: besieging but under WAR_MIN_STRENGTH`** | **13,564** | **8,810** |
+| `gate: field army under WAR_MIN_STRENGTH` | 1,081 | 148 |
+| **reached the siege branch at all** | **40** | **12** |
+
+`ai/military.ts` returns early on `committedCount(armyId) < WAR_MIN_STRENGTH` (20 men), and that
+check sits ABOVE the existing-siege handling. The module already knows a committed army must not be
+abandoned — the PLAN check immediately above it carries exactly that exemption, and its comment says
+so ("a committed army … must see its war through regardless of the plan's second thoughts"). The
+STRENGTH check has no such exemption. So an army musters 20+, marches, begins a siege, takes
+attrition and upkeep desertion below 20 — and is **never consulted about that siege again.** It
+cannot assault. It cannot lift. The siege stands until something else ends it. **Decision ticks lost
+to this outnumber decisions actually made by roughly 340:1 and 730:1.**
+
+*Defect 2 — the resistance estimate measures something the capture verdict does not use.* When the
+counsel IS reached, the numbers are consistent and wrong:
+
+| own | believed garrison | estimated resistance | ratio | branch |
+|---:|---:|---:|---:|---|
+| 171 | **0** | 184 | 0.93 | hold |
+| 174 | 8 | 224 | 0.78 | hold |
+| 236 | **0** | 365 | 0.65 | hold |
+| 138 | **0** | 350 | 0.39 | lift |
+| 254 | **0** | 184 | 1.38 | **assault** |
+
+`estimateAssaultResistance` (game/intel.ts) sums `keepHoldStrength + ESTIMATE_TOWER_RESISTANCE per
+tower + ESTIMATE_WALL_RESISTANCE per wall/gate + believedGarrison × ESTIMATE_STRENGTH_PER_MAN`. But
+the actual capture verdict in `resolveSpatialAssault` is **`strength ≥ keepThreshold + rally`** —
+keep hold plus the SURVIVING GARRISON's defence, and nothing else. **Walls and towers never enter
+the verdict.** They slow and bleed the column on the approach; they do not raise the bar at the
+keep.
+
+So with a believed garrison of ZERO the estimator returns 184–365 against a true requirement of
+**60**. It is inflated three- to six-fold by counting fortification that the verdict ignores. An army
+at `own = 171` — nearly three times what taking the castle actually needs — is told to hold. Counsel
+outcomes across both campaigns: **hold 21, lift 27, assault 4.**
+
+*The two are independent and need different fixes.* Defect 1 is a missing exemption on one
+comparison; defect 2 is a model mismatch between the estimator and the resolver. Fixing 1 alone
+unblocks the decision loop but, with the estimate still inflated, most of those armies would simply
+counsel `lift` — sieges would end instead of stalling, which is better but still not a war. Fixing 2
+alone leaves the armies that most need re-deciding permanently unconsulted. **Both, and in that
+order, is what M77 has been waiting for.**
+
+*Method note, and the reason this probe found it.* M78 earned the rule "before explaining a failure,
+check the denominator". Applied here it took one run: the dominant term was never in the assault
+data at all, because the affected sieges never reached an assault to be measured. Both previous
+causes for M77 were chosen by studying assaults that happened.
+
+**M79 attempt (2026-08-03) — both defects FIXED and NOT SHIPPED. The fixes do exactly what they
+were designed to do; the package costs a band nobody can yet attribute.**
+
+M79's probe named two defects. Both were implemented, measured separately, and reverted.
+
+*Fix 1 — the strength gate.* `committedCount < WAR_MIN_STRENGTH` moved BELOW the existing-siege
+branch, so the floor gates MARCHING and never an army's decision about the siege it is already
+conducting. One statement moved; the exemption the plan check one line above already grants was
+simply missing here.
+
+*Fix 2 — the resistance estimate.* `estimateAssaultResistance` now returns
+`(keepHold + garrison × perMan) × (1 + attrition)` instead of adding tower/wall resistance in
+keep-hold units. The dimensional argument is the justification: the resolver's verdict is
+`strength ≥ keepThreshold + rally` and reads fortification nowhere, so walls and towers cannot
+belong in that sum — what they do is remove a FRACTION of the column on the approach, which is a
+multiplier. First-pass constants (`ESTIMATE_TOWER_ATTRITION = 0.15`, `ESTIMATE_WALL_ATTRITION =
+0.01`) put a 4-tower/32-wall castle at ~115 where it read 184, and an 8-tower/92-wall one at ~187
+where it read 365.
+
+*Measured on the shipped clock, separately and together.*
+
+| Band | baseline | gate only | gate + estimate |
+|---|---:|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 43.0% ✓ | 35.5% ✓ |
+| **oldest-village floor (≥15%)** | 15.5% ✓ | **10.8%** ✗ | **8.5%** ✗ |
+| monoculture (≤60%) | 44% ✓ | 44% ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | 93.8% (84) ✓ | 93.8% (**57**) ✓ | 87.5% (**78**) ✓ |
+| **green** | **4 of 5** | 3 of 5 | **3 of 5** |
+
+Both fixes behaved exactly as M79 predicted. The gate alone freed the stalled armies and they walked
+away — changes fell 84 → 57, because the estimate was still inflated and the counsel said `lift`.
+Adding the estimate fix converted those lifts back into assaults — changes recovered to 78. The
+mechanism is confirmed end to end.
+
+*And the package is 3 of 5 against a 4 of 5 baseline, on a band I could not attribute.* The
+oldest-village floor is a MIN over every village older than ten years across all sixteen campaigns —
+the noisiest statistic in the set, failed by one village. Probing `fair` seed 9000 found its worst
+old village at **52.3%**, nowhere near the floor, so the 8.5% belongs to a campaign not yet
+identified; the probe timed out before covering the rest.
+
+**Not shipped.** The reasoning that would justify shipping — "more war legitimately costs an old
+village its adults, and the band was ratified when war never happened" — is precisely the
+restate-the-band-to-match-the-outcome move R8 and R9 forbid, and it is the same shape as the three
+causes this phase has already got wrong by asserting instead of measuring. The fixes are correct,
+understood, and cheap to re-apply; what is missing is one measurement.
+
+**ANSWERED, same day, by attributing the minimum to its campaign** (temporary `VillageBand`
+carrying population and village index; reverted):
+
+```
+FLOOR-FAIL  hard seed=9001 · vi=28 age=14y adult=8.5% pop=392 children=320
+            · run: conquest y14 · occupations=3 capitalFalls=0 sieges=3
+```
+
+**Neither candidate. The village is not war-damaged and there is no new defect — the BAND's filter
+is shorter than the system's slowest time constant.** The campaign ended at year 14 on a conquest
+victory, and the village is fourteen years old: 392 people of whom **320 are children** and ~33 are
+adults. That is a growing village measured inside its first maturation cycle, not a sacked one
+(`capitalFalls=0`, and a sacked village does not hold 392 people).
+
+`MATURE_RATE` is `1/(14 years)`. The band filters on `ageYears > 10`. **A village admitted at ten
+years has not completed one cohort turnover**, so the "oldest-village floor" is not measuring old
+villages at all — it is measuring whichever village happens to be youngest in the admitted set. And
+because bands are read at campaign END, the band systematically penalises campaigns that finish
+EARLY: M79's fixes made war decisive enough to end this one at y14, which is the entire reason the
+floor moved 15.5% → 10.8% → 8.5%.
+
+This is the same defect class as R9's 60-year clock, found by the rule R9 recorded: *check the
+slowest term before choosing a window*. It was written for the victory clock and applies verbatim to
+this filter.
+
+**Consequence for M79's fixes: they are band-NEUTRAL, not a regression.** Excluding the immature
+village, the package reads adult cohort 35.5% ✓ · monoculture 50% ✓ · changing hands 87.5% ✓ ·
+earliest victory y10 ✗ — 4 of 5, the same as baseline, while fixing two measured defects and
+recovering war activity the gate fix alone had suppressed.
+
+**SHIPPED, after ADR-14 was ratified (owner decision 2026-08-03).** The band's filter rose to
+`SETTLED_VILLAGE_YEARS = 20` — one maturation cycle plus room for a cohort to flow through — with
+the 15% value untouched, and both M79 fixes landed unchanged on top. `bench-balance.ts` now names
+the village defining the floor on every run, which ADR-14 required and which a `min` band cannot do
+without.
+
+| Band | baseline | shipped |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 43.0% ✓ | 35.5% ✓ |
+| settled-village floor (≥15%) | 15.5% ✓ | **21.8%** ✓ |
+| monoculture (≤60%) | 44% ✓ | 50% ✓ |
+| earliest victory (≥y30) | y10 ✗ | y10 ✗ |
+| changing hands (≥50%) | 93.8% (84) ✓ | 87.5% (78) ✓ |
+| **green** | **4 of 5** | **4 of 5** |
+
+The war telemetry is where the fixes show: **47 sieges begun, 37 assaults resolved, 6 repelled, 33
+capitals fallen**, against M79's stalled `114 / 18 / 14 / 4`. Armies now decide the sieges they are
+conducting, and assault when they can actually win rather than holding against an estimate that read
+fortification the verdict never uses.
+
+**The promised check came back HALF satisfied, and is recorded as a limitation rather than a pass.**
+The floor was to hold because villages are genuinely mature, not because a number moved. The village
+now defining it is `age 27y, pop 246, children 172` — 21.8%, clearing 15% by 6.8 points. But M70.6
+measured settled villages at **46–66%** adults, so 27 years is still visibly climbing toward
+equilibrium. 20 years is closer to settled than 10; it is not settled. See ADR-14's limitation
+paragraph for what would actually eliminate the effect (≈40-year admission, age-normalisation, or
+reading bands at a fixed campaign year rather than at campaign end) — all larger than this scope, and
+none of them attempted here.
+
+**M77 re-measure (2026-08-03) — REJECTED A SECOND TIME, now on unambiguous evidence. It causes a
+demographic collapse in genuinely settled villages, and ADR-14's instrumentation is what proved the
+difference.**
+
+M77 was retried because the reason it failed first had since been fixed: with the walk-in path
+closed the AI had to storm capitals it used to walk into, and `114 sieges begun / 18 assaults
+resolved / 4 capitals fallen` said it could not. Both causes were fixed and shipped (M79), and the
+same telemetry now reads `47 / 37 / 33`. **A precondition genuinely changing is the only honest
+reason to retry a rejected milestone**, and it did.
+
+| Band | shipped (M79) | M77 retry |
+|---|---:|---:|
+| adult cohort p10 (≥30%) | 35.5% ✓ | **14.7%** ✗ |
+| settled-village floor (≥15%) | 21.8% ✓ | **4.9%** ✗ |
+| monoculture (≤60%) | 50% ✓ | **63%** ✗ |
+| earliest victory (≥y30) | y10 ✗ | **y25** ✗ |
+| changing hands (≥50%) | 87.5% ✓ | **31%** ✗ |
+| **green** | **4 of 5** | **1 of 5** |
+
+*The finding, and it is not a band artifact this time:*
+
+```
+settled-village floor 4.9% — vi=28 age=100y pop=551 children=492
+```
+
+**A HUNDRED-year-old village at 4.9% adults** — 492 children to roughly 50 adults. That is the
+M61.5 disaster signature (~20 children per adult) returning in a village seven maturation cycles
+old. Nothing about it is transient.
+
+*ADR-14 paid for itself here, immediately.* Under the old `ageYears > 10` filter this would have
+been indistinguishable from M79's 14-year-old village — both just "a low number". The permanent
+attribution names `age=100y` and settles it in one line: last time the band was wrong, this time the
+game is.
+
+*What it does confirm.* Earliest victory moved **y10 → y25** again, reproducing the M77 result
+exactly and independently re-confirming ADR-13's diagnosis: the y10 victories ARE ungarrisoned
+capitals being walked into. The defect is real; this remains the wrong cure.
+
+*Mechanism — a hypothesis, explicitly NOT a finding.* Changing hands fell to 31%, so wars that
+cannot conclude persist, and a persistent war recruits continuously at 10 adults a unit. Sustained
+war would then drain adults indefinitely, which fits both the cohort collapse and the settled-village
+floor. **This is not measured.** M70.6 refuted war-consumption as the driver of an adult-fraction
+fall once already, on a different tree, and this phase has produced four wrong causes by reasoning
+ahead of measurement. It needs the M70.6 treatment — per-village cohort accounting under M77 —
+before anyone acts on it.
+
+*Not shipped, for the second time.* ADR-13's defect stays open and its record already says the
+implementation is blocked. What is now known that was not before: the block is not AI competence
+(M79 fixed that and the retry still failed), and the cost is not a measurement artifact (the village
+is 100 years old). **Closing ADR-13 requires a route that does not stop capitals changing hands** —
+teaching occupation to open the succession window, which M77 rejected on inspection because
+succession is siege-centric, is the remaining candidate and is a larger piece of work than either
+attempt so far.
+
+**Gate P10's bands — RESTATED by R8 (2026-08-02). The originals were ratified at charter against a
+premise that measurement dissolved; these are ratified now, before the fixes they measure, against
+what is actually known.**
+
+The sharpest statement of where the project stands: **no tree state in its history has had more
+than three of the five M62 bands green at once.** Gate P9 had 3, the current tree has 2, the
+boosts-off counterfactual has 3 — and they are not the same three. Phase 10 closes when five are
+green together.
+
+| # | Band | Status |
+|---|---|---|
+| 1 | villages changing hands in **≥50%** of campaigns | M62's, unchanged. Now measured on M70.5's corrected counter (occupations + non-capital captures + **capital falls**) — a corrected instrument, NOT a re-ratified band |
+| 2 | adult cohort p10 **≥30%** | M62's, unchanged. Broken by M68; M71 owns it |
+| 3 | oldest-village floor **≥15%** | M62's, unchanged |
+| 4 | no single victory type in **>60%** of campaigns | M62's, unchanged. Broken by M68; M71 owns it |
+| 5 | earliest victory **≥y30**, measured at the shipped 100-year cap | M62's, re-measured. **Never green in any tree state**; M73 decides whether the band or the measurement is wrong |
+| 6 | assault repulse rate **≤50%** matrix-wide | **NEW (R8)**, replacing R7's unmeasurable "≥50% of sieges reach a resolution". M70.5 made repulses countable; M72 owns it |
+| 7 | **≥36 of 72** techs have a measurable effect | R7's band 4, unchanged. M75 owns it |
+
+Bands 1–5 must be green **simultaneously and with M68's boosts left ON** — that is the whole
+difficulty, and splitting them across tree states is how this project spent Phase 9 believing it
+had won two of them.
+
+*(R7's original bands, superseded: they inherited "13% changing hands" as a war-competence problem
+and a siege-resolution band that no counter could evaluate.)*
+
+**R7's original band text, kept for the record:** This is M62's discipline
+and the reason Phase 9's gate could not be reshaped to match its own outcomes. Five bands, run as
+`bench:balance --real --years 60 --seeds 2` unless stated:
+
+| # | Band | Source |
+|---|---|---|
+| 1 | villages changing hands in **≥50%** of campaigns | INHERITED from M62 unchanged — deliberately not restated |
+| 2 | earliest victory **≥y30**, measured at the shipped 100-year cap | inherited; M72 may restate it, and if it does the restatement IS the deliverable (ADR required) |
+| 3 | **≥50%** of sieges BEGUN reach a resolution — a capture or a lifted siege, never a stall | NEW. The 4-begun/0-resolved shape is the specific failure this phase exists to end |
+| 4 | **≥36 of 72** techs have a measurable effect | NEW. Content band, gated, counted per ADR-12 |
+| 5 | M62's three green bands (adult cohort p10 ≥30%, oldest-village floor ≥15%, monoculture ≤60%) STAY green | NEW as a REGRESSION guard — Phase 9 won these and Phase 10 must not spend them |
+
+**Known risks, named now rather than discovered mid-phase.**
+
+- *M71 is the phase and it is not de-risked by anything but M70.* If M70's finding is "the AI needs a
+  strategic layer it does not have", M71 stops being a competence fix and the charter needs revising
+  before it is executed, not during. That is the outcome M70 exists to surface EARLY and cheaply.
+- *Two intentional re-records* (M69, M71), both predicted before recording per the standing rule.
+  M73 and M74 are predicted fixture-NEUTRAL and must be verified as such, not assumed — M68's
+  `techBoost` work was also predicted neutral and was, but only because Written Records happened not
+  to be researched inside a fixture window.
+- *Band 4 may be unreachable without M73.* If the per-kingdom board proves larger than scoped, M74
+  falls back to the four `applies` kinds alone (~22 of 72) and band 4 fails honestly rather than
+  being restated downward. A band lowered to match its outcome is the failure mode this project's
+  review culture exists to prevent.
+- *Gate P9's bands 4 and 5 were failed, not tuned.* Phase 10 inherits that discipline explicitly:
+  no constant in `victory.ts`, `ai/military.ts` or `population.ts` moves to make a band green
+  without an ADR saying so in its own words.
+
+---
+
 ## Dependency & Risk Notes
 
 - Long-pole chains: ECS/determinism (M2–M5) → everything; AI harness (M24) is deliberately early —
@@ -788,3 +2399,164 @@ Amendment A1; scope option (C) RATIFIED 2026-07-21).**
 - **Risk impact:** lowers risk going forward — M60 would otherwise have discovered this gate live,
   mid-milestone, the same way M56 did. No behavioural change and no new re-record: this is a
   documentation correction only, traceable to the M56 commit's own verification trail.
+
+**R5 — Phase 9 ("The Game") chartered from the M61.5 release review (ratified 2026-07-27).**
+
+- **Change:** an audit milestone (M61.5) and seven repair milestones (M62, M63, M64a, M64b, M65,
+  M66, M67 — "Phase 9 — The Game") appended as post-1.0 scope. No new systems: every milestone
+  repairs, surfaces, or measures something already built. M62's outcome BANDS are ratified inside
+  its own row and are binding — a gate written before the fixes so it cannot be reshaped to match
+  them.
+- **Why:** the M61.5 review found the M47.5 failure recurring one level up. R1 unified the
+  composition; it never gated the composition's OUTCOMES. So a green 496-test suite, four
+  byte-stable goldens, four clean corpus saves and three benchmark scenes at 3% of budget coexisted
+  with a shipping game in which nothing is ever conquered (0 assaults, 0 captures, 0 eliminations
+  across 16 × 60-year campaigns), 81% of campaigns end the same way in year 18–20, villages run at
+  ~20:1 children-to-adults, and the player has no expansion verb at all. Freezing here would ship
+  Phases 4, 8 and 8.1 — thirteen milestones of military, siege and castle work — as code the game
+  never reaches.
+- **Affected documents:** this doc (12); doc 15 (ADR-5 Conquest semantics, ADR-6 release
+  positioning); GDD §16 rewrite lands inside M66, GDD §5's settler surface inside M63, and doc 07
+  §3's stale roster-adoption note inside M67 — no design-doc change before those milestones.
+  Doc 11's unmeasured-target admissions (render fps, memory, save size) are unchanged by this
+  revision and remain open.
+- **Affected milestones:** none reopened. Phase 8.1 stays closed — its castle system is not
+  defective, it is unreachable, which is M65's problem and not a reopening of M55–M61.
+- **Risk impact:** reduces the four release-blocking simulation risks the review named, and closes
+  the art blocker by decision rather than by work (ADR-6) — which also trims M63's save browser and
+  M67's tutorial to reachability-only. Adds three intentional re-records (M64b, M65, M66),
+  deliberately unbatched so each moved hash has a single attributable cause. The one-time behaviour
+  snap is Conquest's meaning changing under ADR-5: a save mid-campaign with a share-based Conquest
+  in progress re-evaluates under the taken-village rule on first load — accepted, same class as
+  OQ-9's re-derivation snap and A1's inert-walls snap.
+  *(Amended by R6 below: M64b merged into M65, so R5's "three intentional re-records" is now two.)*
+
+**R6 — M64b merged into M65 (owner-directed 2026-07-27, on the M64a finding).**
+
+- **Change:** M64b ("population & economy repair") is dissolved into M65, which is renamed to
+  "the military economy." M64a's own row is unchanged and stays closed — it delivered the finding
+  that motivated this. Phase 9 is now M61.5 · M62 · M63 · M64a · M65 · M66 · M67.
+- **Why:** M64a proved the ~20:1 child-to-adult inversion and the never-massing army are the SAME
+  defect — recruiting at 10 adults/unit against floor-only gates, with no ceiling on army size.
+  Two milestones would have paid two fixture re-records to fix one cause, and neither one's bands
+  could have gone green alone: capping recruitment is what makes M62's adult-cohort band reachable,
+  and the same cap plus an affordability check is what stops the recruit→desert→recruit churn that
+  keeps armies from ever massing. Splitting a single cause across two commits is also exactly the
+  attribution hazard the no-batching rule exists to prevent, pointed the other way.
+- **Affected documents:** this doc (12) — M64b's row, M65's row, the Phase 9 sequencing note, and
+  R5's re-record count. No ADR is affected: ADR-5 and ADR-6 concern M66 and release positioning
+  respectively, neither of which this touches.
+- **Affected milestones:** M64a closed and unaffected. M66 and M67 unaffected. M65 absorbs M64b's
+  secondary scope (`SETTLER_PARTY`'s age mix, `FAMINE_MORTALITY`'s slope) and inherits its T
+  objectives alongside its own.
+- **Risk impact:** REDUCES total fixture risk (three intentional re-records become two) without
+  weakening attribution, because the merged milestone still has exactly one root cause. Raises
+  M65's blast radius: it now moves terra fixtures too (via the settler/famine secondary scope),
+  where the pre-merge M65 would have moved only campaign fixtures — folded into the M65 prediction
+  in the sequencing note above so the diff walk is checked against the wider set, not the narrower.
+
+**R7 — Phase 10 ("The War") chartered from Gate P9's handover (ratified 2026-08-02).**
+
+- **Change:** a seven-milestone Phase 10 (M69–M75) appended as post-1.0 scope, with its own five
+  gate bands ratified at charter. Phase 9 remains CLOSED-NOT-PASSED and is not reopened — Phase 10
+  is new scope, not a reopening.
+- **Why:** Gate P9 named three ways forward and explicitly declined to choose between them. The
+  owner chose option (a) against the written scope below, rather than against a sentence.
+  The argument for it over option (b) is leverage, not ambition: one missing capability — AI war
+  competence — is upstream of the failing changing-hands band, of ADR-5's taken-village Conquest
+  clause (built, measured at 0/16, deleted at M66), and of thirteen milestones of military, siege
+  and castle work that have never reached a conclusion in the shipping game. Option (b) is still
+  defensible and is NOT argued against here; it simply requires the docs to say "dormant" plainly,
+  which ADR-6 already licenses.
+- **Scope discipline carried over:** the assault resolver is measurably NOT the defect (flat harness
+  24 begun / 23 captured vs `--real` 4 begun / 0 captured), so this is a competence phase, not a
+  systems phase. Two architecture changes are admitted — event-ID hashing and per-kingdom
+  `StatModifiers` — both because Gate P9 named them as the standing tax on other work, and both
+  scheduled at the phase head so their fixture cost is paid once.
+- **Sequencing follows two Phase 9 lessons rather than restating them:** M70 commits a written cause
+  and no fix (M64a's shape — Phase 9's one wrong turn was a ceiling specified at 0.15 and validated
+  at the wrong population scale), and M71 is deliberately NOT split from that cause (R6's rule —
+  two milestones would pay two re-records for one root cause).
+- **Affected documents:** this doc (12) — new phase section and this record. No ADR changes: ADR-5,
+  ADR-10, ADR-11 and ADR-12 are all *inputs* to this charter and none is amended by it. Doc 06 §8,
+  doc 07 §3 and GDD §8 will need edits INSIDE M71/M74/M75, not before.
+- **Affected milestones:** none shipped. M68 (un-chartered, shipped 2026-07-29) is unaffected and
+  stays outside any phase; its `applies`-vocabulary follow-up is picked up by M74 rather than left
+  implied.
+- **Risk impact:** adds two intentional fixture re-records (M69, M71) and two predicted-neutral
+  milestones that must be VERIFIED neutral (M73, M74). Concentrates the phase's risk in M71, which
+  is de-risked by nothing except M70 — if M70 finds the AI needs a strategic layer it does not have,
+  this charter needs revising before execution, not during, and M70 is scheduled early and cheap
+  precisely to surface that. Band 4 (tech effectiveness) is the one band that may prove unreachable
+  within scope; the charter states it fails honestly rather than being restated downward.
+
+
+**R8 — Phase 10 re-chartered; R7's premise dissolved by its own first two milestones (ratified 2026-08-02).**
+
+- **Change:** R7's M71–M75 are replaced. M69 and M70 shipped and stand; M70.5 and M70.6 are added
+  as shipped un-chartered work. The new plan is **M71 decouple surplus from births · M72 the severed
+  approach · M73 earliest-victory decided · M74 per-kingdom modifiers · M75 the tech tree · M76
+  player agency & Gate P10.** Gate P10's bands are restated (seven, of which five must be green
+  simultaneously). Phase 9 stays CLOSED-NOT-PASSED; this is not a reopening.
+- **Why — R7 rested on two supports and measurement removed both.** (1) *"The AI cannot conclude a
+  war."* False. `bench:balance` subscribed to `siege.assaultBegun`, an event **no code in this
+  repository publishes**, so "0 assaults" was structural, not behavioural — the AI assaults
+  constantly (19 in one 60-year seed). And `siege.captured` cannot fire where succession is on: a
+  capital's fall publishes `siege.capitalFallen`. The flat harness sets `succession: false`
+  (`ai/multiKingdomHarness.ts:109`), which is the ENTIRE "23 captured vs 0 captured" gap the charter
+  was built on. (2) *"13% of campaigns change hands, and closing that needs AI war competence."* The
+  13% was real, but the cause was not competence — it was money. M68's yield boosts alone move it to
+  93.8%, measured by a counterfactual that neutralises nine multipliers and changes nothing else.
+- **What replaced it.** The game has **two equilibria and no path between them**. Poor (Gate P9):
+  demographics healthy, war never happens — 3 of 5 bands. Rich (post-M68): war works, demographics
+  and pacing break — 2 of 5. One coupling separates them: `births` scales with food security and
+  joy and **saturates at nothing**, while `MATURE_RATE` is flat, so any economy strong enough to
+  fund a war floods the child cohort (M70.6, measured; the war-consumption alternative refuted —
+  the worst village never saw a war). Breaking that coupling is the phase, and no earlier document
+  names it.
+- **The M68 decision, taken explicitly rather than inherited.** Its boosts are KEPT and M71 fixes
+  the coupling, rather than reverting them. Reverting scores 3 of 5 and hands back a 13% war band —
+  the original complaint — and the unbounded food→births coupling is a design flaw whether or not
+  M68 exposed it. Recorded as a decision because the alternative is defensible: reverting is one
+  content edit and restores Phase 9's equilibrium exactly.
+- **Affected documents:** this doc (12). No ADR is amended: ADR-10, ADR-11 and ADR-12 remain inputs.
+  Doc 06 §5 (population model) will need edits INSIDE M71, not before.
+- **Affected milestones:** none shipped is reopened. M69/M70/M70.5/M70.6 stand as shipped. R7's
+  M72–M75 survive as M73–M76 with their scope intact — only the war milestones changed.
+- **Risk impact:** the phase's risk moves from "can the AI be taught to fight" (answered: it already
+  can) to "can surplus be decoupled from births without breaking the economy that funds war" —
+  narrower, but a live balance problem with no obvious safe constant. M71 is balance-affecting by
+  construction, so `bench:balance --real` is in its DoD rather than after it, per M70.5's lesson.
+  Two process guards now bind the phase: **no yield/cost/rate/threshold change ships without matrix
+  numbers in its scoping note**, and **byte-identical fixtures are evidence about 125 days only.**
+
+**R9 — the band-measurement command is corrected to the SHIPPED year limit; R8's premise is withdrawn (recorded 2026-08-03).**
+
+- **Change:** the ratified balance command becomes `bench:balance --real --seeds 2` — i.e. the
+  SHIPPED `DEFAULT_YEAR_LIMIT` of 100 — not `--real --years 60 --seeds 2`. `bench-balance.ts` passes
+  `yearLimit: YEARS`, so `--years 60` shortened the game's own victory clock by 40% rather than
+  merely truncating observation. **M71 is NOT SHIPPED** (see its scoping note) and Phase 10's
+  milestone list is reduced accordingly.
+- **Why:** on the shipped clock the untouched tree scores **4 of 5 bands** (adult cohort 43.0% ·
+  oldest-village floor 15.5% · monoculture 44% · changing hands 93.8%; only earliest victory y10
+  fails). On the 60-year clock the same tree scores 2 of 5. The difference is not noise and not
+  tuning: `MATURE_RATE` is 1/(14 years), so villages are still in demographic transient at year 60
+  — M70.6 measured exactly that — and the adult-fraction bands were reading a growth bulge.
+- **What is withdrawn.** R8's founding premise — "the game has two equilibria and no path between
+  them" — is **WITHDRAWN**. It was two readings of the same short clock. With it go R8's
+  characterisation of M68 as half-regression (M68's tree is 4 of 5 at 100 years) and M71's charter.
+  R8's other corrections STAND unchanged: the `siege.assaultBegun` and `siege.captured` instrument
+  faults (M70.5), the severed-approach assault bug (M70), and the process guards on balance changes.
+- **Affected documents:** this doc (12) — R8's premise paragraph, the Phase 10 milestone list, and
+  Gate P10's bands, which must be re-ratified against the shipped clock before they gate anything.
+  Doc 11 §6 should record the command change so nobody re-derives the short-clock numbers.
+- **Affected milestones:** M69, M70, M70.5, M70.6 stand as shipped — none depended on the clock.
+  M71 is cancelled with a finding. M72 (severed approach) is unaffected and remains the phase's
+  clearest real defect. M73 keeps the earliest-victory question, which is now the ONLY failing band
+  and is clock-independent; its `DEFAULT_PROSPERITY_POPULATION` sub-question is retired, since
+  monoculture is green at 44%.
+- **Risk impact:** removes a phase's worth of scope built on an artifact, at the cost of admitting
+  every prior band number was measured on a configuration that does not ship. The forward guard is
+  narrow and mechanical: **the gate command must not pass `--years`.** A third process rule joins
+  M70.5's two — *a band measured inside a system's transient measures the transient; check the
+  slowest term before choosing a window.* Population's is 14 years, so 60 was never enough.

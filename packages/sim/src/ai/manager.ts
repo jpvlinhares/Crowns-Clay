@@ -92,14 +92,15 @@ export function registerAiConstructionManager(
   popGame: PopulationGameplay,
   options: AiConstructionOptions,
 ): void {
-  const { VillageCore, BuildingCore } = game.comps;
+  const { VillageCore, BuildingCore, Stockpile } = game.comps;
   const searchRadius = options.searchRadius ?? VILLAGE_RADIUS_T1;
 
   const system: SimSystem = {
     name: options.id !== undefined ? `ai-construction-${options.id}` : 'ai-construction',
     period: TICKS_PER_DAY,
     phase: 6,
-    access: { reads: [VillageCore, BuildingCore, popGame.Population, ...(options.extraReads ?? [])] },
+    // Stockpile: the M-era storage need (needs.ts) reads it to size a granary against current stock.
+    access: { reads: [VillageCore, BuildingCore, Stockpile, popGame.Population, ...(options.extraReads ?? [])] },
     update(): void {
       if (!world.isAlive(options.villageId)) return;
       const villageIndex = index(options.villageId as number);

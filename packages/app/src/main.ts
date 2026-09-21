@@ -8,7 +8,7 @@
  */
 import type { AvailableMod, BuildingRec, CampaignSettings, CatalogEvent, EntityRec, FromSimMessage, ModReport, PlayerPanels, TerrainSnapshot, ToSimMessage } from '@crowns/protocol';
 import { PixiRenderer, TerrainView } from '@crowns/render';
-import { BASE_TICKS_PER_SECOND, TICKS_PER_DAY, TIER2_REQUIREMENTS, type Speed } from '@crowns/sim';
+import { BASE_TICKS_PER_SECOND, TICKS_PER_DAY, TIER2_REQUIREMENTS, SETTLER_PARTY, MIN_ADULTS_REMAINING, type Speed } from '@crowns/sim';
 import { NotificationQueue, PanelHost, TooltipController, UIStore, type Panel, type VillageInfo } from '@crowns/ui';
 import { AudioDirector } from '@crowns/audio';
 import { Locale, localeKey } from '@crowns/core';
@@ -134,15 +134,26 @@ const setSpeed = (next: Speed): void => {
 for (const b of speedButtons) b.addEventListener('click', () => setSpeed(Number(b.dataset['speed']) as Speed));
 
 // ---------- save/load (M17): worker owns serialization + IndexedDB ----------
+// M63 (doc 12 Phase 9): named slots — the store (saveStore.ts) always supported an arbitrary
+// slot name; only this UI hardcoded 'manual'. ADR-6 trims the browser to a plain list (no
+// thumbnails/mod metadata) rather than GDD §18's full save browser.
+const slotNameInput = document.getElementById('slot-name') as HTMLInputElement;
+const slotListSelect = document.getElementById('slot-list') as HTMLSelectElement;
 (document.getElementById('btn-save') as HTMLButtonElement).addEventListener('click', () => {
-  send({ kind: 'save', slot: 'manual' });
+  const slot = slotNameInput.value.trim();
+  if (slot.length > 0) send({ kind: 'save', slot });
 });
 (document.getElementById('btn-load') as HTMLButtonElement).addEventListener('click', () => {
-  send({ kind: 'load', slot: 'manual' });
+  const slot = slotListSelect.value;
+  if (slot.length > 0) send({ kind: 'load', slot });
 });
 (document.getElementById('btn-export') as HTMLButtonElement).addEventListener('click', () => {
   send({ kind: 'exportSave' });
 });
+function refreshSlotList(): void {
+  send({ kind: 'listSlots' });
+}
+refreshSlotList();
 // ---------- audio (M41; doc 05 §8, GDD-adjacent doc 10 §3) ----------
 // AudioContext construction itself needs no gesture (browsers just start it
 // 'suspended'); only unlocking playback does — so the director is built
@@ -405,6 +416,37 @@ function renderVillagePanel(): void {
     upgrade.addEventListener('click', () => command('village.upgrade', { villageId: v.id }));
     taxRow.append(upgrade);
     body.append(taxRow);
+
+    // M63 (doc 12 Phase 9): the settler-dispatch command already existed and the AI already
+    // uses it (ExpandSettle) — this is the first player-facing surface for it. No live
+    // valid/invalid preview (see updateFootprintPreview's note); a rejection surfaces through
+    // the existing village.rejected toast, in the sim's own words ("needs N adults, has M",
+    // "no walkable route", "insufficient wood").
+    const settleRow = el('div', undefined, 'row');
+    const settle = document.createElement('button');
+    const armingThis = armedSettleAction?.villageId === v.id;
+    settle.textContent = armingThis ? '🚩 click map…' : '🚩 Found Village';
+    tip(
+      settle,
+      `Sends a settler party (${SETTLER_PARTY.adults} adults, ${SETTLER_PARTY.children} children, ` +
+        `${SETTLER_PARTY.elders} elders) to found a new village where you click — the source ` +
+        `village needs at least ${SETTLER_PARTY.adults + MIN_ADULTS_REMAINING} adults to stay a ` +
+        `living village after they leave, plus enough wood/stone/food for the party's founding stock.`,
+    );
+    settle.addEventListener('click', () => {
+      if (armingThis) {
+        armedSettleAction = null;
+        renderer?.hideFootprintPreview();
+        lastPreviewKey = null;
+      } else {
+        if (store.state.armedBuild !== null) store.armBuild(null);
+        if (roadToolArmed) setRoadTool(false);
+        armedSettleAction = { villageId: v.id };
+      }
+      renderVillagePanel();
+    });
+    settleRow.append(settle);
+    body.append(settleRow);
   } else {
     body.append(el('div', 'A rival kingdom’s settlement — you can observe it, but not govern it.', 'hint'));
   }
@@ -609,6 +651,23 @@ let lastPreviewKey: string | null = null; // `${def}:${x}:${y}` — dedupes per-
 
 function updateFootprintPreview(): void {
   const armed = store.state.armedBuild;
+  if (renderer !== null && armedSettleAction !== null && lastPointer !== null) {
+    // M63: founding validates against a GLOBAL site rulebook (settlers.ts's `dispatch`, no
+    // owning-village radius), unlike ordinary placement's `previewBuild` (radius-relative) — so
+    // this is a NEUTRAL outline at the village-center's footprint, not a live verdict. The real
+    // check happens server-side on click; a rejection ("needs 25 adults, has 18", "no walkable
+    // route", "insufficient wood") surfaces through the existing village.rejected toast.
+    const centerDef = store.state.catalog?.buildings.find((b) => b.id === VILLAGE_CENTER_DEF);
+    if (centerDef !== undefined) {
+      const t = renderer.tileAt(lastPointer.sx, lastPointer.sy);
+      const key = `settle:${t.x}:${t.y}`;
+      if (key !== lastPreviewKey) {
+        lastPreviewKey = key;
+        renderer.showFootprintPreview(t.x, t.y, centerDef.w, centerDef.h, true);
+      }
+      return;
+    }
+  }
   if (renderer === null || armed === null || lastPointer === null) {
     renderer?.hideFootprintPreview();
     lastPreviewKey = null;
@@ -630,6 +689,16 @@ function updateFootprintPreview(): void {
   const target = store.villageNear(t.x, t.y);
   send({ kind: 'previewBuild', seq: ++previewSeq, villageId: target?.id ?? -1, def: armed, x: t.x, y: t.y });
 }
+
+// ---------- settle tool (M63, doc 12 Phase 9): dispatch a settler party to found a village ----------
+// A client-only armed mode (like armedArmyAction), mutually exclusive with Build/Road. One click
+// dispatches from the ARMING village (not the clicked one — that's the SOURCE, chosen when the
+// player pressed "Found Village"), then disarms — a single settler party per click, not a
+// continuous-placement tool. The founding-site validator is exactly `centerDef`'s placement
+// rulebook (settlers.ts's `dispatch`), so the preview reuses the existing `previewBuild` RPC with
+// `base:building.village-center` — no new sim surface for the visual verdict.
+const VILLAGE_CENTER_DEF = 'base:building.village-center';
+let armedSettleAction: { villageId: number } | null = null;
 
 // ---------- road tool (M-era): click-per-tile dirt-road paving ----------
 // A client-only armed mode (like armedArmyAction), mutually exclusive with the Build palette. Each
@@ -1981,7 +2050,7 @@ worker.onmessage = (event: MessageEvent) => {
           battleLog.push(`t${gameEvent.tick} ${gameEvent.type.replace(/^(battle|siege|diplomacy)\./, '')} ${detail}`);
           if (battleLog.length > BATTLE_LOG_CAP) battleLog.splice(0, battleLog.length - BATTLE_LOG_CAP);
         }
-        // M62: village.rejected/defence.rejected fire for EVERY kingdom's failed orders —
+        // village.rejected/defence.rejected fire for EVERY kingdom's failed orders —
         // the AI construction/defence managers deliberately submit orders they haven't
         // pre-checked the affordability of and rely on this rejection to retry later (see
         // ai/manager.ts's module doc), so without this guard an AI kingdom's routine
@@ -2006,7 +2075,25 @@ worker.onmessage = (event: MessageEvent) => {
       hud.status.textContent = message.ok
         ? `saved '${message.slot}' (${(message.bytes / 1024).toFixed(0)} KB)`
         : `save failed: ${message.error ?? 'unknown'}`;
+      if (message.ok) refreshSlotList(); // a new/overwritten slot should appear immediately
       return;
+    case 'slotsList': {
+      const previouslySelected = slotListSelect.value;
+      slotListSelect.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = message.slots.length > 0 ? '— saved slots —' : '(no saves yet)';
+      slotListSelect.append(placeholder);
+      for (const s of [...message.slots].sort((a, b) => a.slot.localeCompare(b.slot))) {
+        const opt = document.createElement('option');
+        opt.value = s.slot;
+        const detail = s.date !== undefined ? `${s.date} · ${s.kingdomCount} kingdom(s)` : `${(s.bytes / 1024).toFixed(0)} KB`;
+        opt.textContent = `${s.slot} — ${detail}`;
+        slotListSelect.append(opt);
+      }
+      if ([...slotListSelect.options].some((o) => o.value === previouslySelected)) slotListSelect.value = previouslySelected;
+      return;
+    }
     case 'loadResult':
       hud.status.textContent = message.ok
         ? `loaded · tick ${message.tick}${(message.migrations?.length ?? 0) > 0 ? ` · ${message.migrations?.length} migrations` : ''}`
@@ -2179,7 +2266,7 @@ function wireInput(canvas: HTMLCanvasElement): void {
     // outline stays glued to the tile under the pointer as the map moves beneath it)
     const rect = canvas.getBoundingClientRect();
     lastPointer = { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
-    if (store.state.armedBuild !== null) updateFootprintPreview();
+    if (store.state.armedBuild !== null || armedSettleAction !== null) updateFootprintPreview();
     else if (roadToolArmed) updateRoadPreview();
   });
   canvas.addEventListener('pointerleave', () => {
@@ -2193,13 +2280,16 @@ function wireInput(canvas: HTMLCanvasElement): void {
   // right-click cancels an armed build or army order (and suppresses the browser menu) — the
   // familiar RTS "right-click to deselect the tool" gesture
   canvas.addEventListener('contextmenu', (e) => {
-    if (store.state.armedBuild !== null || armedArmyAction !== null || roadToolArmed) {
+    if (store.state.armedBuild !== null || armedArmyAction !== null || armedSettleAction !== null || roadToolArmed) {
       e.preventDefault();
       armedArmyAction = null;
+      const wasSettling = armedSettleAction !== null;
+      armedSettleAction = null;
       if (store.state.armedBuild !== null) store.armBuild(null);
       else if (roadToolArmed) setRoadTool(false);
       else renderer?.hideFootprintPreview();
-      renderMilitaryPanel();
+      if (wasSettling) renderVillagePanel();
+      else renderMilitaryPanel();
     }
   });
   canvas.addEventListener('pointerup', (e) => {
@@ -2215,8 +2305,17 @@ function wireInput(canvas: HTMLCanvasElement): void {
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      // armed army order (M47.7): march to the clicked tile, or besiege the clicked castle
-      if (armedArmyAction !== null) {
+      // armed settle order (M63, doc 12 Phase 9): found a village at the clicked tile, dispatched
+      // FROM the village that was armed (not the clicked one — there is usually no village there)
+      if (armedSettleAction !== null) {
+        const action = armedSettleAction;
+        armedSettleAction = null;
+        const t = renderer.tileAt(sx, sy);
+        command('village.sendSettlers', { villageId: action.villageId, x: t.x, y: t.y, name: 'New Settlement' });
+        renderer.hideFootprintPreview();
+        lastPreviewKey = null;
+        renderVillagePanel();
+      } else if (armedArmyAction !== null) {
         const action = armedArmyAction;
         armedArmyAction = null;
         if (action.kind === 'move') {
@@ -2341,8 +2440,13 @@ const KEYBINDS: readonly Keybind[] = [
   { key: 'Y', description: 'Toggle Victory panel', action: () => victoryPanel.toggle() },
   { key: 'M', description: 'Toggle Mods panel', action: () => modsPanel.toggle() },
   { key: '`', description: 'Toggle debug / sandbox editor panel', action: () => setDebugOpen(!debugOpen) },
-  { key: 'Escape', description: 'Cancel armed build/army/castle order, close the castle view or keybind help', action: (): void => {
-    if (armedArmyAction !== null) {
+  { key: 'Escape', description: 'Cancel armed build/army/castle/settle order, close the castle view or keybind help', action: (): void => {
+    if (armedSettleAction !== null) {
+      armedSettleAction = null;
+      renderer?.hideFootprintPreview();
+      lastPreviewKey = null;
+      renderVillagePanel();
+    } else if (armedArmyAction !== null) {
       armedArmyAction = null;
       renderMilitaryPanel();
     } else if (castleAction !== null) {
